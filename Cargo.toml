@@ -1,0 +1,24 @@
+[package]
+name = "RedJSInterpreter"
+version = "0.1.0"
+edition = "2024"
+resolver = "2"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[lints.clippy]
+allow_attributes = "warn"
+missing-const-for-fn = "deny"
+unused-enumerate-index = "deny"
+as-underscore = "deny"
+str-to-string = "deny"
+too-many-lines = "deny"
+todo = "warn"
+get-unwrap = "warn"
+unwrap-used = "warn"
+unwrap_in_result = "warn"
+map_unwrap_or = "warn"
+
+[dependencies]
+redgex = "=0.3"
+rand = "=0.10"
