@@ -1,10 +1,7 @@
-#[cfg(test)]
-use std::cell::LazyCell;
-
 use crate::prebuild::prelude::*;
 
 #[cfg(test)]
-pub static mut CONSOLE: LazyCell<Vec<String>> = LazyCell::new(|| Vec::new());
+pub const CONSOLE_LOGS: &str = "__$G%RH^&$%E$WG#ESOVBT__";
 
 /// %o Outputs a JavaScript object.<br>
 /// %d or %i Outputs an integer.<br>
@@ -80,6 +77,17 @@ pub fn default_console_config(mem: Rc<RefCell<Prototype>>) -> Rc<RefCell<Prototy
     }))
 }
 
+#[cfg(test)]
+fn push_to_logs(console: Rc<RefCell<Prototype>>, text: String) {
+    let JsValue::BigInt(vec_ptr) =
+        Prototype::find(console, &JsValue::String(CONSOLE_LOGS.to_owned())).1
+    else {
+        return;
+    };
+    let vec: &mut Vec<String> = unsafe { (vec_ptr as *mut Vec<String>).as_mut_unchecked() };
+    vec.push(text);
+}
+
 new_class!(
     prebuild_console,
     console,
@@ -90,11 +98,8 @@ new_class!(
             println!();
 
             #[cfg(test)]
-            unsafe{
-                #[expect(static_mut_refs)]
-                CONSOLE.push("".to_owned());
-            }
-        }else if let JsValue::String(format) = arguments.first().unwrap() {
+            push_to_logs(this.unwrap_proto(), "".to_owned());
+        }else if let Some(JsValue::String(format)) = arguments.first() {
             let config = Prototype::find(this.unwrap_proto(), &JsValue::String("__config__".to_owned())).1.unwrap_proto();
             let mut text = String::new();
             let mut argi:usize = 1;
@@ -131,20 +136,14 @@ new_class!(
             println!("{text}");
 
             #[cfg(test)]
-            unsafe{
-                #[expect(static_mut_refs)]
-                CONSOLE.push(text.to_owned());
-            }
+            push_to_logs(this.unwrap_proto(), text);
         } else {
             let text = arguments.iter().map(JsValue::print).collect::<Vec<String>>().join(" ");
 
             println!("{text}");
 
             #[cfg(test)]
-            unsafe{
-                #[expect(static_mut_refs)]
-                CONSOLE.push(text);
-            }
+            push_to_logs(this.unwrap_proto(), text);
         };
         JsValue::Undefined
     };

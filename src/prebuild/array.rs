@@ -33,7 +33,7 @@ new_class! {
         new_array(Prototype::find(mem.clone(), &"Array".into()).1.unwrap_proto(), arguments)
     },
     from, fn,
-    |mem, _, [items, mapFn, thisArg]| {
+    |mem, _, [items, map_fn, this_arg]| {
         let array = Prototype::find(mem.clone(), &"Array".into()).1.unwrap_proto();
         let JsValue::Symbol(_, iterator) =
             Prototype::find(mem.clone(), &"Symbol".into()).1.find(&"iterator".into()).1
@@ -41,7 +41,7 @@ new_class! {
             panic!("Array not found")
         };
         let iterator = items.find(&iterator).1.unwrap_proto();
-        if let JsValue::Undefined = mapFn {
+        if let JsValue::Undefined = map_fn {
             new_array(
                 array,
                 run_generator_object(mem.clone(), iterator, JsValue::Undefined, vec![])
@@ -54,8 +54,8 @@ new_class! {
                     .map(|value| {
                         run_function_object(
                             mem.clone(),
-                            mapFn.unwrap_proto(),
-                            thisArg.clone(),
+                            map_fn.unwrap_proto(),
+                            this_arg.clone(),
                             vec![value],
                         )
                     })
@@ -106,7 +106,7 @@ new_class! {
         value
     },
     map, fn,
-    |mem, this, [callback, thisArg, _]| {
+    |mem, this, [callback, this_arg, _]| {
         let this = this.unwrap_proto();
         let JsValue::BigInt(length) = Prototype::find(this.clone(), &"length".into()).1 else { panic!("Array.length not BigInt") };
         let mut result = Vec::with_capacity(length as usize);
@@ -115,7 +115,7 @@ new_class! {
             let mapped = run_function_object(
                 mem.clone(),
                 callback.unwrap_proto(),
-                thisArg.clone(),
+                this_arg.clone(),
                 vec![value, JsValue::BigInt(i), JsValue::Prototype(this.clone())],
             );
             result.push(mapped);
@@ -123,7 +123,7 @@ new_class! {
         new_array(mem, result)
     },
     forEach, fn,
-    |mem, this, [callback, thisArg]| {
+    |mem, this, [callback, this_arg]| {
         let this = this.unwrap_proto();
         let JsValue::BigInt(length) = Prototype::find(this.clone(), &"length".into()).1 else { panic!("Array.length not BigInt") };
         for i in 0..length {
@@ -131,14 +131,14 @@ new_class! {
             run_function_object(
                 mem.clone(),
                 callback.unwrap_proto(),
-                thisArg.clone(),
+                this_arg.clone(),
                 vec![value, JsValue::BigInt(i), JsValue::Prototype(this.clone())],
             );
         }
         JsValue::Undefined
     },
     filter, fn,
-    |mem, this, [callback, thisArg]| {
+    |mem, this, [callback, this_arg]| {
         let this = this.unwrap_proto();
         let JsValue::BigInt(length) = Prototype::find(this.clone(), &"length".into()).1 else { panic!("Array.length not BigInt") };
         let mut result = Vec::new();
@@ -147,7 +147,7 @@ new_class! {
             let keep = run_function_object(
                 mem.clone(),
                 callback.unwrap_proto(),
-                thisArg.clone(),
+                this_arg.clone(),
                 vec![value.clone(), JsValue::BigInt(i), JsValue::Prototype(this.clone())],
             );
             if keep.is_truthy() {
@@ -157,12 +157,12 @@ new_class! {
         new_array(mem, result)
     },
     reduce, fn,
-    |mem, this, [callback, initialValue, _]| {
+    |mem, this, [callback, initial_value, _]| {
         let this = this.unwrap_proto();
         let JsValue::BigInt(length) = Prototype::find(this.clone(), &"length".into()).1 else { panic!("Array.length not BigInt") };
 
-        let mut accumulator = initialValue.clone();
-        let start_idx = if !matches!(initialValue, JsValue::Undefined) { 0 } else {
+        let mut accumulator = initial_value.clone();
+        let start_idx = if !matches!(initial_value, JsValue::Undefined) { 0 } else {
             if length == 0 { panic!("Reduce of empty array with no initial value"); }
             accumulator = Prototype::find(this.clone(), &JsValue::BigInt(0)).1;
             1
@@ -180,7 +180,7 @@ new_class! {
         accumulator
     },
     find, fn,
-    |mem, this, [callback, thisArg]| {
+    |mem, this, [callback, this_arg]| {
         let this = this.unwrap_proto();
         let JsValue::BigInt(length) = Prototype::find(this.clone(), &"length".into()).1 else { panic!("Array.length not BigInt") };
         for i in 0..length {
@@ -188,7 +188,7 @@ new_class! {
             let found = run_function_object(
                 mem.clone(),
                 callback.unwrap_proto(),
-                thisArg.clone(),
+                this_arg.clone(),
                 vec![value.clone(), JsValue::BigInt(i), JsValue::Prototype(this.clone())],
             );
             if found.is_truthy() {
@@ -198,34 +198,30 @@ new_class! {
         JsValue::Undefined
     },
     includes, fn,
-    |_, this, [searchElement, fromIndex]| {
+    |_, this, [search_element, from_index]| {
         let this = this.unwrap_proto();
         let JsValue::BigInt(length) = Prototype::find(this.clone(), &"length".into()).1 else { panic!("Array.length not BigInt") };
         let mut start = 0i64;
-        if !matches!(fromIndex, JsValue::Undefined) {
-            if let JsValue::BigInt(from) = fromIndex {
-                start = if from < 0 { (length + from).max(0) } else { from };
-            }
+        if let JsValue::BigInt(from) = from_index {
+            start = if from < 0 { (length + from).max(0) } else { from };
         }
         for i in start..length {
-            if Prototype::find(this.clone(), &JsValue::BigInt(i)).1 == searchElement {
+            if Prototype::find(this.clone(), &JsValue::BigInt(i)).1 == search_element {
                 return JsValue::Boolean(true);
             }
         }
         JsValue::Boolean(false)
     },
     indexOf, fn,
-    |_, this, [searchElement, fromIndex]| {
+    |_, this, [search_element, from_index]| {
         let this = this.unwrap_proto();
         let JsValue::BigInt(length) = Prototype::find(this.clone(), &"length".into()).1 else { panic!("Array.length not BigInt") };
         let mut start = 0i64;
-        if !matches!(fromIndex, JsValue::Undefined) {
-            if let JsValue::BigInt(from) = fromIndex {
-                start = if from < 0 { (length + from).max(0) } else { from };
-            }
+        if let JsValue::BigInt(from) = from_index {
+            start = if from < 0 { (length + from).max(0) } else { from };
         }
         for i in start..length {
-            if Prototype::find(this.clone(), &JsValue::BigInt(i)).1 == searchElement {
+            if Prototype::find(this.clone(), &JsValue::BigInt(i)).1 == search_element {
                 return JsValue::BigInt(i);
             }
         }
@@ -258,7 +254,7 @@ new_class! {
         let sep = match separator {
             JsValue::String(s) => s.clone(),
             JsValue::Undefined => ",".to_owned(),
-            other => panic!("not implemented"),
+            _ => panic!("not implemented"),
         };
 
         let strings: Vec<String> = (0..length)
@@ -267,7 +263,7 @@ new_class! {
                 match val {
                     JsValue::String(s) => s.clone(),
                     JsValue::Null | JsValue::Undefined => "".to_owned(),
-                    other => panic!("not implemented"),
+                    _ => panic!("not implemented"),
                 }
             })
             .collect();

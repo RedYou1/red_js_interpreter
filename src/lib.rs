@@ -7,9 +7,14 @@ use std::{
 
 mod parser;
 mod prebuild;
+pub use parser::compile_function;
+pub use parser::parse;
+pub use prebuild::console::default_console_config;
+
+pub use parser::ast as parser_ast;
 
 #[cfg(test)]
-mod test;
+mod tests;
 
 use crate::prebuild::{
     array::{new_array, prebuild_array},
@@ -119,17 +124,18 @@ impl JsValue {
         p.clone()
     }
 
-    pub fn is_fasly(&self) -> bool {
+    pub const fn is_fasly(&self) -> bool {
         match self {
-            JsValue::Null | JsValue::Undefined | JsValue::Boolean(false) => false,
-            JsValue::String(s) if s.is_empty() => false,
-            JsValue::BigInt(n) if *n == 0 => false,
-            JsValue::Number(n) if n.is_nan() || *n == 0. => false,
-            _ => true,
+            JsValue::Boolean(false) => true,
+            JsValue::String(s) => s.is_empty(),
+            JsValue::BigInt(n) if *n == 0 => true,
+            JsValue::Number(n) if n.is_nan() || *n == 0. => true,
+            JsValue::Null | JsValue::Undefined => true,
+            _ => false,
         }
     }
 
-    pub fn is_truthy(&self) -> bool {
+    pub const fn is_truthy(&self) -> bool {
         !self.is_fasly()
     }
 
@@ -137,32 +143,50 @@ impl JsValue {
         match self {
             JsValue::Function(_) => "[Function (anonymous)]".to_owned(),
             JsValue::Generator(_) => "[GeneratorFunction (anonymous)]".to_owned(),
-            JsValue::Prototype(ref_cell) => format!(
-                "{{{}}}",
-                ref_cell
-                    .borrow()
-                    .properties
-                    .iter()
-                    .map(|(key, value)| format!(
-                        "{}: {}",
-                        if let JsValue::Prototype(key) = key
-                            && let Some(name) = key.borrow().name
-                        {
+            JsValue::Prototype(ref_cell) => {
+                let mut entries = vec![];
+                for (key, value) in ref_cell.borrow().properties.iter() {
+                    if key == &PROTO_NAME.into() {
+                        continue;
+                    }
+                    let k = match key {
+                        JsValue::String(s) => s.clone(),
+                        JsValue::Prototype(key) if let Some(name) = key.borrow().name => {
                             format!("[{name}]")
-                        } else {
-                            key.print()
-                        },
-                        if let JsValue::Prototype(value) = value
-                            && let Some(name) = value.borrow().name
-                        {
-                            format!("[{name}]")
-                        } else {
-                            value.print()
                         }
-                    ))
-                    .collect::<Vec<String>>()
-                    .join(", ")
-            ),
+                        _ => key.print(),
+                    };
+                    let v = match value {
+                        JsValue::String(s) => format!("'{}'", s),
+                        JsValue::Prototype(v) if let Some(name) = v.borrow().name => {
+                            format!("[{name}]")
+                        }
+                        _ => value.print(),
+                    };
+                    entries.push((key.clone(), k, v));
+                }
+                const fn key_order(k: &JsValue) -> u8 {
+                    match k {
+                        JsValue::String(_) => 0,
+                        JsValue::Number(_) => 1,
+                        JsValue::Prototype(_) => 2,
+                        _ => 3,
+                    }
+                }
+                entries.sort_by(|a, b| {
+                    let ao = key_order(&a.0);
+                    let bo = key_order(&b.0);
+                    if ao != bo { ao.cmp(&bo) } else { a.1.cmp(&b.1) }
+                });
+                format!(
+                    "{{ {} }}",
+                    entries
+                        .into_iter()
+                        .map(|(_, k, v)| format!("{}: {}", k, v))
+                        .collect::<Vec<String>>()
+                        .join(", ")
+                )
+            }
             JsValue::Symbol(_, js_value) => format!("Symbol({})", js_value.print()),
             JsValue::String(s) => s.clone(),
             JsValue::Number(n) => format!("{n}"),
@@ -276,12 +300,13 @@ pub fn prebuild_prototypes(
     let obj = object.clone();
     object.borrow_mut().properties.insert(
         CONSTRUCTOR_NAME.into(),
-        new_runnable(
+        new_runnable_with_object(
             function.clone(),
+            object.clone(),
             Some("Object.constructor"),
             prebuild_runnable(
                 prototypes.clone(),
-                Box::new(move |mem, this, [value]| {
+                Box::new(move |_mem, _this, [value]| {
                     if let JsValue::Undefined | JsValue::Null = value {
                         JsValue::Prototype(Prototype::new_child(
                             obj.clone(),
@@ -298,15 +323,45 @@ pub fn prebuild_prototypes(
         ),
     );
 
-    function.borrow_mut().properties.insert(
-        CONSTRUCTOR_NAME.into(),
-        new_runnable(
+    object.borrow_mut().properties.insert(
+        "create".into(),
+        new_runnable_with_object(
             function.clone(),
-            Some("Function.constructor"),
+            object.clone(),
+            Some("Object.create"),
+            prebuild_runnable_direct(
+                prototypes.clone(),
+                Box::new(|_mem, _this, arguments| {
+                    if let Some(proto) = arguments.get(0) {
+                        if let JsValue::Prototype(proto_obj) = proto.clone() {
+                            JsValue::Prototype(Prototype::new_child(proto_obj, None, []))
+                        } else {
+                            JsValue::Undefined
+                        }
+                    } else {
+                        JsValue::Undefined
+                    }
+                }),
+            ),
+        ),
+    );
+
+    function.borrow_mut().properties.insert(
+        "call".into(),
+        new_runnable_with_object(
+            function.clone(),
+            object.clone(),
+            Some("Function.call"),
             prebuild_runnable_direct(
                 prototypes.clone(),
                 Box::new(|mem, this, arguments| {
-                    todo!() // parse [..args, fn_body]
+                    if let JsValue::Prototype(ref func_proto) = this {
+                        let this_arg = arguments.get(0).cloned().unwrap_or(JsValue::Undefined);
+                        let params: Vec<JsValue> = arguments.iter().skip(1).cloned().collect();
+                        crate::run_function_object(mem.clone(), func_proto.clone(), this_arg, params)
+                    } else {
+                        JsValue::Undefined
+                    }
                 }),
             ),
         ),
@@ -339,19 +394,46 @@ pub struct Runnable {
     code: Vec<Box<dyn Fn(Rc<RefCell<Prototype>>, &mut usize) -> (JsValue, Option<JsValue>)>>,
 }
 
+pub fn new_runnable_with_object(
+    function: Rc<RefCell<Prototype>>,
+    object_proto: Rc<RefCell<Prototype>>,
+    name: Option<&'static str>,
+    runnable: Runnable,
+) -> JsValue {
+    let function_obj = Rc::new(RefCell::new(Prototype {
+        name,
+        properties: std::collections::HashMap::new(),
+    }));
+    let prototype_obj = Prototype::new_child(
+        object_proto,
+        None,
+        [(CONSTRUCTOR_NAME.into(), JsValue::Prototype(function_obj.clone()))],
+    );
+    function_obj.borrow_mut().properties.insert(
+        PROTO_NAME.into(),
+        JsValue::Prototype(function.clone()),
+    );
+    function_obj.borrow_mut().properties.insert(
+        RUNNABLE.into(),
+        JsValue::Function(Rc::new(runnable)),
+    );
+    function_obj.borrow_mut().properties.insert(
+        PROTOTYPE_NAME.into(),
+        JsValue::Prototype(prototype_obj),
+    );
+    JsValue::Prototype(function_obj)
+}
+
 pub fn new_runnable(
     function: Rc<RefCell<Prototype>>,
     name: Option<&'static str>,
     runnable: Runnable,
 ) -> JsValue {
-    JsValue::Prototype(Prototype::new_child(
-        function.clone(),
-        name,
-        [
-            (PROTOTYPE_NAME.into(), JsValue::Prototype(function)),
-            (RUNNABLE.into(), JsValue::Function(Rc::new(runnable))),
-        ],
-    ))
+    let object_proto = function
+        .borrow()
+        .parent()
+        .expect("Function prototype should inherit from Object");
+    new_runnable_with_object(function, object_proto, name, runnable)
 }
 
 pub fn run_function_object(
@@ -395,6 +477,9 @@ pub fn run_function_object(
         ),
     );
     proto.borrow_mut().properties.insert("this".into(), this);
+    if let Some(super_val) = func.borrow().properties.get(&"super".into()) {
+        proto.borrow_mut().properties.insert("super".into(), super_val.clone());
+    }
 
     let mut i = 0;
     while i < runnable.code.len() {
