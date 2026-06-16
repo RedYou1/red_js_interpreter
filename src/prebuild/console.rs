@@ -1,3 +1,4 @@
+use crate::{logln, LogLevel};
 use crate::prebuild::prelude::*;
 
 #[cfg(test)]
@@ -10,22 +11,25 @@ pub const CONSOLE_LOGS: &str = "__$G%RH^&$%E$WG#ESOVBT__";
 pub fn default_console_config(mem: Rc<RefCell<Prototype>>) -> Rc<RefCell<Prototype>> {
     let function = Prototype::find(mem.clone(), &"Function".into())
         .1
-        .unwrap_proto();
+        .borrow()
+        .unwrap_proto("default_console_config for Function");
     let simple = new_runnable(
         function.clone(),
-        None,
+        "console.format.simple",
         prebuild_runnable(
             mem.clone(),
-            Box::new(|_, _, [value]| JsValue::String(value.print())),
+            Box::new(|_, _, [value]| {
+                Rc::new(RefCell::new(JsValue::String(value.borrow().print())))
+            }),
         ),
     );
     let digit = new_runnable(
         function.clone(),
-        None,
+        "console.format.digit",
         prebuild_runnable(
             mem.clone(),
             Box::new(|_, _, [value]| {
-                JsValue::String(match value {
+                Rc::new(RefCell::new(JsValue::String(match inline_borrow!(value) {
                     JsValue::BigInt(d) => d.to_string(),
                     JsValue::Number(n) => format!("{:.0}", n.floor()),
                     JsValue::Boolean(b) => {
@@ -36,7 +40,7 @@ pub fn default_console_config(mem: Rc<RefCell<Prototype>>) -> Rc<RefCell<Prototy
                         }
                     }
                     value => panic!("to_string format not an integer: {}", value.print()),
-                })
+                })))
             }),
         ),
     );
@@ -51,11 +55,11 @@ pub fn default_console_config(mem: Rc<RefCell<Prototype>>) -> Rc<RefCell<Prototy
                 JsValue::String("f".to_owned()),
                 new_runnable(
                     function.clone(),
-                    None,
+                    "console.format.float",
                     prebuild_runnable(
                         mem.clone(),
                         Box::new(|_, _, [value]| {
-                            JsValue::String(match value {
+                            Rc::new(RefCell::new(JsValue::String(match inline_borrow!(value) {
                                 JsValue::BigInt(d) => (d as f64).to_string(),
                                 JsValue::Number(n) => n.to_string(),
                                 JsValue::Boolean(b) => {
@@ -68,7 +72,7 @@ pub fn default_console_config(mem: Rc<RefCell<Prototype>>) -> Rc<RefCell<Prototy
                                 value => {
                                     panic!("to_string format not an integer: {}", value.print())
                                 }
-                            })
+                            })))
                         }),
                     ),
                 ),
@@ -80,7 +84,9 @@ pub fn default_console_config(mem: Rc<RefCell<Prototype>>) -> Rc<RefCell<Prototy
 #[cfg(test)]
 fn push_to_logs(console: Rc<RefCell<Prototype>>, text: String) {
     let JsValue::BigInt(vec_ptr) =
-        Prototype::find(console, &JsValue::String(CONSOLE_LOGS.to_owned())).1
+        *Prototype::find(console, &JsValue::String(CONSOLE_LOGS.to_owned()))
+            .1
+            .borrow()
     else {
         return;
     };
@@ -93,14 +99,14 @@ new_class!(
     console,
     Object,
     __config__,JsValue::Null;
-    log, fn_direct, |mem, this, arguments: Vec<JsValue>| {
+    log, fn_direct, |_, this, arguments| {
         if arguments.is_empty() {
             println!();
 
             #[cfg(test)]
-            push_to_logs(this.unwrap_proto(), "".to_owned());
-        }else if let Some(JsValue::String(format)) = arguments.first() {
-            let config = Prototype::find(this.unwrap_proto(), &JsValue::String("__config__".to_owned())).1.unwrap_proto();
+            push_to_logs(this.borrow().unwrap_proto("Console.log for this"), "".to_owned());
+        }else if let Some(JsValue::String(format)) = arguments.first().map(|t| inline_borrow!(t)) {
+            let config = Prototype::find(this.borrow().unwrap_proto("Console.log for this"), &JsValue::String("__config__".to_owned())).1.borrow().unwrap_proto("Console.log for __config__");
             let mut text = String::new();
             let mut argi:usize = 1;
 
@@ -127,24 +133,26 @@ new_class!(
                     continue;
                 }
 
-                let JsValue::Prototype(formater) = Prototype::find(config.clone(), &JsValue::String(formater.clone())).1 else {panic!("console formater {formater} not found")};
-                let JsValue::String(ref res) = run_function_object(mem.clone(), formater, JsValue::Undefined, vec![arguments[argi].clone()]) else {panic!("console formater didnt returned a string")};
+                let JsValue::Prototype(ref formater) = inline_borrow!(Prototype::find(config.clone(), &JsValue::String(formater.clone())).1) else {panic!("console formater {formater} not found")};
+                let JsValue::String(ref res) = inline_borrow!(run_function_object(formater.clone(), Rc::new(RefCell::new(JsValue::Undefined)), vec![arguments[argi].clone()])) else {panic!("console formater didnt returned a string")};
                 argi += 1;
                 text += res;
             }
 
+            logln(LogLevel::Trace, &format!("console.log formatted output={text}"));
             println!("{text}");
 
             #[cfg(test)]
-            push_to_logs(this.unwrap_proto(), text);
+            push_to_logs(this.borrow().unwrap_proto("Console.log for this"), text);
         } else {
-            let text = arguments.iter().map(JsValue::print).collect::<Vec<String>>().join(" ");
+            let text = arguments.iter().map(|t| t.borrow().print()).collect::<Vec<String>>().join(" ");
 
+            logln(LogLevel::Trace, &format!("console.log output={text}"));
             println!("{text}");
 
             #[cfg(test)]
-            push_to_logs(this.unwrap_proto(), text);
+            push_to_logs(this.borrow().unwrap_proto("Console.log for this"), text);
         };
-        JsValue::Undefined
+        Rc::new(RefCell::new(JsValue::Undefined))
     };
 );

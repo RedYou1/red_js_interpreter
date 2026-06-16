@@ -6,6 +6,6 @@ new_class!(
     Object,
     iterator, JsValue::Symbol(rand::random(), Box::new(JsValue::Undefined));
     constructor, fn, |_, _, [value]| {
-        JsValue::Symbol(rand::random(), Box::new(value))
+        Rc::new(RefCell::new(JsValue::Symbol(rand::random(), Box::new(inline_borrow!(value)))))
     };
 );

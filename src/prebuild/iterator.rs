@@ -1,45 +1,38 @@
 use crate::prebuild::prelude::*;
 
-new_class!(
+new_class!{
     prebuild_iterator,
     Iterator,
-    Object,;
-    map, fn_gen, Generator {
-        params: vec![],
-        excess: None,
-        code: Rc::new(vec![
-            Box::new(|proto, _, _| {
-                proto
-                    .borrow_mut()
-                    .properties
-                    .insert("i".into(), JsValue::BigInt(0));
-                run_generator_object(
-                    proto.clone(),
-                    Prototype::find(proto.clone(), &"this".into()).1.unwrap_proto(),
-                    JsValue::Undefined,
-                    vec![],
-                );
-                (JsValue::Undefined, None)
-            }),
-            Box::new(|proto, go_next, _| {
-                let JsValue::BigInt(arr_i) = Prototype::find(proto.clone(), &"i".into()).1 else {
-                    panic!("?")
-                };
-                let JsValue::BigInt(arr_len) = Prototype::find(proto.clone(), &"length".into()).1 else {
-                    panic!("?")
-                };
-                if arr_i >= arr_len {
-                    (JsValue::Undefined, None)
-                } else {
-                    let obj = Prototype::find(proto.clone(), &arr_i.into()).1;
-                    proto
-                        .borrow_mut()
-                        .properties
-                        .insert("i".into(), JsValue::BigInt(arr_i + 1));
-                    *go_next = false;
-                    (JsValue::Undefined, Some(obj))
-                }
-            }),
-        ]),
+    Object,;;
+    map, fn_gen,
+    |proto, _| {
+        proto
+            .borrow_mut()
+            .properties
+            .insert("i".into(), Rc::new(RefCell::new(JsValue::BigInt(0))));
+        run_generator_object(
+            Prototype::find(proto.clone(), &"this".into()).1.borrow().unwrap_proto("Iterator.map for this"),
+            Rc::new(RefCell::new(JsValue::Undefined)),
+            vec![],
+        );
+        CodeResult::Normal(Rc::new(RefCell::new(JsValue::Undefined)))
     };
-);
+    |proto, _| {
+        let JsValue::BigInt(arr_i) = inline_borrow!(Prototype::find(proto.clone(), &"i".into()).1) else {
+            panic!("?")
+        };
+        let JsValue::BigInt(arr_len) = inline_borrow!(Prototype::find(proto.clone(), &"length".into()).1) else {
+            panic!("?")
+        };
+        if arr_i >= arr_len {
+            CodeResult::Normal(Rc::new(RefCell::new(JsValue::Undefined)))
+        } else {
+            let obj = Prototype::find(proto.clone(), &arr_i.into()).1;
+            proto
+                .borrow_mut()
+                .properties
+                .insert("i".into(), Rc::new(RefCell::new(JsValue::BigInt(arr_i + 1))));
+            CodeResult::Yield(obj)
+        }
+    }
+}

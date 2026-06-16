@@ -12,59 +12,59 @@ new_class! {
     LOG10E, JsValue::BigInt(0);
     abs, fn,
     |_, _, [num]| {
-        if let JsValue::BigInt(n) = num {
+        Rc::new(RefCell::new(if let JsValue::BigInt(n) = inline_borrow!(num) {
             JsValue::BigInt(n.abs())
         } else {
             JsValue::BigInt(0)
-        }
+        }))
     },
     floor, fn,
     |_, _, [num]| {
-        if let JsValue::BigInt(n) = num {
+        Rc::new(RefCell::new(if let JsValue::BigInt(n) = inline_borrow!(num) {
             JsValue::BigInt(n)
         } else {
             JsValue::BigInt(0)
-        }
+        }))
     },
     ceil, fn,
     |_, _, [num]| {
-        if let JsValue::BigInt(n) = num {
+        Rc::new(RefCell::new(if let JsValue::BigInt(n) = inline_borrow!(num) {
             JsValue::BigInt(n)
         } else {
             JsValue::BigInt(0)
-        }
+        }))
     },
     round, fn,
     |_, _, [num]| {
-        if let JsValue::BigInt(n) = num {
+        Rc::new(RefCell::new(if let JsValue::BigInt(n) = inline_borrow!(num) {
             JsValue::BigInt(n)
         } else {
             JsValue::BigInt(0)
-        }
+        }))
     },
     max, fn_direct,
-    |_, _, arguments: Vec<JsValue>| {
+    |_, _, arguments| {
         let mut max = i64::MIN;
         for arg in arguments {
-            if let JsValue::BigInt(n) = arg {
+            if let JsValue::BigInt(n) = inline_borrow!(arg) {
                 max = max.max(n);
             }
         }
-        JsValue::BigInt(max)
+        Rc::new(RefCell::new(JsValue::BigInt(max)))
     },
     min, fn_direct,
-    |_, _, arguments: Vec<JsValue>| {
+    |_, _, arguments| {
         let mut min = i64::MAX;
         for arg in arguments {
-            if let JsValue::BigInt(n) = arg {
+            if let JsValue::BigInt(n) = inline_borrow!(arg) {
                 min = min.min(n);
             }
         }
-        JsValue::BigInt(min)
+        Rc::new(RefCell::new(JsValue::BigInt(min)))
     },
     pow, fn,
     |_, _, [base, exponent]| {
-        if let (JsValue::BigInt(b), JsValue::BigInt(e)) = (base, exponent) {
+        Rc::new(RefCell::new(if let (JsValue::BigInt(b), JsValue::BigInt(e)) = (inline_borrow!(base), inline_borrow!(exponent)) {
             if e < 0 {
                 JsValue::BigInt(0)
             } else {
@@ -72,14 +72,14 @@ new_class! {
             }
         } else {
             JsValue::BigInt(0)
-        }
+        }))
     },
     sqrt, fn,
     |_, _, [num]| {
-        if let JsValue::BigInt(n) = num {
+        Rc::new(RefCell::new(if let JsValue::BigInt(n) = inline_borrow!(num) {
             JsValue::BigInt(((n as f64).sqrt()) as i64)
         } else {
             JsValue::BigInt(0)
-        }
+        }))
     };
 }

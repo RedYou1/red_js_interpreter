@@ -5,53 +5,52 @@ pub fn test_new_array() {
     let protos = prebuild_prototypes(default_console_config);
     let array = Prototype::find(protos.clone(), &"Array".into())
         .1
-        .unwrap_proto();
+        .borrow()
+        .unwrap_proto("test_new_array for Array");
+    let constructor = Prototype::find(array.clone(), &"constructor".into())
+        .1
+        .borrow()
+        .unwrap_proto("test_new_array for Array.constructor");
     let arr = run_function_object(
-        protos.clone(),
-        Prototype::find(array.clone(), &"constructor".into())
-            .1
-            .unwrap_proto(),
-        JsValue::Undefined,
+        constructor.clone(),
+        Rc::new(RefCell::new(JsValue::Undefined)),
         vec![],
     );
     assert_eq!(arr, new_array(array.clone(), vec![]));
     let arr = run_function_object(
-        protos.clone(),
-        Prototype::find(array.clone(), &"constructor".into())
-            .1
-            .unwrap_proto(),
-        JsValue::Undefined,
-        vec![JsValue::BigInt(5)],
+        constructor.clone(),
+        Rc::new(RefCell::new(JsValue::Undefined)),
+        vec![Rc::new(RefCell::new(JsValue::BigInt(5)))],
     );
     assert_eq!(
         arr,
         new_array(
             array.clone(),
             vec![
-                JsValue::Undefined,
-                JsValue::Undefined,
-                JsValue::Undefined,
-                JsValue::Undefined,
-                JsValue::Undefined
+                Rc::new(RefCell::new(JsValue::Undefined)),
+                Rc::new(RefCell::new(JsValue::Undefined)),
+                Rc::new(RefCell::new(JsValue::Undefined)),
+                Rc::new(RefCell::new(JsValue::Undefined)),
+                Rc::new(RefCell::new(JsValue::Undefined))
             ]
         )
     );
-    let content = vec![JsValue::BigInt(1), JsValue::String("Wow".to_owned())];
+    let content = vec![
+        Rc::new(RefCell::new(JsValue::BigInt(1))),
+        Rc::new(RefCell::new(JsValue::String("Wow".to_owned()))),
+    ];
     let arr = run_function_object(
-        protos.clone(),
-        Prototype::find(array.clone(), &"constructor".into())
-            .1
-            .unwrap_proto(),
-        JsValue::Undefined,
+        constructor.clone(),
+        Rc::new(RefCell::new(JsValue::Undefined)),
         content.clone(),
     );
     assert_eq!(arr, new_array(array.clone(), content.clone()));
     let arr = run_function_object(
-        protos.clone(),
         Prototype::find(array.clone(), &"of".into())
             .1
-            .unwrap_proto(),
-        JsValue::Undefined,
+            .borrow()
+            .unwrap_proto("test_new_array for Array.of"),
+        Rc::new(RefCell::new(JsValue::Undefined)),
         content.clone(),
     );
     assert_eq!(arr, new_array(array.clone(), content.clone()));
@@ -63,28 +62,31 @@ pub fn test_console() {
     let protos = prebuild_prototypes_test(&mut logs);
 
     let console = Prototype::find(protos.clone(), &"console".into()).1;
-    let console_log = Prototype::find(console.unwrap_proto(), &"log".into())
+    let console_log = Prototype::find(console.borrow().unwrap_proto("test_console for console"), &"log".into())
         .1
-        .unwrap_proto();
+        .borrow()
+        .unwrap_proto("test_console for console.log");
     let log = run_function_object(
-        protos.clone(),
         console_log.clone(),
         console.clone(),
-        vec![JsValue::String("%%Hello World%%".to_owned())],
+        vec![Rc::new(RefCell::new(JsValue::String(
+            "%%Hello World%%".to_owned(),
+        )))],
     );
-    assert_eq!(log, JsValue::Undefined);
+    assert_eq!(log, Rc::new(RefCell::new(JsValue::Undefined)));
 
     assert_eq!(logs.as_slice(), ["%Hello World%".to_owned()]);
     logs.clear();
 
     let _ = run_function_object(
-        protos.clone(),
         console_log.clone(),
         console.clone(),
         vec![
-            JsValue::String("my name is %s and i'm %d years old".to_owned()),
-            JsValue::String("bloup bloup".to_owned()),
-            JsValue::BigInt(69),
+            Rc::new(RefCell::new(JsValue::String(
+                "my name is %s and i'm %d years old".to_owned(),
+            ))),
+            Rc::new(RefCell::new(JsValue::String("bloup bloup".to_owned()))),
+            Rc::new(RefCell::new(JsValue::BigInt(69))),
         ],
     );
 
@@ -95,14 +97,13 @@ pub fn test_console() {
     logs.clear();
 
     let _ = run_function_object(
-        protos.clone(),
         console_log.clone(),
         console.clone(),
         vec![
-            JsValue::BigInt(69),
-            JsValue::BigInt(420),
-            JsValue::Number(69.69),
-            JsValue::Null,
+            Rc::new(RefCell::new(JsValue::BigInt(69))),
+            Rc::new(RefCell::new(JsValue::BigInt(420))),
+            Rc::new(RefCell::new(JsValue::Number(69.69))),
+            Rc::new(RefCell::new(JsValue::Null)),
         ],
     );
 

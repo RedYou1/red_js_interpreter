@@ -10,16 +10,15 @@ macro_rules! assert_result {
                 .expect("parse failed")
                 .compile(protos.clone());
             run_function_object(
-                protos.clone(),
                 new_runnable(
                     Prototype::find(protos, &JsValue::String("Function".to_owned()))
-                        .1
-                        .unwrap_proto(),
-                    Some("__main__"),
+                        .1.borrow()
+                        .unwrap_proto("tests::compiler::assert_result! for Function"),
+                    "__main__",
                     program,
-                )
-                .unwrap_proto(),
-                JsValue::Undefined,
+                ).borrow()
+                .unwrap_proto("tests::compiler::assert_result! for Result"),
+                Rc::new(RefCell::new(JsValue::Undefined)),
                 vec![],
             );
             assert_eq!(logs.as_slice(), [$($result.to_owned(),)*]);
@@ -28,7 +27,7 @@ macro_rules! assert_result {
 }
 
 assert_result!(
-    test_compiler_integration,
+    test_compile_integration,
     r#"
     function greet(){
         console.log("hello world");
@@ -60,8 +59,8 @@ assert_result!(
     Animal.prototype.speak = function() {
         return this.name + " makes a noise.";
     };
-    function Cat(name, lives) {
-        Animal.call(this, name)
+    function Cat(lives) {
+        Animal.call(this, "Cat")
         this.lives = lives;
     }
     Cat.prototype = Object.create(Animal.prototype);
@@ -73,7 +72,7 @@ assert_result!(
     const dog = new Animal("Dog");
     console.log(dog.speak());
     console.log(dog.lives);
-    const cat = new Cat("Cat", 9);
+    const cat = new Cat(9);
     console.log(cat.speak());
     console.log(cat.lives);
     cat.die();
@@ -100,8 +99,8 @@ assert_result!(
     }
 
     class Cat extends Animal {
-        constructor(name, lives) {
-            super(name)
+        constructor(lives) {
+            super("Cat")
             this.lives = lives;
         }
 
@@ -113,7 +112,7 @@ assert_result!(
     const dog = new Animal("Dog");
     console.log(dog.speak());
     console.log(dog.lives);
-    const cat = new Cat("Cat", 9);
+    const cat = new Cat(9);
     console.log(cat.speak());
     console.log(cat.lives);
     cat.die();

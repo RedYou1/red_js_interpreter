@@ -1,5 +1,10 @@
-use crate::parser::ast::*;
+use std::rc::Rc;
+
+use crate::parser::expr::{self, Expr};
 use crate::parser::lexer::{Lexer, Token};
+use crate::parser::stmt::Stmt;
+use crate::parser::{ast::*, stmt};
+use crate::{LogLevel, logln};
 
 #[derive(Debug)]
 pub struct ParseError(pub String);
@@ -15,11 +20,26 @@ impl<'a> Parser<'a> {
         let mut lexer = Lexer::new(input);
         let cur = lexer.next_token();
         let peek = lexer.next_token();
-        Parser { lexer, cur, peek }
+        let parser = Parser { lexer, cur, peek };
+        logln(
+            LogLevel::Trace,
+            &format!(
+                "Parser::new input_len={} cur={:?} peek={:?}",
+                input.len(),
+                parser.cur,
+                parser.peek
+            ),
+        );
+        parser
     }
 
     pub fn bump(&mut self) {
+        let prev = self.cur.clone();
         self.cur = std::mem::replace(&mut self.peek, self.lexer.next_token());
+        logln(
+            LogLevel::Trace,
+            &format!("Parser::bump {:?} -> {:?}", prev, self.cur),
+        );
     }
 
     pub fn expect_ident(&mut self) -> Result<String, ParseError> {
@@ -29,7 +49,11 @@ impl<'a> Parser<'a> {
                 self.bump();
                 Ok(name)
             }
-            t => Err(ParseError(format!("expected identifier, got {:?}", t))),
+            t => {
+                let msg = format!("expected identifier, got {:?}", t);
+                logln(LogLevel::Error, &msg);
+                Err(ParseError(msg))
+            }
         }
     }
 
@@ -65,18 +89,21 @@ impl<'a> Parser<'a> {
         Ok(())
     }
 
-    pub fn parse_function_body(&mut self) -> Result<Vec<Stmt>, ParseError> {
+    pub fn parse_function_body(&mut self) -> Result<Vec<Box<dyn Stmt>>, ParseError> {
         if self.cur != Token::LBrace {
             return Err(ParseError("expected '{'".into()));
         }
         self.bump();
-        let mut body = Vec::new();
+        let mut body: Vec<Box<dyn Stmt>> = Vec::new();
         while self.cur != Token::RBrace && self.cur != Token::Eof {
             match &self.cur {
                 Token::Return => {
                     self.bump();
                     let expr = self.parse_expression()?;
-                    body.push(Stmt::Return(Some(expr)));
+                    body.push(Box::new(expr::Return {
+                        expr: Some(expr),
+                        rtype: expr::ReturnType::Return,
+                    }));
                     if self.cur == Token::Semicolon {
                         self.bump();
                     }
@@ -86,7 +113,7 @@ impl<'a> Parser<'a> {
                 }
                 _ => {
                     let expr = self.parse_expression()?;
-                    body.push(Stmt::ExprStmt(expr));
+                    body.push(expr);
                     if self.cur == Token::Semicolon {
                         self.bump();
                     }
@@ -99,7 +126,7 @@ impl<'a> Parser<'a> {
         Ok(body)
     }
 
-    pub fn parse_block_body(&mut self) -> Result<Vec<Stmt>, ParseError> {
+    pub fn parse_block_body(&mut self) -> Result<Vec<Box<dyn Stmt>>, ParseError> {
         if self.cur != Token::LBrace {
             return Err(ParseError("expected '{'".into()));
         }
@@ -117,6 +144,7 @@ impl<'a> Parser<'a> {
     }
 
     pub fn parse_program(&mut self) -> Result<Program, ParseError> {
+        logln(LogLevel::Info, "parse_program start");
         let mut body = Vec::new();
         while self.cur != Token::Eof {
             let current = self.cur.clone();
@@ -127,39 +155,51 @@ impl<'a> Parser<'a> {
                 self.bump();
             }
         }
+        logln(
+            LogLevel::Info,
+            &format!("parse_program finished body_size={}", body.len()),
+        );
         Ok(Program { body })
     }
 
-    pub fn parse_statement(&mut self) -> Result<Option<Stmt>, ParseError> {
+    pub fn parse_statement(&mut self) -> Result<Option<Box<dyn Stmt>>, ParseError> {
+        logln(
+            LogLevel::Trace,
+            &format!("parse_statement cur={:?}", self.cur),
+        );
         match &self.cur {
             Token::Function => {
                 self.bump(); // consume 'function'
-                let name = if let Token::Ident(_) = &self.cur {
-                    Some(self.expect_ident()?)
-                } else {
-                    None
-                };
-                // after expect_ident, cur is set to Eof placeholder; restore peeked token by reusing bump
-                // For simplicity, if we consumed the ident we bumped earlier; otherwise cur is still something else
-                // Ensure paren
-                if let Token::Ident(_) = &self.cur { /* handled */ }
-                // If name was read via expect_ident it consumed cur, so set cur appropriately by using existing peek
+                let name = self.expect_ident()?.leak();
+                logln(
+                    LogLevel::Info,
+                    &format!("parse_statement function name={}", name),
+                );
                 // Expect LParen
                 self.skip_to(Token::LParen);
                 self.expect_and_bump(Token::LParen, "expected '('")?;
                 let params = self.parse_param_list()?;
                 self.skip_to(Token::LBrace);
                 let body = self.parse_function_body()?;
-                let func = FunctionDecl { name, params, body };
-                Ok(Some(Stmt::FunctionDecl(func)))
+                Ok(Some(Box::new(expr::FunctionDecl {
+                    name,
+                    params,
+                    body,
+                    generator: false,
+                    insert: true,
+                })))
             }
             Token::Class => {
                 self.bump();
                 let name = if let Token::Ident(_) = &self.cur {
-                    self.expect_ident()?
+                    self.expect_ident()?.leak()
                 } else {
                     return Err(ParseError("expected class name".into()));
                 };
+                logln(
+                    LogLevel::Info,
+                    &format!("parse_statement class name={}", name),
+                );
                 let super_class = if let Token::Ident(ident) = &self.cur {
                     if ident == "extends" {
                         self.bump();
@@ -177,41 +217,52 @@ impl<'a> Parser<'a> {
                 let mut methods = Vec::new();
                 while self.cur != Token::RBrace && self.cur != Token::Eof {
                     if let Token::Ident(_) = &self.cur {
-                        let method_name = self.expect_ident()?;
+                        let method_name = self.expect_ident()?.leak();
                         self.expect_and_bump(Token::LParen, "expected '(' in method")?;
                         let params = self.parse_param_list()?;
                         let body = self.parse_function_body()?;
-                        methods.push(FunctionDecl {
-                            name: Some(method_name),
+                        methods.push(expr::FunctionDecl {
+                            name: method_name,
                             params,
                             body,
+                            generator: false,
+                            insert: false,
                         });
                         continue;
                     }
                     self.bump();
                 }
-                let class = ClassDecl { name, super_class, methods };
+                let class = expr::ClassDecl {
+                    name,
+                    super_class,
+                    methods: Rc::from(methods),
+                };
                 if self.cur == Token::RBrace {
                     self.bump();
                 }
-                Ok(Some(Stmt::ClassDecl(class)))
+                Ok(Some(Box::new(class)))
             }
             Token::Let | Token::Const | Token::Var => {
                 self.bump();
                 let name = self.expect_ident()?;
+                logln(
+                    LogLevel::Info,
+                    &format!("parse_statement variable declaration name={}", name),
+                );
                 let initializer = if self.cur == Token::Assign {
                     self.bump();
-                    Some(self.parse_expression()? )
+                    Some(self.parse_expression()?)
                 } else {
                     None
                 };
                 if self.cur == Token::Semicolon {
                     self.bump();
                 }
-                Ok(Some(Stmt::VarDecl(name, initializer)))
+                Ok(Some(Box::new(expr::VarDecl { name, initializer })))
             }
             Token::If => {
                 self.bump();
+                logln(LogLevel::Info, "parse_statement if statement");
                 if self.cur != Token::LParen {
                     return Err(ParseError("expected '(' after 'if'".into()));
                 }
@@ -221,40 +272,35 @@ impl<'a> Parser<'a> {
                     return Err(ParseError("expected ')' after if condition".into()));
                 }
                 self.bump();
-                
+
                 if self.cur != Token::LBrace {
                     return Err(ParseError("expected '{' after if".into()));
                 }
-                let consequent = self.parse_block_body()?;
-                
-                let alternate = if self.cur == Token::Else {
-                    self.bump();
-                    if self.cur != Token::LBrace {
-                        return Err(ParseError("expected '{' after else".into()));
-                    }
-                    self.bump();
-                    let mut alt_body = Vec::new();
-                    while self.cur != Token::RBrace && self.cur != Token::Eof {
-                        if let Some(stmt) = self.parse_statement()? {
-                            alt_body.push(stmt);
-                        }
-                    }
-                    if self.cur == Token::RBrace {
-                        self.bump();
-                    }
-                    Some(alt_body)
-                } else {
-                    None
+
+                let mut consequent = self.parse_block_body()?;
+                if consequent.len() != 1 {
+                    return Err(ParseError("Multiple bloc for same if".to_owned()));
                 };
-                
-                Ok(Some(Stmt::If(IfStmt {
-                    condition,
-                    consequent,
-                    alternate,
-                })))
+
+                let mut blocks = vec![(condition, consequent.pop().unwrap())];
+
+                if self.cur == Token::Else {
+                    self.bump();
+                    let mut consequent = self.parse_block_body()?;
+                    if consequent.len() != 1 {
+                        return Err(ParseError("Multiple bloc for same if".to_owned()));
+                    };
+                    blocks.push((
+                        Box::new(expr::ConstBoolean { b: true }),
+                        consequent.pop().unwrap(),
+                    ));
+                }
+
+                Ok(Some(Box::new(stmt::IfStmt { blocks })))
             }
             Token::While => {
                 self.bump();
+                logln(LogLevel::Info, "parse_statement while loop");
                 if self.cur != Token::LParen {
                     return Err(ParseError("expected '(' after 'while'".into()));
                 }
@@ -264,25 +310,35 @@ impl<'a> Parser<'a> {
                     return Err(ParseError("expected ')' after while condition".into()));
                 }
                 self.bump();
-                
+
                 if self.cur != Token::LBrace {
                     return Err(ParseError("expected '{' for while body".into()));
                 }
                 let body = self.parse_block_body()?;
-                
-                Ok(Some(Stmt::While(WhileStmt { condition, body })))
+
+                Ok(Some(Box::new(stmt::LoopStmt {
+                    init: None,
+                    condition,
+                    body,
+                    update: None,
+                    do_first: false,
+                })))
             }
             Token::For => {
                 self.bump();
+                logln(LogLevel::Info, "parse_statement for loop");
                 if self.cur != Token::LParen {
                     return Err(ParseError("expected '(' after 'for'".into()));
                 }
                 self.bump();
-                
+
                 // Parse init
-                let init = if self.cur == Token::Semicolon {
+                let init: Option<Box<dyn Expr>> = if self.cur == Token::Semicolon {
                     None
-                } else if self.cur == Token::Let || self.cur == Token::Const || self.cur == Token::Var {
+                } else if self.cur == Token::Let
+                    || self.cur == Token::Const
+                    || self.cur == Token::Var
+                {
                     self.bump();
                     let name = self.expect_ident()?;
                     let initializer = if self.cur == Token::Assign {
@@ -294,47 +350,48 @@ impl<'a> Parser<'a> {
                     if self.cur == Token::Semicolon {
                         self.bump();
                     }
-                    Some(Box::new(Stmt::VarDecl(name, initializer)))
+                    Some(Box::new(expr::VarDecl { name, initializer }))
                 } else {
                     let expr = self.parse_expression()?;
                     if self.cur == Token::Semicolon {
                         self.bump();
                     }
-                    Some(Box::new(Stmt::ExprStmt(expr)))
+                    Some(expr)
                 };
-                
+
                 // Parse condition
-                let condition = if self.cur == Token::Semicolon {
-                    None
+                let condition: Box<dyn Expr> = if self.cur == Token::Semicolon {
+                    Box::new(expr::ConstBoolean { b: true })
                 } else {
-                    Some(self.parse_expression()?)
+                    self.parse_expression()?
                 };
                 if self.cur == Token::Semicolon {
                     self.bump();
                 }
-                
+
                 // Parse update
                 let update = if self.cur == Token::RParen {
                     None
                 } else {
                     Some(self.parse_expression()?)
                 };
-                
+
                 if self.cur != Token::RParen {
                     return Err(ParseError("expected ')' after for clauses".into()));
                 }
                 self.bump();
-                
+
                 if self.cur != Token::LBrace {
                     return Err(ParseError("expected '{' for for body".into()));
                 }
                 let body = self.parse_block_body()?;
-                
-                Ok(Some(Stmt::For(ForStmt {
+
+                Ok(Some(Box::new(stmt::LoopStmt {
                     init,
                     condition,
                     update,
                     body,
+                    do_first: false,
                 })))
             }
             Token::Do => {
@@ -343,7 +400,7 @@ impl<'a> Parser<'a> {
                     return Err(ParseError("expected '{' for do body".into()));
                 }
                 let body = self.parse_block_body()?;
-                
+
                 if self.cur != Token::While {
                     return Err(ParseError("expected 'while' after do body".into()));
                 }
@@ -360,66 +417,115 @@ impl<'a> Parser<'a> {
                 if self.cur == Token::Semicolon {
                     self.bump();
                 }
-                
-                Ok(Some(Stmt::DoWhile(DoWhileStmt { body, condition })))
+
+                Ok(Some(Box::new(stmt::LoopStmt {
+                    init: None,
+                    body,
+                    condition,
+                    update: None,
+                    do_first: true,
+                })))
             }
             Token::Break => {
                 self.bump();
                 if self.cur == Token::Semicolon {
                     self.bump();
                 }
-                Ok(Some(Stmt::Break))
+                Ok(Some(Box::new(expr::Return {
+                    expr: None,
+                    rtype: expr::ReturnType::Break,
+                })))
             }
             Token::Continue => {
                 self.bump();
                 if self.cur == Token::Semicolon {
                     self.bump();
                 }
-                Ok(Some(Stmt::Continue))
+                Ok(Some(Box::new(expr::Return {
+                    expr: None,
+                    rtype: expr::ReturnType::Continue,
+                })))
             }
             Token::Return => {
                 self.bump();
+                logln(LogLevel::Info, "parse_statement return statement");
                 let expr = self.parse_expression()?;
                 if self.cur == Token::Semicolon {
                     self.bump();
                 }
-                Ok(Some(Stmt::Return(Some(expr))))
+                Ok(Some(Box::new(expr::Return {
+                    expr: Some(expr),
+                    rtype: expr::ReturnType::Return,
+                })))
             }
             Token::Semicolon => {
                 self.bump();
                 Ok(None)
             }
             Token::Eof => Ok(None),
-            _ => {
-                // expression statement
-                let expr = self.parse_expression()?;
-                Ok(Some(Stmt::ExprStmt(expr)))
-            }
+            _ => Ok(Some(self.parse_expression()?)),
         }
     }
 
-    pub fn parse_expression(&mut self) -> Result<Expr, ParseError> {
+    pub fn parse_expression(&mut self) -> Result<Box<dyn Expr>, ParseError> {
+        logln(
+            LogLevel::Trace,
+            &format!(
+                "parse_expression start cur={:?} peek={:?}",
+                self.cur, self.peek
+            ),
+        );
+        if let Token::Ident(name) = &self.cur
+            && self.peek == Token::Arrow
+        {
+            let params = vec![name.clone()];
+            self.bump();
+            self.bump();
+            let body: Vec<Box<dyn Stmt>> = if self.cur == Token::LBrace {
+                self.parse_block_body()?
+            } else {
+                let expr = self.parse_expression()?;
+                vec![Box::new(expr::Return {
+                    expr: Some(expr),
+                    rtype: expr::ReturnType::Return,
+                })]
+            };
+            return Ok(Box::new(expr::FunctionDecl {
+                name: "anonymous function",
+                params,
+                body,
+                generator: false,
+                insert: false,
+            }));
+        }
         let expr = self.parse_binary(0)?;
         if self.cur == Token::Assign {
             self.bump();
             let rhs = self.parse_expression()?;
-            Ok(Expr::Assign(Box::new(expr), Box::new(rhs)))
+            Ok(Box::new(expr::Assign {
+                target: expr,
+                value: rhs,
+            }))
         } else {
             Ok(expr)
         }
     }
 
-    pub fn parse_primary(&mut self) -> Result<Expr, ParseError> {
+    pub fn parse_primary(&mut self) -> Result<Box<dyn Expr>, ParseError> {
+        logln(
+            LogLevel::Trace,
+            &format!("parse_primary cur={:?}", self.cur),
+        );
         match &self.cur {
             Token::Ident(s) => {
                 let name = s.clone();
                 self.bump();
-                Ok(Expr::Identifier(name))
+                Ok(Box::new(expr::Identifier { name }))
             }
             Token::Number(n) => {
                 let value = *n;
                 self.bump();
-                Ok(Expr::Number(value))
+                Ok(Box::new(expr::ConstNumber { num: value }))
             }
             Token::TemplateStart => {
                 self.bump();
@@ -427,58 +533,58 @@ impl<'a> Parser<'a> {
                 while self.cur != Token::TemplateEnd && self.cur != Token::Eof {
                     match &self.cur {
                         Token::TemplateString(value) => {
-                            parts.push(TemplatePart::String(value.clone()));
+                            parts.push(expr::TemplatePart::String(value.clone()));
                             self.bump();
                         }
                         Token::TemplateExprStart => {
                             self.bump();
                             let expr = self.parse_expression()?;
                             if self.cur != Token::RBrace {
-                                return Err(ParseError("expected '}' after template expression".into()));
+                                return Err(ParseError(
+                                    "expected '}' after template expression".into(),
+                                ));
                             }
                             self.bump();
-                            parts.push(TemplatePart::Expr(Box::new(expr)));
+                            parts.push(expr::TemplatePart::Expr(expr));
                         }
                         _ => {
-                            return Err(ParseError(format!("unexpected template token: {:?}", self.cur)));
+                            return Err(ParseError(format!(
+                                "unexpected template token: {:?}",
+                                self.cur
+                            )));
                         }
                     }
                 }
                 if self.cur == Token::TemplateEnd {
                     self.bump();
                 }
-                Ok(Expr::TemplateLiteral(parts))
+                Ok(Box::new(expr::TemplateLiteral { parts }))
             }
             Token::Str(s) => {
                 let value = s.clone();
                 self.bump();
-                Ok(Expr::String(value))
+                Ok(Box::new(expr::ConstString { s: value }))
             }
             Token::True => {
                 self.bump();
-                Ok(Expr::Boolean(true))
+                Ok(Box::new(expr::ConstBoolean { b: true }))
             }
             Token::False => {
                 self.bump();
-                Ok(Expr::Boolean(false))
+                Ok(Box::new(expr::ConstBoolean { b: false }))
             }
             Token::LBrace => {
                 self.bump();
                 let mut properties = Vec::new();
                 while self.cur != Token::RBrace && self.cur != Token::Eof {
-                    let key = match &self.cur {
-                        Token::Ident(name) => {
-                            let key = Expr::String(name.clone());
-                            self.bump();
-                            key
-                        }
-                        Token::Str(value) => {
-                            let key = Expr::String(value.clone());
+                    let key: Box<dyn Expr> = match &self.cur {
+                        Token::Ident(value) | Token::Str(value) => {
+                            let key = Box::new(expr::ConstString { s: value.clone() });
                             self.bump();
                             key
                         }
                         Token::Number(n) => {
-                            let key = Expr::Number(*n);
+                            let key = Box::new(expr::ConstNumber { num: *n });
                             self.bump();
                             key
                         }
@@ -490,7 +596,10 @@ impl<'a> Parser<'a> {
                         }
                     };
                     if self.cur != Token::Colon {
-                        return Err(ParseError(format!("expected ':' in object literal, got {:?}", self.cur)));
+                        return Err(ParseError(format!(
+                            "expected ':' in object literal, got {:?}",
+                            self.cur
+                        )));
                     }
                     self.bump();
                     let value = self.parse_expression()?;
@@ -504,7 +613,7 @@ impl<'a> Parser<'a> {
                 }
                 // consume '}' so callers see the token after the object literal
                 self.bump();
-                Ok(Expr::Object(properties))
+                Ok(Box::new(expr::Object { properties }))
             }
             Token::LBracket => {
                 self.bump();
@@ -519,7 +628,7 @@ impl<'a> Parser<'a> {
                     return Err(ParseError("expected ']' at end of array literal".into()));
                 }
                 self.bump();
-                Ok(Expr::Array(elements))
+                Ok(Box::new(expr::Array { elems: elements }))
             }
             Token::New => {
                 self.bump();
@@ -530,7 +639,10 @@ impl<'a> Parser<'a> {
                         if let Token::Ident(name) = &self.cur {
                             let prop = name.clone();
                             self.bump();
-                            constructor = Expr::Member(Box::new(constructor), prop);
+                            constructor = Box::new(expr::Member {
+                                object: constructor,
+                                property: Box::new(expr::ConstString { s: prop }),
+                            });
                             continue;
                         } else {
                             return Err(ParseError(format!(
@@ -546,7 +658,10 @@ impl<'a> Parser<'a> {
                             return Err(ParseError("expected ']'".into()));
                         }
                         self.bump();
-                        constructor = Expr::Index(Box::new(constructor), Box::new(index));
+                        constructor = Box::new(expr::Member {
+                            object: constructor,
+                            property: index,
+                        });
                         continue;
                     }
                     break;
@@ -564,26 +679,30 @@ impl<'a> Parser<'a> {
                         self.bump();
                     }
                 }
-                Ok(Expr::New(Box::new(constructor), args))
+                Ok(Box::new(expr::New { constructor, args }))
             }
             Token::Function => {
-                // simple function expression: function (params) { ... }
+                // simple function expression: function name? (params) { ... }
                 self.bump();
                 let name = if let Token::Ident(s) = &self.cur {
-                    Some(s.clone())
-                } else {
-                    None
-                };
-                if name.is_some() {
+                    let name = s.clone().leak();
                     self.bump();
-                }
+                    name
+                } else {
+                    "anonymous function"
+                };
                 self.skip_to(Token::LParen);
                 self.expect_and_bump(Token::LParen, "expected '(' in function expr")?;
                 let params = self.parse_param_list()?;
                 self.skip_to(Token::LBrace);
                 let body = self.parse_function_body()?;
-                let func = FunctionDecl { name, params, body };
-                Ok(Expr::FunctionExpr(func))
+                Ok(Box::new(expr::FunctionDecl {
+                    name,
+                    params,
+                    body,
+                    generator: false,
+                    insert: false,
+                }))
             }
             Token::LParen => {
                 // grouping or call
@@ -597,36 +716,30 @@ impl<'a> Parser<'a> {
                 }
                 Ok(expr)
             }
-            _ => Err(ParseError(format!(
-                "unexpected token in primary: {:?}",
-                self.cur
-            ))),
+            _ => {
+                let msg = format!("unexpected token in primary: {:?}", self.cur);
+                logln(LogLevel::Error, &msg);
+                Err(ParseError(msg))
+            }
         }
     }
 
-    pub fn parse_call_or_primary(&mut self) -> Result<Expr, ParseError> {
+    pub fn parse_call_or_primary(&mut self) -> Result<Box<dyn Expr>, ParseError> {
+        logln(
+            LogLevel::Trace,
+            &format!("parse_call_or_primary cur={:?}", self.cur),
+        );
         let mut expr = self.parse_primary()?;
         loop {
-            if self.cur == Token::Arrow {
-                self.bump();
-                let params = match expr {
-                    Expr::Identifier(name) => vec![name],
-                    _ => return Err(ParseError("invalid arrow function parameter list".into())),
-                };
-                let body = if self.cur == Token::LBrace {
-                    self.parse_block_body()?
-                } else {
-                    let expr = self.parse_expression()?;
-                    vec![Stmt::Return(Some(expr))]
-                };
-                return Ok(Expr::FunctionExpr(FunctionDecl { name: None, params, body }));
-            }
             if self.cur == Token::Dot {
                 self.bump();
                 if let Token::Ident(name) = &self.cur {
                     let prop = name.clone();
                     self.bump();
-                    expr = Expr::Member(Box::new(expr), prop);
+                    expr = Box::new(expr::Member {
+                        object: expr,
+                        property: Box::new(expr::ConstString { s: prop }),
+                    });
                     continue;
                 } else {
                     return Err(ParseError(format!(
@@ -642,7 +755,10 @@ impl<'a> Parser<'a> {
                     return Err(ParseError("expected ']'".into()));
                 }
                 self.bump();
-                expr = Expr::Index(Box::new(expr), Box::new(index));
+                expr = Box::new(expr::Member {
+                    object: expr,
+                    property: index,
+                });
                 continue;
             }
             if self.cur == Token::LParen {
@@ -655,21 +771,20 @@ impl<'a> Parser<'a> {
                         self.bump();
                     }
                 }
-                expr = Expr::Call(Box::new(expr), args);
+                expr = Box::new(expr::Call { func: expr, args });
                 if self.cur == Token::RParen {
                     self.bump();
                 }
                 continue;
             }
-            if self.cur == Token::Minus && self.peek == Token::Minus {
-                self.bump();
-                self.bump();
-                expr = Expr::PostfixDec(Box::new(expr));
-                continue;
-            }
             if self.cur == Token::PlusPlus {
                 self.bump();
-                expr = Expr::PostfixInc(Box::new(expr));
+                expr = Box::new(expr::Postfix { expr, inc: true });
+                continue;
+            }
+            if self.cur == Token::MinusMinus {
+                self.bump();
+                expr = Box::new(expr::Postfix { expr, inc: false });
                 continue;
             }
             break;
@@ -679,14 +794,16 @@ impl<'a> Parser<'a> {
 
     pub const fn precedence(&self, tok: &Token) -> Option<(u8, u8)> {
         match tok {
-            Token::Eq | Token::NotEq | Token::Lt | Token::Gt | Token::LtEq | Token::GtEq => Some((8, 9)),
+            Token::Eq | Token::NotEq | Token::Lt | Token::Gt | Token::LtEq | Token::GtEq => {
+                Some((8, 9))
+            }
             Token::Plus | Token::Minus => Some((10, 11)),
             Token::Star | Token::Slash => Some((12, 13)),
             _ => None,
         }
     }
 
-    pub fn parse_binary(&mut self, min_bp: u8) -> Result<Expr, ParseError> {
+    pub fn parse_binary(&mut self, min_bp: u8) -> Result<Box<dyn Expr>, ParseError> {
         let mut lhs = self.parse_call_or_primary()?;
         // advance tokens for loop
         while let Some((l_bp, r_bp)) = self.precedence(&self.cur) {
@@ -694,22 +811,26 @@ impl<'a> Parser<'a> {
                 break;
             }
             let op = match &self.cur {
-                Token::Plus => BinaryOp::Add,
-                Token::Minus => BinaryOp::Sub,
-                Token::Star => BinaryOp::Mul,
-                Token::Slash => BinaryOp::Div,
-                Token::Eq => BinaryOp::Eq,
-                Token::NotEq => BinaryOp::NotEq,
-                Token::Lt => BinaryOp::Lt,
-                Token::Gt => BinaryOp::Gt,
-                Token::LtEq => BinaryOp::LtEq,
-                Token::GtEq => BinaryOp::GtEq,
+                Token::Plus => expr::BinaryOp::Add,
+                Token::Minus => expr::BinaryOp::Sub,
+                Token::Star => expr::BinaryOp::Mul,
+                Token::Slash => expr::BinaryOp::Div,
+                Token::Eq => expr::BinaryOp::Eq,
+                Token::NotEq => expr::BinaryOp::NotEq,
+                Token::Lt => expr::BinaryOp::Lt,
+                Token::Gt => expr::BinaryOp::Gt,
+                Token::LtEq => expr::BinaryOp::LtEq,
+                Token::GtEq => expr::BinaryOp::GtEq,
                 _ => unreachable!(),
             };
             // consume operator
             self.bump();
             let rhs = self.parse_binary(r_bp)?;
-            lhs = Expr::Binary(Box::new(lhs), op, Box::new(rhs));
+            lhs = Box::new(expr::Operator {
+                left: lhs,
+                op,
+                right: rhs,
+            });
         }
         Ok(lhs)
     }

@@ -39,6 +39,7 @@ pub enum Token {
     Plus,
     PlusPlus,
     Minus,
+    MinusMinus,
     Star,
     Slash,
     Eq,
@@ -51,6 +52,8 @@ pub enum Token {
 
     Eof,
 }
+
+use crate::{LogLevel, logln};
 
 pub struct Lexer<'a> {
     chars: std::str::Chars<'a>,
@@ -81,20 +84,37 @@ impl<'a> Lexer<'a> {
         cur
     }
 
-    const fn peek(&self) -> Option<char> { self.peeked }
+    const fn peek(&self) -> Option<char> {
+        self.peeked
+    }
 
-    fn eat_while<F>(&mut self, mut f: F) -> String where F: FnMut(char) -> bool {
+    fn eat_while<F>(&mut self, mut f: F) -> String
+    where
+        F: FnMut(char) -> bool,
+    {
         let mut s = String::new();
         while let Some(c) = self.peek() {
             if f(c) {
                 s.push(c);
                 self.bump();
-            } else { break }
+            } else {
+                break;
+            }
         }
         s
     }
 
     pub fn next_token(&mut self) -> Token {
+        logln(
+            LogLevel::Trace,
+            &format!(
+                "Lexer::next_token start peek={:?} template_mode={} in_template_expr={} template_expr_depth={}",
+                self.peek(),
+                self.template_mode,
+                self.in_template_expr,
+                self.template_expr_depth
+            ),
+        );
         if let Some(token) = self.pending.take() {
             return token;
         }
@@ -159,7 +179,10 @@ impl<'a> Lexer<'a> {
                 }
             }
             match c {
-                c if c.is_whitespace() => { self.bump(); continue; }
+                c if c.is_whitespace() => {
+                    self.bump();
+                    continue;
+                }
                 '/' => {
                     self.bump();
                     if self.peek() == Some('/') {
@@ -171,16 +194,46 @@ impl<'a> Lexer<'a> {
                         return Token::Slash;
                     }
                 }
-                '(' => { self.bump(); return Token::LParen }
-                ')' => { self.bump(); return Token::RParen }
-                '{' => { self.bump(); return Token::LBrace }
-                '}' => { self.bump(); return Token::RBrace }
-                '[' => { self.bump(); return Token::LBracket }
-                ']' => { self.bump(); return Token::RBracket }
-                ',' => { self.bump(); return Token::Comma }
-                ';' => { self.bump(); return Token::Semicolon }
-                '.' => { self.bump(); return Token::Dot }
-                ':' => { self.bump(); return Token::Colon }
+                '(' => {
+                    self.bump();
+                    return Token::LParen;
+                }
+                ')' => {
+                    self.bump();
+                    return Token::RParen;
+                }
+                '{' => {
+                    self.bump();
+                    return Token::LBrace;
+                }
+                '}' => {
+                    self.bump();
+                    return Token::RBrace;
+                }
+                '[' => {
+                    self.bump();
+                    return Token::LBracket;
+                }
+                ']' => {
+                    self.bump();
+                    return Token::RBracket;
+                }
+                ',' => {
+                    self.bump();
+                    return Token::Comma;
+                }
+                ';' => {
+                    self.bump();
+                    return Token::Semicolon;
+                }
+                '.' => {
+                    self.bump();
+                    return Token::Dot;
+                }
+                ':' => {
+                    self.bump();
+                    return Token::Colon;
+                }
                 '=' => {
                     self.bump();
                     if self.peek() == Some('>') {
@@ -228,21 +281,35 @@ impl<'a> Lexer<'a> {
                         self.bump();
                         return Token::PlusPlus;
                     }
-                    return Token::Plus
+                    return Token::Plus;
                 }
-                '-' => { self.bump(); return Token::Minus }
-                '*' => { self.bump(); return Token::Star }
+                '-' => {
+                    self.bump();
+                    if self.peek() == Some('-') {
+                        self.bump();
+                        return Token::MinusMinus;
+                    }
+                    return Token::Minus;
+                }
+                '*' => {
+                    self.bump();
+                    return Token::Star;
+                }
                 '`' => {
                     self.bump();
                     self.template_mode = true;
                     return Token::TemplateStart;
                 }
                 '"' | '\'' => {
-                    let quote = self.bump().expect("Lexer bump should return the opening quote");
+                    let quote = self
+                        .bump()
+                        .expect("Lexer bump should return the opening quote");
                     let mut s = String::new();
                     while let Some(ch) = self.peek() {
                         self.bump();
-                        if ch == quote { break }
+                        if ch == quote {
+                            break;
+                        }
                         s.push(ch);
                     }
                     return Token::Str(s);
@@ -251,7 +318,9 @@ impl<'a> Lexer<'a> {
                     let s = self.eat_while(|ch| ch.is_ascii_digit() || ch == '.');
                     if let Ok(n) = s.parse::<f64>() {
                         return Token::Number(n);
-                    } else { continue }
+                    } else {
+                        continue;
+                    }
                 }
                 c if is_ident_start(c) => {
                     let s = self.eat_while(is_ident_continue);
@@ -273,14 +342,20 @@ impl<'a> Lexer<'a> {
                         "if" => Token::If,
                         "else" => Token::Else,
                         _ => Token::Ident(s),
-                    }
+                    };
                 }
-                _ => { self.bump(); }
+                _ => {
+                    self.bump();
+                }
             }
         }
         Token::Eof
     }
 }
 
-const fn is_ident_start(c: char) -> bool { c.is_ascii_alphabetic() || c == '_' }
-const fn is_ident_continue(c: char) -> bool { c.is_ascii_alphanumeric() || c == '_' }
+const fn is_ident_start(c: char) -> bool {
+    c.is_ascii_alphabetic() || c == '_'
+}
+const fn is_ident_continue(c: char) -> bool {
+    c.is_ascii_alphanumeric() || c == '_'
+}
