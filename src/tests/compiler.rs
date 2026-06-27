@@ -208,4 +208,20 @@ assert_result!(
     "2:b"
 );
 
+assert_result!(
+    test_order_of_operation,
+    r#"
+    console.log(5/8+7*9);
+    console.log(5-8*7+9);
+    console.log((5-8)*(7+9));
+    console.log(5-(8*7+9));
+    console.log((5-8*7)+9);
+    "#;
+    "63.625",
+    "-42",
+    "-48",
+    "-60",
+    "-42"
+);
+
 //TODO test recusive for all expr and stmt
