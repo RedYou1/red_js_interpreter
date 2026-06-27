@@ -1,5 +1,5 @@
-use crate::{logln, LogLevel};
 use crate::prebuild::prelude::*;
+use crate::{LogLevel, logln};
 
 #[cfg(test)]
 pub const CONSOLE_LOGS: &str = "__$G%RH^&$%E$WG#ESOVBT__";
@@ -9,7 +9,7 @@ pub const CONSOLE_LOGS: &str = "__$G%RH^&$%E$WG#ESOVBT__";
 /// %s Outputs a string.<br>
 /// %f Outputs a floating-point value.<br>
 pub fn default_console_config(mem: Rc<RefCell<Prototype>>) -> Rc<RefCell<Prototype>> {
-    let function = Prototype::find(mem.clone(), &"Function".into())
+    let function = Prototype::find(mem.clone(), &stringify!(Function).into())
         .1
         .borrow()
         .unwrap_proto("default_console_config for Function");
@@ -78,6 +78,7 @@ pub fn default_console_config(mem: Rc<RefCell<Prototype>>) -> Rc<RefCell<Prototy
                 ),
             ),
         ]),
+        formating: false,
     }))
 }
 

@@ -6,14 +6,14 @@ use crate::{ARGUMENTS, Code, CodeIndex, CodeResult, JsValue, LogLevel, PROTOTYPE
 pub struct Generator {
     pub params: Vec<String>,
     pub excess: Option<String>,
-    pub code: Rc<Vec<Code>>,
+    pub code: Rc<[Code]>,
     pub mem: Rc<RefCell<Prototype>>,
 }
 
 pub struct IterGenerator {
-    index: CodeIndex,
-    proto: Rc<RefCell<Prototype>>,
-    code: Rc<Vec<Code>>,
+    pub(crate)index: CodeIndex,
+    pub(crate)proto: Rc<RefCell<Prototype>>,
+    pub(crate) code: Rc<[Code]>,
 }
 impl Iterator for IterGenerator {
     type Item = Rc<RefCell<JsValue>>;
@@ -89,7 +89,7 @@ pub fn run_generator_object(
             .enumerate()
             .map(|(i, param)| (runnable.params[i].as_str().into(), param.clone())),
     );
-    let JsValue::Prototype(array) = inline_borrow!(Prototype::find(mem.clone(), &"Array".into()).1)
+    let JsValue::Prototype(array) = inline_borrow!(Prototype::find(mem.clone(), &stringify!(Array).into()).1)
     else {
         panic!("Array not found")
     };
@@ -105,7 +105,7 @@ pub fn run_generator_object(
     proto.borrow_mut().properties.insert(
         ARGUMENTS.into(),
         new_array(
-            Prototype::find(mem.clone(), &"Array".into())
+            Prototype::find(mem.clone(), &stringify!(Array).into())
                 .1
                 .borrow()
                 .unwrap_proto("run_generator_object get Array"),

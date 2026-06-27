@@ -1,4 +1,10 @@
-use std::{cell::RefCell, collections::HashMap, fmt::Debug, hash::{Hash, Hasher}, rc::Rc};
+use std::{
+    cell::RefCell,
+    collections::HashMap,
+    fmt::Debug,
+    hash::{Hash, Hasher},
+    rc::Rc,
+};
 
 use crate::{JsValue, PROTO_NAME, inline_borrow};
 
@@ -6,6 +12,7 @@ use crate::{JsValue, PROTO_NAME, inline_borrow};
 pub struct Prototype {
     pub name: Option<&'static str>,
     pub properties: HashMap<JsValue, Rc<RefCell<JsValue>>>,
+    pub formating: bool,
 }
 
 impl Hash for Prototype {
@@ -76,39 +83,57 @@ impl Prototype {
             PROTO_NAME.into(),
             Rc::new(RefCell::new(JsValue::Prototype(this))),
         );
-        Rc::new(RefCell::new(Prototype { name, properties }))
+        Rc::new(RefCell::new(Prototype {
+            name,
+            properties,
+            formating: false,
+        }))
     }
 }
 
 impl Debug for Prototype {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("Prototype")
-            .field(
-                "properties",
-                &self
-                    .properties
-                    .iter()
-                    .map(|(k, v)| {
-                        let mut k = k.clone();
-                        let mut v = inline_borrow!(v);
+        if self.formating {
+            f.debug_struct("Prototype")
+                .field("ptr", &(self as *const Prototype as *const () as usize))
+                .field("already_formated", &true)
+                .finish()
+        } else {
+            unsafe { (self as *const Prototype as *mut Prototype).as_mut_unchecked() }.formating =
+                true;
+            let t = f
+                .debug_struct("Prototype")
+                .field("ptr", &(self as *const Prototype as *const () as usize))
+                .field(
+                    "properties",
+                    &self
+                        .properties
+                        .iter()
+                        .map(|(k, v)| {
+                            let mut k = k.clone();
+                            let mut v = inline_borrow!(v);
 
-                        if let JsValue::Prototype(in_k) = &k {
-                            let name = in_k.borrow().name;
-                            if let Some(name) = name {
-                                k = JsValue::String(format!("[{}]", name));
+                            if let JsValue::Prototype(in_k) = &k {
+                                let name = in_k.borrow().name;
+                                if let Some(name) = name {
+                                    k = JsValue::String(format!("[{}]", name));
+                                }
                             }
-                        }
 
-                        if let JsValue::Prototype(in_v) = &v {
-                            let name = in_v.borrow().name;
-                            if let Some(name) = name {
-                                v = JsValue::String(format!("[{}]", name));
+                            if let JsValue::Prototype(in_v) = &v {
+                                let name = in_v.borrow().name;
+                                if let Some(name) = name {
+                                    v = JsValue::String(format!("[{}]", name));
+                                }
                             }
-                        }
-                        (k, v)
-                    })
-                    .collect::<HashMap<JsValue, JsValue>>(),
-            )
-            .finish()
+                            (k, v)
+                        })
+                        .collect::<HashMap<JsValue, JsValue>>(),
+                )
+                .finish();
+            unsafe { (self as *const Prototype as *mut Prototype).as_mut_unchecked() }.formating =
+                false;
+            t
+        }
     }
 }

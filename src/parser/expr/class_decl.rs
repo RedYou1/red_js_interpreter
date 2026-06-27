@@ -56,7 +56,7 @@ impl Expr for ClassDecl {
                 {
                     super_proto_obj
                 } else {
-                    Prototype::find(proto.clone(), &"Object".into())
+                    Prototype::find(proto.clone(), &stringify!(Object).into())
                         .1
                         .borrow()
                         .unwrap_proto("expr::ClassDecl for Object")

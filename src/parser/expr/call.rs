@@ -1,6 +1,9 @@
 use std::{cell::RefCell, rc::Rc};
 
-use crate::{Code, CodeResult, JsValue, LogLevel, Prototype, RUNNABLE, logln, new_array, parser::expr::Expr, run_function_object, run_generator_object};
+use crate::{
+    Code, CodeResult, JsValue, LogLevel, Prototype, RUNNABLE, inline_borrow, logln,
+    parser::expr::Expr, run_function_object, run_generator_object,
+};
 
 pub struct Call {
     pub func: Box<dyn Expr>,
@@ -34,13 +37,12 @@ impl Expr for Call {
                 .borrow()
             {
                 JsValue::Function(_) => run_function_object(func_proto, this, args),
-                JsValue::Generator(_) => new_array(
-                    Prototype::find(proto, &"Array".into())
-                        .1
-                        .borrow()
-                        .unwrap_proto("expr::Call get Array"),
-                    run_generator_object(func_proto, this, args).collect(),
-                ),
+                JsValue::Generator(_) => Rc::new(RefCell::new(JsValue::Prototype(
+                    run_generator_object(func_proto, this, args).into_proto(
+                        inline_borrow!(Prototype::find(proto, &stringify!(Generator).into()).1)
+                            .unwrap_proto("expr::Call Generator not proto"),
+                    ),
+                ))),
                 _ => panic!("call a none function or generator {:?}", func),
             };
             logln(

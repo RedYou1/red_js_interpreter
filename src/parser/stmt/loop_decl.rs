@@ -1,14 +1,14 @@
 use std::{cell::RefCell, rc::Rc};
 
 use crate::{
-    Code, CodeIndex, CodeResult, JsValue, LogLevel, Prototype, handle_return, logln,
+    Code, CodeIndex, CodeResult, JsValue, LogLevel, Prototype, handle_return, inline_borrow, logln,
     parser::{expr::Expr, stmt::Stmt},
     run_sub,
 };
 
 pub struct LoopStmt {
     pub init: Option<Box<dyn Expr>>,
-    pub condition: Box<dyn Expr>,
+    pub condition: Option<Box<dyn Expr>>,
     pub update: Option<Box<dyn Expr>>,
     pub body: Vec<Box<dyn Stmt>>,
     pub do_first: bool,
@@ -24,6 +24,7 @@ impl Stmt for LoopStmt {
                 self.body.len()
             ),
         );
+        assert!(self.init.is_some() || self.condition.is_some() || self.update.is_some());
         let do_first = self.do_first;
         let init: Code = self.init.compile_expr(mem.clone());
         let condition: Code = self.condition.compile_expr(mem.clone());
@@ -34,41 +35,65 @@ impl Stmt for LoopStmt {
             .flat_map(|c| c.compile_stmt(mem.clone()))
             .collect();
 
-        let body_init = Rc::new(RefCell::new(CodeIndex::new()));
-        let body_code = body_init.clone();
-        let body_end = body_init.clone();
         vec![
             Box::new(move |proto, _i| {
-                body_init.borrow_mut().reset();
-                handle_return!(init(proto, _i));
+                handle_return!(init(proto.clone(), &mut CodeIndex::new()));
+
+                let sub = Prototype::new_child(proto.clone(), None, []);
+                proto.borrow_mut().properties.insert(
+                    "__forloop_sub__".into(),
+                    Rc::new(RefCell::new(JsValue::Prototype(sub.clone()))),
+                );
+                CodeIndex::new().save_into(sub.clone(), "forloop_i");
+
                 if !do_first {
                     _i.skip(1);
                 }
                 CodeResult::Normal(Rc::new(RefCell::new(JsValue::Undefined)))
             }),
             Box::new(move |proto, _i| {
-                let res = run_sub(&body, proto.clone(), &mut body_code.borrow_mut());
-                match &res {
-                    CodeResult::Normal(_) | CodeResult::NormalMember(_, _, _) | CodeResult::Continue => {}
-                    CodeResult::Break | CodeResult::YieldBreak => {
-                        _i.move_iamount(1);
-                        _i.reset_retry();
-                    }
-                    CodeResult::Return(_) => return res,
-                    CodeResult::Yield(_) => {
-                        _i.set_retry();
-                        return res;
+                let sub =
+                    inline_borrow!(proto.borrow().properties[&"__forloop_sub__".into()].clone())
+                        .unwrap_proto("sub not proto in loop body?");
+                let mut i = CodeIndex::load_from(sub.clone(), "forloop_i");
+                if i.current < body.len() {
+                    let res = run_sub(&body, sub.clone(), &mut i);
+                    match &res {
+                        CodeResult::Normal(_)
+                        | CodeResult::NormalMember(_, _, _)
+                        | CodeResult::Continue => {}
+                        CodeResult::Break | CodeResult::YieldBreak => {
+                            _i.move_iamount(1);
+                            _i.reset_retry();
+                            i.reset();
+                            i.save_into(sub, "forloop_i");
+                            return CodeResult::Normal(Rc::new(RefCell::new(JsValue::Undefined)));
+                        }
+                        CodeResult::Return(_) => return res,
+                        CodeResult::Yield(res) => {
+                            i.next();
+                            i.set_retry();
+                            i.save_into(sub, "forloop_i");
+                            _i.set_retry();
+                            return CodeResult::Yield(res.clone());
+                        }
                     }
                 }
 
-                handle_return!(update(proto.clone(), _i));
+                handle_return!(update(proto.clone(), &mut CodeIndex::new()));
 
                 CodeResult::Normal(Rc::new(RefCell::new(JsValue::Undefined)))
             }),
             Box::new(move |proto, _i| {
-                let cond = handle_return!(condition(proto, _i));
+                let cond = handle_return!(condition(proto.clone(), _i));
                 if cond.borrow().is_truthy() {
-                    body_end.borrow_mut().reset();
+                    let sub = Prototype::new_child(proto.clone(), None, []);
+                    proto.borrow_mut().properties.insert(
+                        "__forloop_sub__".into(),
+                        Rc::new(RefCell::new(JsValue::Prototype(sub.clone()))),
+                    );
+                    CodeIndex::new().save_into(sub.clone(), "forloop_i");
+
                     _i.move_iamount(-1);
                     _i.set_retry();
                 }

@@ -23,7 +23,7 @@ impl Expr for Object {
             .collect();
         Box::new(move |proto, _| {
             logln(LogLevel::Trace, "Entering Expr::Object");
-            let object_proto = Prototype::find(mem.clone(), &"Object".into())
+            let object_proto = Prototype::find(mem.clone(), &stringify!(Object).into())
                 .1
                 .borrow()
                 .unwrap_proto("expr::Object for Object");
@@ -63,7 +63,7 @@ impl Expr for Array {
             .collect();
         Box::new(move |proto, _| {
             logln(LogLevel::Trace, "Entering Expr::Array");
-            let array_proto = Prototype::find(mem.clone(), &"Array".into())
+            let array_proto = Prototype::find(mem.clone(), &stringify!(Array).into())
                 .1
                 .borrow()
                 .unwrap_proto("expr::Array for Array");

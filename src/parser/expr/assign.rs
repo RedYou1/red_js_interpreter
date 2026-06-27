@@ -16,8 +16,10 @@ impl Expr for Assign {
         Box::new(move |proto, i| {
             logln(LogLevel::Trace, "Entering Expr::Assign");
             let value = handle_return!(value(proto.clone(), i));
-            let CodeResult::NormalMember(_, obj, key) = target(proto, i) else {
-                panic!("asign not a member");
+            let (obj, key) = match target(proto.clone(), i) {
+                CodeResult::Normal(key) => (proto, key),
+                CodeResult::NormalMember(_, obj, key) => (obj, key),
+                _ => panic!("asign not a member"),
             };
             logln(
                 LogLevel::Trace,

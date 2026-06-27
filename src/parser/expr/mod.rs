@@ -1,8 +1,8 @@
 use std::{cell::RefCell, fmt::Debug, rc::Rc};
 
 use crate::{
-    Code, CodeResult, JsValue, LogLevel, Prototype, handle_return, inline_borrow, logln,
-    parser::stmt::Stmt,
+    Code, CodeIndex, CodeResult, JsValue, LogLevel, Prototype, handle_return, inline_borrow, logln,
+    parser::stmt::Stmt, run_sub,
 };
 
 pub trait Expr: Stmt {
@@ -22,6 +22,16 @@ impl Expr for Option<Box<dyn Expr>> {
         } else {
             Box::new(|_, _| CodeResult::Normal(Rc::new(RefCell::new(JsValue::Undefined))))
         }
+    }
+}
+
+impl<const LEN: usize> Expr for [Box<dyn Expr>; LEN] {
+    fn compile_expr(&self, mem: Rc<RefCell<Prototype>>) -> Code {
+        let codes: Vec<Code> = self
+            .iter()
+            .map(|code| code.compile_expr(mem.clone()))
+            .collect();
+        Box::new(move |proto, _| run_sub(codes.as_ref(), proto, &mut CodeIndex::new()))
     }
 }
 
@@ -89,12 +99,12 @@ impl Expr for VarDecl {
     fn compile_expr(&self, mem: Rc<RefCell<Prototype>>) -> Code {
         let name = self.name.clone();
         let code = self.initializer.compile_expr(mem);
-        Box::new(move |proto, _i| {
+        Box::new(move |proto, _| {
             logln(
                 LogLevel::Trace,
                 &format!("Entering Expr::VarDecl name={}", name),
             );
-            let value = handle_return!(code(proto.clone(), _i));
+            let value = handle_return!(code(proto.clone(), &mut CodeIndex::new()));
             proto
                 .borrow_mut()
                 .properties

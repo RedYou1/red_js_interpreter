@@ -4,7 +4,7 @@ use crate::parser::expr::{self, Expr};
 use crate::parser::lexer::{Lexer, Token};
 use crate::parser::stmt::Stmt;
 use crate::parser::{ast::*, stmt};
-use crate::{LogLevel, logln};
+use crate::{JsValue, LogLevel, logln};
 
 #[derive(Debug)]
 pub struct ParseError(pub String);
@@ -97,25 +97,16 @@ impl<'a> Parser<'a> {
         let mut body: Vec<Box<dyn Stmt>> = Vec::new();
         while self.cur != Token::RBrace && self.cur != Token::Eof {
             match &self.cur {
-                Token::Return => {
-                    self.bump();
-                    let expr = self.parse_expression()?;
-                    body.push(Box::new(expr::Return {
-                        expr: Some(expr),
-                        rtype: expr::ReturnType::Return,
-                    }));
-                    if self.cur == Token::Semicolon {
-                        self.bump();
-                    }
-                }
                 Token::Semicolon => {
                     self.bump();
                 }
                 _ => {
-                    let expr = self.parse_expression()?;
-                    body.push(expr);
-                    if self.cur == Token::Semicolon {
-                        self.bump();
+                    let expr = self.parse_statement()?;
+                    if let Some(expr) = expr {
+                        body.push(expr);
+                        if self.cur == Token::Semicolon {
+                            self.bump();
+                        }
                     }
                 }
             }
@@ -170,6 +161,12 @@ impl<'a> Parser<'a> {
         match &self.cur {
             Token::Function => {
                 self.bump(); // consume 'function'
+                let generator = if self.cur == Token::Star {
+                    self.bump();
+                    true
+                } else {
+                    false
+                };
                 let name = self.expect_ident()?.leak();
                 logln(
                     LogLevel::Info,
@@ -185,7 +182,7 @@ impl<'a> Parser<'a> {
                     name,
                     params,
                     body,
-                    generator: false,
+                    generator,
                     insert: true,
                 })))
             }
@@ -305,7 +302,7 @@ impl<'a> Parser<'a> {
                     return Err(ParseError("expected '(' after 'while'".into()));
                 }
                 self.bump();
-                let condition = self.parse_expression()?;
+                let condition = Some(self.parse_expression()?);
                 if self.cur != Token::RParen {
                     return Err(ParseError("expected ')' after while condition".into()));
                 }
@@ -333,44 +330,105 @@ impl<'a> Parser<'a> {
                 self.bump();
 
                 // Parse init
-                let init: Option<Box<dyn Expr>> = if self.cur == Token::Semicolon {
-                    None
-                } else if self.cur == Token::Let
-                    || self.cur == Token::Const
-                    || self.cur == Token::Var
-                {
-                    self.bump();
-                    let name = self.expect_ident()?;
-                    let initializer = if self.cur == Token::Assign {
-                        self.bump();
-                        Some(self.parse_expression()?)
+                let mut of = false;
+                let (init, of_cond): (Option<Box<dyn Expr>>, Option<Box<dyn Expr>>) =
+                    if self.cur == Token::Semicolon {
+                        (None, None)
+                    } else if self.cur == Token::Let
+                        || self.cur == Token::Const
+                        || self.cur == Token::Var
+                        || self.peek == Token::Of
+                    {
+                        if self.peek != Token::Of {
+                            self.bump();
+                        }
+                        let name = self.expect_ident()?;
+                        let initializer = if self.cur == Token::Assign {
+                            self.bump();
+                            Some(self.parse_expression()?)
+                        } else if self.cur == Token::Of {
+                            self.bump();
+                            of = true;
+                            Some(self.parse_expression()?)
+                        } else {
+                            None
+                        };
+                        if self.cur == Token::Semicolon {
+                            self.bump();
+                        }
+                        if of {
+                            (
+                                Some(Box::new([
+                                    Box::new(expr::VarDecl {
+                                        name: format!("__for_of_{name}__"),
+                                        initializer: Some(Box::new(expr::Call {
+                                            func: Box::new(expr::Member {
+                                                object: initializer.unwrap(),
+                                                property: Box::new(expr::Member {
+                                                    object: Box::new(expr::Identifier {
+                                                        name: stringify!(Symbol).to_owned(),
+                                                    }),
+                                                    property: Box::new(expr::ConstString {
+                                                        s: "iterator".to_owned(),
+                                                    }),
+                                                }),
+                                            }),
+                                            args: Vec::new(),
+                                        })),
+                                    }) as Box<dyn Expr>,
+                                    Box::new(expr::VarDecl {
+                                        name: name.clone(),
+                                        initializer: None,
+                                    }),
+                                ])),
+                                Some(Box::new(expr::Operator {
+                                    left: Box::new(expr::Assign {
+                                        value: Box::new(expr::Call {
+                                            func: Box::new(expr::Member {
+                                                object: Box::new(expr::Identifier {
+                                                    name: format!("__for_of_{name}__"),
+                                                }),
+                                                property: Box::new(expr::ConstString {
+                                                    s: "next".to_owned(),
+                                                }),
+                                            }),
+                                            args: Vec::new(),
+                                        }),
+                                        target: Box::new(expr::ConstString { s: name }),
+                                    }),
+                                    op: expr::BinaryOp::NotEq,
+                                    right: Box::new(expr::ConstObj {
+                                        obj: JsValue::Undefined,
+                                    }),
+                                })),
+                            )
+                        } else {
+                            (Some(Box::new(expr::VarDecl { name, initializer })), None)
+                        }
                     } else {
-                        None
+                        let expr = self.parse_expression()?;
+                        if self.cur == Token::Semicolon {
+                            self.bump();
+                        }
+                        (Some(expr), None)
                     };
-                    if self.cur == Token::Semicolon {
-                        self.bump();
-                    }
-                    Some(Box::new(expr::VarDecl { name, initializer }))
-                } else {
-                    let expr = self.parse_expression()?;
-                    if self.cur == Token::Semicolon {
-                        self.bump();
-                    }
-                    Some(expr)
-                };
 
                 // Parse condition
-                let condition: Box<dyn Expr> = if self.cur == Token::Semicolon {
-                    Box::new(expr::ConstBoolean { b: true })
+                let condition: Option<Box<dyn Expr>> = if of {
+                    of_cond
                 } else {
-                    self.parse_expression()?
+                    Some(if self.cur == Token::Semicolon {
+                        Box::new(expr::ConstBoolean { b: true })
+                    } else {
+                        self.parse_expression()?
+                    })
                 };
                 if self.cur == Token::Semicolon {
                     self.bump();
                 }
 
                 // Parse update
-                let update = if self.cur == Token::RParen {
+                let update = if of || self.cur == Token::RParen {
                     None
                 } else {
                     Some(self.parse_expression()?)
@@ -409,7 +467,7 @@ impl<'a> Parser<'a> {
                     return Err(ParseError("expected '(' after while".into()));
                 }
                 self.bump();
-                let condition = self.parse_expression()?;
+                let condition = Some(self.parse_expression()?);
                 if self.cur != Token::RParen {
                     return Err(ParseError("expected ')' after while condition".into()));
                 }
@@ -426,28 +484,15 @@ impl<'a> Parser<'a> {
                     do_first: true,
                 })))
             }
-            Token::Break => {
+            Token::Break | Token::Continue | Token::Return | Token::Yield => {
+                let t = self.cur.clone();
                 self.bump();
-                if self.cur == Token::Semicolon {
+                let t2 = if t == Token::Yield && self.cur == Token::Break {
                     self.bump();
-                }
-                Ok(Some(Box::new(expr::Return {
-                    expr: None,
-                    rtype: expr::ReturnType::Break,
-                })))
-            }
-            Token::Continue => {
-                self.bump();
-                if self.cur == Token::Semicolon {
-                    self.bump();
-                }
-                Ok(Some(Box::new(expr::Return {
-                    expr: None,
-                    rtype: expr::ReturnType::Continue,
-                })))
-            }
-            Token::Return => {
-                self.bump();
+                    true
+                } else {
+                    false
+                };
                 logln(LogLevel::Info, "parse_statement return statement");
                 let expr = self.parse_expression()?;
                 if self.cur == Token::Semicolon {
@@ -455,7 +500,14 @@ impl<'a> Parser<'a> {
                 }
                 Ok(Some(Box::new(expr::Return {
                     expr: Some(expr),
-                    rtype: expr::ReturnType::Return,
+                    rtype: match t {
+                        Token::Break => expr::ReturnType::Break,
+                        Token::Continue => expr::ReturnType::Continue,
+                        Token::Return => expr::ReturnType::Return,
+                        Token::Yield if t2 => expr::ReturnType::YieldBreak,
+                        Token::Yield => expr::ReturnType::Yield,
+                        _ => panic!("wierd return"),
+                    },
                 })))
             }
             Token::Semicolon => {
@@ -684,6 +736,14 @@ impl<'a> Parser<'a> {
             Token::Function => {
                 // simple function expression: function name? (params) { ... }
                 self.bump();
+
+                let generator = if self.cur == Token::Star {
+                    self.bump();
+                    true
+                } else {
+                    false
+                };
+
                 let name = if let Token::Ident(s) = &self.cur {
                     let name = s.clone().leak();
                     self.bump();
@@ -700,7 +760,7 @@ impl<'a> Parser<'a> {
                     name,
                     params,
                     body,
-                    generator: false,
+                    generator,
                     insert: false,
                 }))
             }
@@ -731,63 +791,60 @@ impl<'a> Parser<'a> {
         );
         let mut expr = self.parse_primary()?;
         loop {
-            if self.cur == Token::Dot {
-                self.bump();
-                if let Token::Ident(name) = &self.cur {
-                    let prop = name.clone();
+            match self.cur {
+                Token::Dot => {
+                    self.bump();
+                    if let Token::Ident(name) = &self.cur {
+                        let prop = name.clone();
+                        self.bump();
+                        expr = Box::new(expr::Member {
+                            object: expr,
+                            property: Box::new(expr::ConstString { s: prop }),
+                        });
+                    } else {
+                        return Err(ParseError(format!(
+                            "expected property name after '.', got {:?}",
+                            self.cur
+                        )));
+                    }
+                }
+                Token::LBracket => {
+                    self.bump();
+                    let index = self.parse_expression()?;
+                    if self.cur != Token::RBracket {
+                        return Err(ParseError("expected ']'".into()));
+                    }
                     self.bump();
                     expr = Box::new(expr::Member {
                         object: expr,
-                        property: Box::new(expr::ConstString { s: prop }),
+                        property: index,
                     });
-                    continue;
-                } else {
-                    return Err(ParseError(format!(
-                        "expected property name after '.', got {:?}",
-                        self.cur
-                    )));
                 }
-            }
-            if self.cur == Token::LBracket {
-                self.bump();
-                let index = self.parse_expression()?;
-                if self.cur != Token::RBracket {
-                    return Err(ParseError("expected ']'".into()));
-                }
-                self.bump();
-                expr = Box::new(expr::Member {
-                    object: expr,
-                    property: index,
-                });
-                continue;
-            }
-            if self.cur == Token::LParen {
-                self.bump();
-                let mut args = Vec::new();
-                while self.cur != Token::RParen && self.cur != Token::Eof {
-                    let arg = self.parse_expression()?;
-                    args.push(arg);
-                    if self.cur == Token::Comma {
+                Token::LParen => {
+                    self.bump();
+                    let mut args = Vec::new();
+                    while self.cur != Token::RParen && self.cur != Token::Eof {
+                        let arg = self.parse_expression()?;
+                        args.push(arg);
+                        if self.cur == Token::Comma {
+                            self.bump();
+                        }
+                    }
+                    expr = Box::new(expr::Call { func: expr, args });
+                    if self.cur == Token::RParen {
                         self.bump();
                     }
                 }
-                expr = Box::new(expr::Call { func: expr, args });
-                if self.cur == Token::RParen {
+                Token::PlusPlus => {
                     self.bump();
+                    expr = Box::new(expr::Postfix { expr, inc: true });
                 }
-                continue;
+                Token::MinusMinus => {
+                    self.bump();
+                    expr = Box::new(expr::Postfix { expr, inc: false });
+                }
+                _ => break,
             }
-            if self.cur == Token::PlusPlus {
-                self.bump();
-                expr = Box::new(expr::Postfix { expr, inc: true });
-                continue;
-            }
-            if self.cur == Token::MinusMinus {
-                self.bump();
-                expr = Box::new(expr::Postfix { expr, inc: false });
-                continue;
-            }
-            break;
         }
         Ok(expr)
     }

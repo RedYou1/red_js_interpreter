@@ -91,9 +91,9 @@ pub fn prebuild_runnable_direct(
 
 #[macro_export]
 macro_rules! new_class {
-    ($func_name:ident, $name:ident, $parent:ident, $($var_static_name:ident, $var_static:expr),*; $($fn_name:ident, $fn_type:tt, $fn_block:expr),*; $($fn_name2:expr, $fn_type2:tt, $($fn_arg_name:ident),* $($fn_block2:expr);+),*) => {
+    ($func_name:ident, $name:ident, $parent:ident, $($var_static_name:ident, $var_static:expr),*; $($fn_name:ident, $fn_type:tt, $fn_block:expr),*; $($fn_name2:expr, $fn_type2:tt, $($fn_block2:expr);+),*) => {
         pub fn $func_name(mem: Rc<RefCell<Prototype>>) {
-            let function = Prototype::find(mem.clone(), &"Function".into()).1.borrow().unwrap_proto("new_class! for Function");
+            let function = Prototype::find(mem.clone(), &stringify!(Function).into()).1.borrow().unwrap_proto("new_class! for Function");
             let class = JsValue::Prototype(Rc::new(RefCell::new(Prototype {
                 name: Some(stringify!($name)),
                 properties: HashMap::from([
@@ -105,16 +105,17 @@ macro_rules! new_class {
                         (stringify!($var_static_name).into(), Rc::new(RefCell::new($var_static))),
                     )*
                     $(
-                        class_fn!(mem, function, $name, stringify!($fn_name), $fn_type, $fn_block),
+                        class_fn!(mem, function, stringify!($fn_name).into(), format!("{}.{}", stringify!($name), stringify!($fn_name)).leak(), $fn_type, $fn_block),
                     )*
                     $(
-                        class_fn!(mem, function, $name, {
+                        class_fn!(mem, function, {
                             let mut temp = Rc::new(RefCell::new(JsValue::Prototype(mem.clone())));
                             stringify!($fn_name2).split('.').for_each(|x| temp = Prototype::find(temp.clone().borrow().unwrap_proto("new_class! recusive name"), &x.into()).1);
                             inline_borrow!(temp)
-                        }, $fn_type2, $($fn_arg_name),*; $($fn_block2);+),
+                        }, format!("{}.{{{}}}", stringify!($name), stringify!($fn_name2)).leak(), $fn_type2, $($fn_block2);+),
                     )*
                 ]),
+                formating: false,
             })));
             mem.borrow_mut().properties.insert(stringify!($name).into(), Rc::new(RefCell::new(class)));
         }
@@ -123,39 +124,45 @@ macro_rules! new_class {
 
 #[macro_export]
 macro_rules! class_fn {
-    ($mem:ident, $function:ident, $class_name:ident, $fn_name:expr, fn, $fn_block:expr) => {
+    ($mem:ident, $function:ident, $fn_key:expr, $fn_name:expr, fn, $fn_block:expr) => {
         (
-            $fn_name.into(),
+            $fn_key,
             new_runnable(
                 $function.clone(),
-                format!("{}.{}", stringify!($class_name), $fn_name).leak(),
+                $fn_name,
                 prebuild_runnable($mem.clone(), Box::new($fn_block)),
             ),
         )
     };
-    ($mem:ident, $function:ident, $class_name:ident, $fn_name:expr, fn_direct, $fn_block:expr) => {
+    ($mem:ident, $function:ident, $fn_key:expr, $fn_name:expr, fn_direct, $fn_block:expr) => {
         (
-            $fn_name.into(),
+            $fn_key,
             new_runnable(
                 $function.clone(),
-                format!("{}.{}", stringify!($class_name), $fn_name).leak(),
+                $fn_name,
                 prebuild_runnable_direct($mem.clone(), Box::new($fn_block)),
             ),
         )
     };
-    ($mem:ident, $function:ident, $class_name:ident, $fn_name:expr, fn_gen, $($args:expr),*; $($generator:expr);+) => {
+    ($mem:ident, $function:ident, $fn_key:expr, $fn_name:expr, fn_gen, $($generator:expr);+) => {
         (
-            $fn_name,
-            new_generator(
-                $function.clone(),
-                format!("{}.{}", stringify!($class_name), stringify!($fn_name)).leak(),
-                Generator {
-                    params: vec![$($args),*],
-                    excess: None,
-                    mem: $mem.clone(),
-                    code: Rc::new(vec![$(Box::new($generator)),+]),
-                },
-            ),
+            $fn_key,
+            // new_runnable(
+            //     $function.clone(),
+            //     $fn_name,
+            //     prebuild_runnable_direct($mem.clone(), Box::new(|proto,_,_|{
+                    new_generator(
+                        Prototype::find($mem.clone(), &stringify!(Function).into()).1.borrow().unwrap_proto("new_class! for Function for fn_gen"),
+                        $fn_name,
+                        Generator {
+                            params: vec![],
+                            excess: None,
+                            mem: $mem.clone(),
+                            code: Rc::new([$(Box::new($generator)),+]),
+                        },
+                    )
+            //     })),
+            // ),
         )
     };
 }

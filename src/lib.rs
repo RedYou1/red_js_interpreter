@@ -41,9 +41,14 @@ pub fn logln(level: LogLevel, message: &str) {
 mod tests;
 
 use crate::prebuild::{
-    array::prebuild_array, console::prebuild_console, iterator::prebuild_iterator,
-    math::prebuild_math, number::prebuild_number, prebuild_runnable, prebuild_runnable_direct,
-    string::prebuild_string, symbol::prebuild_symbol,
+    array::prebuild_array,
+    console::prebuild_console,
+    iterator::{prebuild_iterator, prebuild_itergen},
+    math::prebuild_math,
+    number::prebuild_number,
+    prebuild_runnable, prebuild_runnable_direct,
+    string::prebuild_string,
+    symbol::prebuild_symbol,
 };
 
 #[macro_export]
@@ -71,6 +76,7 @@ pub fn prebuild_prototypes(
     let object = Rc::new(RefCell::new(Prototype {
         name: Some("Object"),
         properties: HashMap::from([(PROTO_NAME.into(), Rc::new(RefCell::new(JsValue::Null)))]),
+        formating: false,
     }));
 
     let function = Prototype::new_child(object.clone(), Some("Function"), []);
@@ -79,14 +85,15 @@ pub fn prebuild_prototypes(
         name: Some("root memory"),
         properties: HashMap::from([
             (
-                "Object".into(),
+                stringify!(Object).into(),
                 Rc::new(RefCell::new(JsValue::Prototype(object.clone()))),
             ),
             (
-                "Function".into(),
+                stringify!(Function).into(),
                 Rc::new(RefCell::new(JsValue::Prototype(function.clone()))),
             ),
         ]),
+        formating: false,
     }));
 
     let obj = object.clone();
@@ -184,6 +191,7 @@ pub fn prebuild_prototypes(
                 prototypes.clone(),
             )))),
         );
+    prebuild_itergen(prototypes.clone());
     prototypes
 }
 

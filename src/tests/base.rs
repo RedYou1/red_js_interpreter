@@ -3,7 +3,7 @@ use crate::tests::*;
 #[test]
 pub fn test_new_array() {
     let protos = prebuild_prototypes(default_console_config);
-    let array = Prototype::find(protos.clone(), &"Array".into())
+    let array = Prototype::find(protos.clone(), &stringify!(Array).into())
         .1
         .borrow()
         .unwrap_proto("test_new_array for Array");

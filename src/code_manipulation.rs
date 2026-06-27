@@ -1,10 +1,8 @@
-use std::{cell::RefCell, rc::Rc};
+use std::{cell::RefCell, collections::HashMap, rc::Rc};
 
-use crate::{JsValue, LogLevel, Prototype};
+use crate::{JsValue, LogLevel, Prototype, inline_borrow};
 
-
-
-#[derive(Clone)]
+#[derive(Debug, Clone)]
 pub enum CodeResult {
     Normal(Rc<RefCell<JsValue>>),
     NormalMember(
@@ -31,9 +29,10 @@ impl CodeResult {
     }
 }
 
+#[derive(PartialEq, Eq, Clone, Copy)]
 pub struct CodeIndex {
-    current: usize,
-    retry: bool,
+    pub(crate) current: usize,
+    pub(crate) retry: bool,
 }
 
 impl CodeIndex {
@@ -92,6 +91,35 @@ impl CodeIndex {
 
     pub const fn goto_end(&mut self) {
         self.current = usize::MAX;
+    }
+
+    pub fn load_from(proto: Rc<RefCell<Prototype>>, name: &str) -> Self {
+        let JsValue::BigInt(i) =
+            inline_borrow!(Prototype::find(proto.clone(), &format!("__{name}_current__").into()).1)
+        else {
+            panic!("CodeIndex.load_from parse current not BigInt {proto:?}")
+        };
+        let JsValue::Boolean(r) =
+            inline_borrow!(Prototype::find(proto.clone(), &format!("__{name}_retry__").into()).1)
+        else {
+            panic!("CodeIndex.load_from parse retry not Boolean {proto:?}")
+        };
+        Self {
+            current: i as usize,
+            retry: r,
+        }
+    }
+
+    pub fn save_into(&self, proto: Rc<RefCell<Prototype>>, name: &str) {
+        let props: &mut HashMap<JsValue, Rc<RefCell<JsValue>>> = &mut proto.borrow_mut().properties;
+        props.insert(
+            format!("__{name}_current__").into(),
+            Rc::new(RefCell::new(JsValue::BigInt(self.current as i64))),
+        );
+        props.insert(
+            format!("__{name}_retry__").into(),
+            Rc::new(RefCell::new(JsValue::Boolean(self.retry))),
+        );
     }
 }
 

@@ -63,7 +63,7 @@ impl Expr for Operator {
                     }
                 }
                 BinaryOp::Eq => JsValue::Boolean(l.eq(&r)),
-                BinaryOp::NotEq => JsValue::Boolean(l.eq(&r)),
+                BinaryOp::NotEq => JsValue::Boolean(l.ne(&r)),
                 BinaryOp::Lt => match (l, r) {
                     (JsValue::Number(a), JsValue::Number(b)) => JsValue::Boolean(a < b),
                     _ => JsValue::Boolean(false),

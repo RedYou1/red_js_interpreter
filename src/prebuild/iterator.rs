@@ -1,38 +1,80 @@
-use crate::prebuild::prelude::*;
+use std::ptr;
 
-new_class!{
+use crate::{Code, CodeIndex, IterGenerator, prebuild::prelude::*, run_sub};
+
+new_class! {
     prebuild_iterator,
     Iterator,
     Object,;;
-    map, fn_gen,
-    |proto, _| {
-        proto
-            .borrow_mut()
-            .properties
-            .insert("i".into(), Rc::new(RefCell::new(JsValue::BigInt(0))));
-        run_generator_object(
-            Prototype::find(proto.clone(), &"this".into()).1.borrow().unwrap_proto("Iterator.map for this"),
-            Rc::new(RefCell::new(JsValue::Undefined)),
-            vec![],
+}
+
+impl IterGenerator {
+    pub fn into_proto(self, generator: Rc<RefCell<Prototype>>) -> Rc<RefCell<Prototype>> {
+        let t = Prototype::new_child(
+            generator,
+            None,
+            [
+                (
+                    "__mem__".into(),
+                    Rc::new(RefCell::new(JsValue::Prototype(self.proto))),
+                ),
+                (
+                    "__code__len".into(),
+                    Rc::new(RefCell::new(JsValue::BigInt(self.code.len() as i64))),
+                ),
+                (
+                    "__code__".into(),
+                    Rc::new(RefCell::new(JsValue::BigInt(
+                        Rc::into_raw(self.code) as *const () as i64,
+                    ))),
+                ),
+            ],
         );
-        CodeResult::Normal(Rc::new(RefCell::new(JsValue::Undefined)))
-    };
-    |proto, _| {
-        let JsValue::BigInt(arr_i) = inline_borrow!(Prototype::find(proto.clone(), &"i".into()).1) else {
-            panic!("?")
-        };
-        let JsValue::BigInt(arr_len) = inline_borrow!(Prototype::find(proto.clone(), &"length".into()).1) else {
-            panic!("?")
-        };
-        if arr_i >= arr_len {
-            CodeResult::Normal(Rc::new(RefCell::new(JsValue::Undefined)))
-        } else {
-            let obj = Prototype::find(proto.clone(), &arr_i.into()).1;
-            proto
-                .borrow_mut()
-                .properties
-                .insert("i".into(), Rc::new(RefCell::new(JsValue::BigInt(arr_i + 1))));
-            CodeResult::Yield(obj)
-        }
+        self.index.save_into(t.clone(), "Generator_CodeIndex");
+        t
     }
+}
+
+new_class! {
+    prebuild_itergen,
+    Generator,
+    Iterator,;
+    next, fn, |_, this, []| {
+        let this = this.borrow().unwrap_proto("Generator.next this not proto");
+        let JsValue::Prototype(proto) = inline_borrow!(Prototype::find(this.clone(), &"__mem__".into()).1) else {panic!("Generator.next parse __mem__ not proto {this:?}")};
+        let JsValue::BigInt(code_len) = inline_borrow!(Prototype::find(this.clone(), &"__code__len".into()).1) else {panic!("Generator.next parse __code__len not BigInt {this:?}")};
+        let code = if let JsValue::BigInt(ptr) = inline_borrow!(Prototype::find(this.clone(), &"__code__".into()).1) {
+            unsafe { ptr::slice_from_raw_parts(ptr as *const Code, code_len as usize).as_ref_unchecked()}
+        } else {panic!("Generator.next parse __code__ not BigInt {this:?}")};
+        let mut code_index = CodeIndex::load_from(this.clone(), "Generator_CodeIndex");
+        if code_index.current >= code.len() {
+            drop(unsafe{ Rc::from_raw(code) });
+            return Rc::new(RefCell::new(JsValue::Undefined));
+        }
+        let proto_before = inline_borrow!(proto.clone());
+        let start = code_index;
+        let res = run_sub(code, proto.clone(), &mut code_index);
+        match res {
+            CodeResult::Normal(r) | CodeResult::Return(r) => {
+                drop(unsafe{ Rc::from_raw(code) });
+                r
+            },
+            CodeResult::YieldBreak => {
+                drop(unsafe{ Rc::from_raw(code) });
+                Rc::new(RefCell::new(JsValue::Undefined))
+            },
+            CodeResult::Yield(r) => {
+                //detect direct yield to jump over
+                if code_index == start && proto_before == inline_borrow!(proto.clone()) {
+                    code_index.next();
+                }
+                code_index.save_into(this.clone(), "Generator_CodeIndex");
+                r
+            },
+            _ => {
+                panic!("got wrong codeResult from iterator in Generator obj {res:?}");
+            }
+        }
+    };
+    Symbol.iterator, fn, |_, this, []| { this }
 }

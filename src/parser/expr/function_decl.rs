@@ -15,7 +15,7 @@ pub struct FunctionDecl {
 
 impl Expr for FunctionDecl {
     fn compile_expr(&self, mem: Rc<RefCell<Prototype>>) -> Code {
-        let function_proto = Prototype::find(mem.clone(), &"Function".into())
+        let function_proto = Prototype::find(mem.clone(), &stringify!(Function).into())
             .1
             .borrow()
             .unwrap_proto("expr::FunctionDecl for Function");
@@ -47,7 +47,7 @@ impl Expr for FunctionDecl {
                 crate::Generator {
                     params: self.params.clone(),
                     excess: None,
-                    code: Rc::new(code),
+                    code: Rc::from(code),
                     mem: my_mem,
                 },
             )

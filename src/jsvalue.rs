@@ -22,12 +22,12 @@ impl Eq for JsValue {}
 impl PartialEq for JsValue {
     fn eq(&self, other: &Self) -> bool {
         match (self, other) {
-            (Self::Prototype(l0), Self::Prototype(r0)) => l0 == r0,
-            (Self::Symbol(l0, l1), Self::Symbol(r0, r1)) => l0 == r0 && l1 == r1,
-            (Self::String(l0), Self::String(r0)) => l0 == r0,
-            (Self::Number(l0), Self::Number(r0)) => l0 == r0,
-            (Self::BigInt(l0), Self::BigInt(r0)) => l0 == r0,
-            (Self::Boolean(l0), Self::Boolean(r0)) => l0 == r0,
+            (Self::Prototype(l0), Self::Prototype(r0)) => l0.eq(r0),
+            (Self::Symbol(l0, l1), Self::Symbol(r0, r1)) => *l0 == *r0 && l1.eq(r1),
+            (Self::String(l0), Self::String(r0)) => l0.eq(r0),
+            (Self::Number(l0), Self::Number(r0)) => *l0 == *r0,
+            (Self::BigInt(l0), Self::BigInt(r0)) => *l0 == *r0,
+            (Self::Boolean(l0), Self::Boolean(r0)) => *l0 == *r0,
             (Self::Undefined, Self::Undefined) => true,
             (Self::Null, Self::Null) => true,
             _ => false,

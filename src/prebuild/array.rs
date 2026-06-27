@@ -27,7 +27,7 @@ new_class! {
     Iterator,;
     constructor, fn_direct,
     |mem, _, arguments| {
-        let array = Prototype::find(mem.clone(), &"Array".into()).1.borrow().unwrap_proto("Array.constructor for Array");
+        let array = Prototype::find(mem.clone(), &stringify!(Array).into()).1.borrow().unwrap_proto("Array.constructor for Array");
         if let [nlength] = &arguments[..] && let JsValue::BigInt(nlength) = inline_borrow!(nlength) && (0..=(u32::MAX as i64)).contains(&nlength)
         {
             new_array(
@@ -40,9 +40,9 @@ new_class! {
     },
     from, fn,
     |mem, _, [items, map_fn, this_arg]| {
-        let array = Prototype::find(mem.clone(), &"Array".into()).1.borrow().unwrap_proto("Array.from for Array");
+        let array = Prototype::find(mem.clone(), &stringify!(Array).into()).1.borrow().unwrap_proto("Array.from for Array");
         let JsValue::Symbol(_, iterator) =
-            inline_borrow!(Prototype::find(mem.clone(), &"Symbol".into()).1.borrow().find(&"iterator".into(), "Array.from get Symbol.iterator").1)
+            inline_borrow!(Prototype::find(mem.clone(), &stringify!(Symbol).into()).1.borrow().find(&"iterator".into(), "Array.from get Symbol.iterator").1)
         else {
             panic!("Array.from get Symbol.iterator")
         };
@@ -70,7 +70,7 @@ new_class! {
     },
     of, fn_direct,
     |mem, _, arguments| {
-        let array = Prototype::find(mem, &"Array".into()).1.borrow().unwrap_proto("Array.of for Array");
+        let array = Prototype::find(mem, &stringify!(Array).into()).1.borrow().unwrap_proto("Array.of for Array");
         new_array(array, arguments)
     },
     at, fn,
@@ -271,27 +271,31 @@ new_class! {
     };
     Symbol.iterator, fn_gen,
     |proto, _| {
-        proto
-            .borrow_mut()
+        proto.borrow_mut()
             .properties
             .insert("i".into(), Rc::new(RefCell::new(JsValue::BigInt(0))));
         CodeResult::Normal(Rc::new(RefCell::new(JsValue::Undefined)))
     };
     |proto, _| {
-        let JsValue::BigInt(arr_i) = inline_borrow!(Prototype::find(proto.clone(), &"i".into()).1) else {
+        let JsValue::BigInt(i) = inline_borrow!(Prototype::find(proto.clone(), &"i".into()).1) else {
             panic!("?")
         };
-        let JsValue::BigInt(arr_len) = inline_borrow!(Prototype::find(proto.clone(), &"length".into()).1) else {
+        let this = proto
+            .borrow()
+            .properties[&"this".into()]
+            .borrow()
+            .unwrap_proto("Array.iterator this not found");
+        let JsValue::BigInt(arr_len) = inline_borrow!(Prototype::find(this.clone(), &"length".into()).1) else {
             panic!("?")
         };
-        if arr_i >= arr_len {
-            CodeResult::Normal(Rc::new(RefCell::new(JsValue::Undefined)))
+        if i >= arr_len {
+            CodeResult::YieldBreak
         } else {
-            let obj = Prototype::find(proto.clone(), &arr_i.into()).1;
+            let obj = Prototype::find(this.clone(), &i.into()).1;
             proto
                 .borrow_mut()
                 .properties
-                .insert("i".into(), Rc::new(RefCell::new(JsValue::BigInt(arr_i + 1))));
+                .insert("i".into(), Rc::new(RefCell::new(JsValue::BigInt(i + 1))));
             CodeResult::Yield(obj)
         }
     }

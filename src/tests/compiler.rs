@@ -150,3 +150,62 @@ assert_result!(
     "elem: a",
     "elem: wow"
 );
+
+assert_result!(
+    test_compile_iterator_array,
+    r#"
+    for (message of [5, 'allo', {a: true}]) {
+        console.log(message);
+    }
+    "#;
+    "5",
+    "allo",
+    "{ a: true }"
+);
+
+assert_result!(
+    test_compile_iterator_generator,
+    r#"
+    function* t1(){
+        for (message of [5, 'allo', {a: true}]) {
+            yield message;
+        }
+    }
+    for (message of t1()) {
+        console.log(message);
+    }
+    "#;
+    "5",
+    "allo",
+    "{ a: true }"
+);
+
+assert_result!(
+    test_compile_iterator_multiple_generator,
+    r#"
+    function* t1() {
+        yield 'a';
+        yield 'b';
+    }
+
+    function* t2() {
+        for (let i = 0; i < 3; i++) {
+            for (const letter of t1()) {
+                yield `${i}:${letter}`;
+            }
+        }
+    }
+
+    for (message of t2()) {
+        console.log(message);
+    }
+    "#;
+    "0:a",
+    "0:b",
+    "1:a",
+    "1:b",
+    "2:a",
+    "2:b"
+);
+
+//TODO test recusive for all expr and stmt

@@ -158,7 +158,7 @@ new_class! {
     },
     split, fn,
     |mem, this, [separator]| {
-        let array = Prototype::find(mem, &"Array".into()).1.borrow().unwrap_proto("String.split for Array");
+        let array = Prototype::find(mem, &stringify!(Array).into()).1.borrow().unwrap_proto("String.split for Array");
         if let JsValue::String(s) = inline_borrow!(this) {
             let parts: Vec<Rc<RefCell<JsValue>>> = match inline_borrow!(separator) {
                 JsValue::String(sep) => {

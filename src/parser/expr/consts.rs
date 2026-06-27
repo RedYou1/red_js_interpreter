@@ -34,3 +34,15 @@ impl Expr for ConstBoolean {
         Box::new(move |_, _| CodeResult::Normal(Rc::new(RefCell::new(JsValue::Boolean(b)))))
     }
 }
+
+pub struct ConstObj {
+    pub obj: JsValue,
+}
+
+impl Expr for ConstObj {
+    fn compile_expr(&self, _: Rc<RefCell<Prototype>>) -> Code {
+        let obj = self.obj.clone();
+        Box::new(move |_, _| 
+            CodeResult::Normal(Rc::new(RefCell::new(obj.clone()))))
+    }
+}

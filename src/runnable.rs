@@ -2,7 +2,7 @@ use std::{cell::RefCell, fmt::Debug, rc::Rc};
 
 use crate::{
     ARGUMENTS, CONSTRUCTOR_NAME, Code, CodeIndex, CodeResult, JsValue, LogLevel, PROTO_NAME,
-    PROTOTYPE_NAME, Prototype, RUNNABLE, inline_borrow, logln, new_array, run_sub,
+    PROTOTYPE_NAME, Prototype, RUNNABLE, inline_borrow, new_array, run_sub,
 };
 
 pub struct Runnable {
@@ -21,6 +21,7 @@ pub fn new_runnable_with_object(
     let function_obj = Rc::new(RefCell::new(Prototype {
         name: Some(name),
         properties: std::collections::HashMap::new(),
+        formating: false,
     }));
     let prototype_obj = Prototype::new_child(
         object_proto,
@@ -85,12 +86,14 @@ pub fn run_function_object(
             .enumerate()
             .map(|(i, param)| (runnable.params[i].as_str().into(), param.clone()))
             .collect(),
+        formating: false,
     }));
     proto.borrow_mut().properties.insert(
         PROTO_NAME.into(),
         Rc::new(RefCell::new(JsValue::Prototype(mem.clone()))),
     );
-    let JsValue::Prototype(array) = inline_borrow!(Prototype::find(mem.clone(), &"Array".into()).1)
+    let JsValue::Prototype(array) =
+        inline_borrow!(Prototype::find(mem.clone(), &stringify!(Array).into()).1)
     else {
         panic!("Array not found")
     };
@@ -106,7 +109,7 @@ pub fn run_function_object(
     proto.borrow_mut().properties.insert(
         ARGUMENTS.into(),
         new_array(
-            Prototype::find(mem.clone(), &"Array".into())
+            Prototype::find(mem.clone(), &stringify!(Array).into())
                 .1
                 .borrow()
                 .unwrap_proto("run_function_object get Array"),
