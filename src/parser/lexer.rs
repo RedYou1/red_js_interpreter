@@ -1,6 +1,7 @@
 #[derive(Debug, Clone, PartialEq)]
 pub enum Token {
     Ident(String),
+    BigInt(i64),
     Number(f64),
     Str(String),
     TemplateStart,
@@ -320,7 +321,9 @@ impl<'a> Lexer<'a> {
                 }
                 c if c.is_ascii_digit() => {
                     let s = self.eat_while(|ch| ch.is_ascii_digit() || ch == '.');
-                    if let Ok(n) = s.parse::<f64>() {
+                    if let Ok(n) = s.parse::<i64>() {
+                        return Token::BigInt(n);
+                    } else if let Ok(n) = s.parse::<f64>() {
                         return Token::Number(n);
                     } else {
                         continue;

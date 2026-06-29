@@ -31,58 +31,85 @@ impl Expr for Operator {
         let right = self.right.compile_expr(mem.clone());
         let op = self.op.clone();
         Box::new(move |proto, i| {
-            logln(LogLevel::Trace, &format!("Entering Expr::Operator op={:?}", op));
+            logln(
+                LogLevel::Trace,
+                &format!("Entering Expr::Operator op={:?}", op),
+            );
             let l = inline_borrow!(handle_return!(left(proto.clone(), i)));
             let r = inline_borrow!(handle_return!(right(proto.clone(), i)));
             let value = match op {
                 BinaryOp::Add => match (l, r) {
+                    (JsValue::BigInt(a), JsValue::BigInt(b)) => JsValue::BigInt(a + b),
+                    (JsValue::BigInt(a), JsValue::Number(b)) => JsValue::Number(a as f64 + b),
+                    (JsValue::Number(a), JsValue::BigInt(b)) => JsValue::Number(a + b as f64),
                     (JsValue::Number(a), JsValue::Number(b)) => JsValue::Number(a + b),
                     (JsValue::String(a), b) => JsValue::String(a + &b.print()),
                     (a, JsValue::String(b)) => JsValue::String(a.print() + &b),
                     _ => JsValue::Undefined,
                 },
-                BinaryOp::Sub => {
-                    if let (JsValue::Number(a), JsValue::Number(b)) = (l, r) {
-                        JsValue::Number(a - b)
-                    } else {
-                        JsValue::Undefined
+                BinaryOp::Sub => match (l, r) {
+                    (JsValue::BigInt(a), JsValue::BigInt(b)) => JsValue::BigInt(a - b),
+                    (JsValue::BigInt(a), JsValue::Number(b)) => JsValue::Number(a as f64 - b),
+                    (JsValue::Number(a), JsValue::BigInt(b)) => JsValue::Number(a - b as f64),
+                    (JsValue::Number(a), JsValue::Number(b)) => JsValue::Number(a - b),
+                    _ => JsValue::Undefined,
+                },
+                BinaryOp::Mul => match (l, r) {
+                    (JsValue::BigInt(a), JsValue::BigInt(b)) => JsValue::BigInt(a * b),
+                    (JsValue::BigInt(a), JsValue::Number(b)) => JsValue::Number(a as f64 * b),
+                    (JsValue::Number(a), JsValue::BigInt(b)) => JsValue::Number(a * b as f64),
+                    (JsValue::Number(a), JsValue::Number(b)) => JsValue::Number(a * b),
+                    _ => JsValue::Undefined,
+                },
+                BinaryOp::Div => match (l, r) {
+                    (JsValue::BigInt(a), JsValue::BigInt(b)) => {
+                        if a % b == 0 {
+                            JsValue::BigInt(a / b)
+                        } else {
+                            JsValue::Number(a as f64 / b as f64)
+                        }
                     }
-                }
-                BinaryOp::Mul => {
-                    if let (JsValue::Number(a), JsValue::Number(b)) = (l, r) {
-                        JsValue::Number(a * b)
-                    } else {
-                        JsValue::Undefined
-                    }
-                }
-                BinaryOp::Div => {
-                    if let (JsValue::Number(a), JsValue::Number(b)) = (l, r) {
-                        JsValue::Number(a / b)
-                    } else {
-                        JsValue::Undefined
-                    }
-                }
+                    (JsValue::BigInt(a), JsValue::Number(b)) => JsValue::Number(a as f64 / b),
+                    (JsValue::Number(a), JsValue::BigInt(b)) => JsValue::Number(a / b as f64),
+                    (JsValue::Number(a), JsValue::Number(b)) => JsValue::Number(a / b),
+                    _ => JsValue::Undefined,
+                },
                 BinaryOp::Eq => JsValue::Boolean(l.eq(&r)),
                 BinaryOp::NotEq => JsValue::Boolean(l.ne(&r)),
                 BinaryOp::Lt => match (l, r) {
+                    (JsValue::BigInt(a), JsValue::BigInt(b)) => JsValue::Boolean(a < b),
+                    (JsValue::BigInt(a), JsValue::Number(b)) => JsValue::Boolean((a as f64) < b),
+                    (JsValue::Number(a), JsValue::BigInt(b)) => JsValue::Boolean(a < b as f64),
                     (JsValue::Number(a), JsValue::Number(b)) => JsValue::Boolean(a < b),
                     _ => JsValue::Boolean(false),
                 },
                 BinaryOp::Gt => match (l, r) {
+                    (JsValue::BigInt(a), JsValue::BigInt(b)) => JsValue::Boolean(a > b),
+                    (JsValue::BigInt(a), JsValue::Number(b)) => JsValue::Boolean((a as f64) > b),
+                    (JsValue::Number(a), JsValue::BigInt(b)) => JsValue::Boolean(a > b as f64),
                     (JsValue::Number(a), JsValue::Number(b)) => JsValue::Boolean(a > b),
                     _ => JsValue::Boolean(false),
                 },
                 BinaryOp::LtEq => match (l, r) {
+                    (JsValue::BigInt(a), JsValue::BigInt(b)) => JsValue::Boolean(a <= b),
+                    (JsValue::BigInt(a), JsValue::Number(b)) => JsValue::Boolean((a as f64) <= b),
+                    (JsValue::Number(a), JsValue::BigInt(b)) => JsValue::Boolean(a <= b as f64),
                     (JsValue::Number(a), JsValue::Number(b)) => JsValue::Boolean(a <= b),
                     _ => JsValue::Boolean(false),
                 },
                 BinaryOp::GtEq => match (l, r) {
+                    (JsValue::BigInt(a), JsValue::BigInt(b)) => JsValue::Boolean(a >= b),
+                    (JsValue::BigInt(a), JsValue::Number(b)) => JsValue::Boolean((a as f64) >= b),
+                    (JsValue::Number(a), JsValue::BigInt(b)) => JsValue::Boolean(a >= b as f64),
                     (JsValue::Number(a), JsValue::Number(b)) => JsValue::Boolean(a >= b),
                     _ => JsValue::Boolean(false),
                 },
             };
             let out = Rc::new(RefCell::new(value));
-            logln(LogLevel::Trace, &format!("Exiting Expr::Operator result={:?}", out));
+            logln(
+                LogLevel::Trace,
+                &format!("Exiting Expr::Operator result={:?}", out),
+            );
             CodeResult::Normal(out)
         })
     }

@@ -2,6 +2,17 @@ use std::{cell::RefCell, rc::Rc};
 
 use crate::{Code, CodeResult, JsValue, Prototype, parser::expr::Expr};
 
+pub struct ConstBigInt {
+    pub num: i64,
+}
+
+impl Expr for ConstBigInt {
+    fn compile_expr(&self, _: Rc<RefCell<Prototype>>) -> Code {
+        let num = self.num;
+        Box::new(move |_, _| CodeResult::Normal(Rc::new(RefCell::new(JsValue::BigInt(num)))))
+    }
+}
+
 pub struct ConstNumber {
     pub num: f64,
 }

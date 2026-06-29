@@ -574,6 +574,11 @@ impl<'a> Parser<'a> {
                 self.bump();
                 Ok(Box::new(expr::Identifier { name }))
             }
+            Token::BigInt(n) => {
+                let value = *n;
+                self.bump();
+                Ok(Box::new(expr::ConstBigInt { num: value }))
+            }
             Token::Number(n) => {
                 let value = *n;
                 self.bump();
@@ -632,6 +637,11 @@ impl<'a> Parser<'a> {
                     let key: Box<dyn Expr> = match &self.cur {
                         Token::Ident(value) | Token::Str(value) => {
                             let key = Box::new(expr::ConstString { s: value.clone() });
+                            self.bump();
+                            key
+                        }
+                        Token::BigInt(n) => {
+                            let key = Box::new(expr::ConstBigInt { num: *n });
                             self.bump();
                             key
                         }

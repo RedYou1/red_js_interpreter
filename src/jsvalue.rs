@@ -27,6 +27,8 @@ impl PartialEq for JsValue {
             (Self::String(l0), Self::String(r0)) => l0.eq(r0),
             (Self::Number(l0), Self::Number(r0)) => *l0 == *r0,
             (Self::BigInt(l0), Self::BigInt(r0)) => *l0 == *r0,
+            (Self::BigInt(l0), Self::Number(r0)) => *l0 as f64 == *r0,
+            (Self::Number(l0), Self::BigInt(r0)) => *l0 == *r0 as f64,
             (Self::Boolean(l0), Self::Boolean(r0)) => *l0 == *r0,
             (Self::Undefined, Self::Undefined) => true,
             (Self::Null, Self::Null) => true,
@@ -46,7 +48,7 @@ impl Hash for JsValue {
             }
             Self::String(value) => value.hash(state),
             Self::Number(value) => value.to_bits().hash(state),
-            Self::BigInt(value) => value.hash(state),
+            Self::BigInt(value) => (*value as f64).to_bits().hash(state),
             Self::Boolean(value) => value.hash(state),
             Self::Undefined | Self::Null | Self::Function(_) | Self::Generator(_) => {}
         }
