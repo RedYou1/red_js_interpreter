@@ -2,7 +2,12 @@ use std::{cell::RefCell, rc::Rc};
 
 use crate::{
     Code, CodeIndex, CodeResult, JsValue, LogLevel, Prototype, handle_return, inline_borrow, logln,
-    parser::{expr::Expr, stmt::Stmt},
+    parser::{
+        expr::{self, Expr},
+        lexer::Token,
+        parser::{ParseError, Parser},
+        stmt::Stmt,
+    },
     run_sub,
 };
 
@@ -12,6 +17,139 @@ pub struct LoopStmt {
     pub update: Option<Box<dyn Expr>>,
     pub body: Vec<Box<dyn Stmt>>,
     pub do_first: bool,
+}
+
+impl LoopStmt {
+    pub fn parse(parser: &mut Parser) -> Result<Self, ParseError> {
+        let t = parser.current().clone();
+        parser.bump();
+        logln(LogLevel::Info, "parse_statement for loop");
+        if !matches!(parser.current(), Token::LParen) {
+            return Err(ParseError("expected '(' after 'for'".into()));
+        }
+        parser.bump();
+
+        // Parse init
+        let mut of = false;
+        let (init, of_cond): (Option<Box<dyn Expr>>, Option<Box<dyn Expr>>) =
+            if !matches!(t, Token::For) || matches!(parser.current(), Token::Semicolon) {
+                (None, None)
+            } else if matches!(parser.current(), Token::Let | Token::Const | Token::Var)
+                || matches!(parser.peek(), Token::Of)
+            {
+                if !matches!(parser.peek(), Token::Of) {
+                    parser.bump();
+                }
+                let name = parser.expect_ident()?;
+                let initializer = if let Token::Assign = parser.current() {
+                    parser.bump();
+                    Some(parser.parse_expression()?)
+                } else if let Token::Of = parser.current() {
+                    parser.bump();
+                    of = true;
+                    Some(parser.parse_expression()?)
+                } else {
+                    None
+                };
+                if let Token::Semicolon = parser.current() {
+                    parser.bump();
+                }
+                if of {
+                    (
+                        Some(Box::new([
+                            Box::new(expr::VarDecl {
+                                name: format!("__for_of_{name}__"),
+                                initializer: Some(Box::new(expr::Call {
+                                    func: Box::new(expr::Member {
+                                        object: initializer.unwrap(),
+                                        property: Box::new(expr::Member {
+                                            object: Box::new(expr::Identifier {
+                                                name: stringify!(Symbol).to_owned(),
+                                            }),
+                                            property: Box::new(expr::ConstString {
+                                                s: "iterator".to_owned(),
+                                            }),
+                                        }),
+                                    }),
+                                    args: Vec::new(),
+                                })),
+                            }) as Box<dyn Expr>,
+                            Box::new(expr::VarDecl {
+                                name: name.clone(),
+                                initializer: None,
+                            }),
+                        ])),
+                        Some(Box::new(expr::Operator {
+                            left: Box::new(expr::Assign {
+                                value: Box::new(expr::Call {
+                                    func: Box::new(expr::Member {
+                                        object: Box::new(expr::Identifier {
+                                            name: format!("__for_of_{name}__"),
+                                        }),
+                                        property: Box::new(expr::ConstString {
+                                            s: "next".to_owned(),
+                                        }),
+                                    }),
+                                    args: Vec::new(),
+                                }),
+                                target: Box::new(expr::ConstString { s: name }),
+                            }),
+                            op: expr::BinaryOp::NotEq,
+                            right: Box::new(expr::ConstObj {
+                                obj: JsValue::Undefined,
+                            }),
+                        })),
+                    )
+                } else {
+                    (Some(Box::new(expr::VarDecl { name, initializer })), None)
+                }
+            } else {
+                let expr = parser.parse_expression()?;
+                if let Token::Semicolon = parser.current() {
+                    parser.bump();
+                }
+                (Some(expr), None)
+            };
+
+        // Parse condition
+        let condition: Option<Box<dyn Expr>> = if of {
+            of_cond
+        } else {
+            Some(if let Token::Semicolon = parser.current() {
+                Box::new(expr::ConstBoolean { b: true })
+            } else {
+                parser.parse_expression()?
+            })
+        };
+        if let Token::Semicolon = parser.current() {
+            parser.bump();
+        }
+
+        // Parse update
+        let update = if of || matches!(parser.current(), Token::RParen) {
+            None
+        } else {
+            Some(parser.parse_expression()?)
+        };
+
+        if !matches!(parser.current(), Token::RParen) {
+            return Err(ParseError("expected ')' after for clauses".into()));
+        }
+        parser.bump();
+
+        if !matches!(parser.current(), Token::LBrace) {
+            return Err(ParseError("expected '{' for for body".into()));
+        }
+        let body = parser.parse_block_body()?;
+
+        Ok(Self {
+            init,
+            condition,
+            update,
+            body,
+            do_first: false,
+        })
+    }
 }
 
 impl Stmt for LoopStmt {

@@ -2,7 +2,12 @@ use std::{cell::RefCell, fmt::Debug, rc::Rc};
 
 use crate::{
     Code, CodeIndex, CodeResult, JsValue, LogLevel, Prototype, handle_return, inline_borrow, logln,
-    parser::stmt::Stmt, run_sub,
+    parser::{
+        lexer::Token,
+        parser::{ParseError, Parser},
+        stmt::Stmt,
+    },
+    run_sub,
 };
 
 pub trait Expr: Stmt {
@@ -93,6 +98,26 @@ impl Expr for Identifier {
 pub struct VarDecl {
     pub name: String,
     pub initializer: Option<Box<dyn Expr>>,
+}
+
+impl VarDecl {
+    pub fn parse(parser: &mut Parser) -> Result<Self, ParseError> {
+        let name = parser.expect_ident()?;
+        logln(
+            LogLevel::Info,
+            &format!("parse_statement variable declaration name={}", name),
+        );
+        let initializer = if let Token::Assign = parser.current() {
+            parser.bump();
+            Some(parser.parse_expression()?)
+        } else {
+            None
+        };
+        if let Token::Semicolon = parser.current() {
+            parser.bump();
+        }
+        Ok(Self { name, initializer })
+    }
 }
 
 impl Expr for VarDecl {

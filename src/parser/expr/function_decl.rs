@@ -2,7 +2,12 @@ use std::{cell::RefCell, rc::Rc};
 
 use crate::{
     Code, CodeResult, LogLevel, Prototype, logln, new_generator, new_runnable,
-    parser::{expr::Expr, stmt::Stmt},
+    parser::{
+        expr::Expr,
+        lexer::Token,
+        parser::{ParseError, Parser},
+        stmt::Stmt,
+    },
 };
 
 pub struct FunctionDecl {
@@ -11,6 +16,41 @@ pub struct FunctionDecl {
     pub body: Vec<Box<dyn Stmt>>,
     pub generator: bool,
     pub insert: bool,
+}
+
+impl FunctionDecl {
+    pub fn parse(parser: &mut Parser, insert: bool) -> Result<Self, ParseError> {
+        let generator = if let Token::Star = parser.current() {
+            parser.bump();
+            true
+        } else {
+            false
+        };
+        let name = if let Token::Ident(s) = &parser.current() {
+            let name = s.clone().leak();
+            parser.bump();
+            name
+        } else {
+            "anonymous function"
+        };
+        logln(
+            LogLevel::Info,
+            &format!("parse_statement function name={}", name),
+        );
+        // Expect LParen
+        parser.skip_to(Token::LParen);
+        parser.expect_and_bump(Token::LParen, "expected '('")?;
+        let params = parser.parse_param_list()?;
+        parser.skip_to(Token::LBrace);
+        let body = parser.parse_block_body()?;
+        Ok(Self {
+            name,
+            params,
+            body,
+            generator,
+            insert,
+        })
+    }
 }
 
 impl Expr for FunctionDecl {

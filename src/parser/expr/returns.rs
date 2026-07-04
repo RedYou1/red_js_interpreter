@@ -1,6 +1,13 @@
 use std::{cell::RefCell, rc::Rc};
 
-use crate::{Code, CodeResult, LogLevel, Prototype, handle_return, logln, parser::expr::Expr};
+use crate::{
+    Code, CodeResult, LogLevel, Prototype, handle_return, logln,
+    parser::{
+        expr::{self, Expr},
+        lexer::Token,
+        parser::{ParseError, Parser},
+    },
+};
 
 #[derive(Debug, Clone, Copy)]
 pub enum ReturnType {
@@ -14,6 +21,35 @@ pub enum ReturnType {
 pub struct Return {
     pub rtype: ReturnType,
     pub expr: Option<Box<dyn Expr>>,
+}
+
+impl Return {
+    pub fn parse(parser: &mut Parser) -> Result<Self, ParseError> {
+        let t = parser.current().clone();
+        parser.bump();
+        let t2 = if t == Token::Yield && matches!(parser.current(), Token::Break) {
+            parser.bump();
+            true
+        } else {
+            false
+        };
+        logln(LogLevel::Info, "parse_statement return statement");
+        let expr = parser.parse_expression()?;
+        if let Token::Semicolon = parser.current() {
+            parser.bump();
+        }
+        Ok(Self {
+            expr: Some(expr),
+            rtype: match t {
+                Token::Break => expr::ReturnType::Break,
+                Token::Continue => expr::ReturnType::Continue,
+                Token::Return => expr::ReturnType::Return,
+                Token::Yield if t2 => expr::ReturnType::YieldBreak,
+                Token::Yield => expr::ReturnType::Yield,
+                _ => panic!("wierd return"),
+            },
+        })
+    }
 }
 
 impl Expr for Return {

@@ -1,10 +1,8 @@
-use std::rc::Rc;
-
 use crate::parser::expr::{self, Expr};
 use crate::parser::lexer::{Lexer, Token};
 use crate::parser::stmt::Stmt;
 use crate::parser::{ast::*, stmt};
-use crate::{JsValue, LogLevel, logln};
+use crate::{LogLevel, logln};
 
 #[derive(Debug)]
 pub struct ParseError(pub String);
@@ -40,6 +38,14 @@ impl<'a> Parser<'a> {
             LogLevel::Trace,
             &format!("Parser::bump {:?} -> {:?}", prev, self.cur),
         );
+    }
+
+    pub const fn current(&self) -> &Token {
+        &self.cur
+    }
+
+    pub const fn peek(&self) -> &Token {
+        &self.peek
     }
 
     pub fn expect_ident(&mut self) -> Result<String, ParseError> {
@@ -89,43 +95,23 @@ impl<'a> Parser<'a> {
         Ok(())
     }
 
-    pub fn parse_function_body(&mut self) -> Result<Vec<Box<dyn Stmt>>, ParseError> {
+    pub fn parse_block_body(&mut self) -> Result<Vec<Box<dyn Stmt>>, ParseError> {
         if self.cur != Token::LBrace {
             return Err(ParseError("expected '{'".into()));
         }
         self.bump();
         let mut body: Vec<Box<dyn Stmt>> = Vec::new();
         while self.cur != Token::RBrace && self.cur != Token::Eof {
-            match &self.cur {
-                Token::Semicolon => {
+            if let Token::Semicolon = self.cur {
+                self.bump();
+                continue;
+            }
+            let expr = self.parse_statement()?;
+            if let Some(expr) = expr {
+                body.push(expr);
+                if self.cur == Token::Semicolon {
                     self.bump();
                 }
-                _ => {
-                    let expr = self.parse_statement()?;
-                    if let Some(expr) = expr {
-                        body.push(expr);
-                        if self.cur == Token::Semicolon {
-                            self.bump();
-                        }
-                    }
-                }
-            }
-        }
-        if self.cur == Token::RBrace {
-            self.bump();
-        }
-        Ok(body)
-    }
-
-    pub fn parse_block_body(&mut self) -> Result<Vec<Box<dyn Stmt>>, ParseError> {
-        if self.cur != Token::LBrace {
-            return Err(ParseError("expected '{'".into()));
-        }
-        self.bump();
-        let mut body = Vec::new();
-        while self.cur != Token::RBrace && self.cur != Token::Eof {
-            if let Some(stmt) = self.parse_statement()? {
-                body.push(stmt);
             }
         }
         if self.cur == Token::RBrace {
@@ -160,298 +146,23 @@ impl<'a> Parser<'a> {
         );
         match &self.cur {
             Token::Function => {
-                self.bump(); // consume 'function'
-                let generator = if self.cur == Token::Star {
-                    self.bump();
-                    true
-                } else {
-                    false
-                };
-                let name = self.expect_ident()?.leak();
-                logln(
-                    LogLevel::Info,
-                    &format!("parse_statement function name={}", name),
-                );
-                // Expect LParen
-                self.skip_to(Token::LParen);
-                self.expect_and_bump(Token::LParen, "expected '('")?;
-                let params = self.parse_param_list()?;
-                self.skip_to(Token::LBrace);
-                let body = self.parse_function_body()?;
-                Ok(Some(Box::new(expr::FunctionDecl {
-                    name,
-                    params,
-                    body,
-                    generator,
-                    insert: true,
-                })))
+                self.bump();
+                Ok(Some(Box::new(expr::FunctionDecl::parse(self, true)?)))
             }
             Token::Class => {
                 self.bump();
-                let name = if let Token::Ident(_) = &self.cur {
-                    self.expect_ident()?.leak()
-                } else {
-                    return Err(ParseError("expected class name".into()));
-                };
-                logln(
-                    LogLevel::Info,
-                    &format!("parse_statement class name={}", name),
-                );
-                let super_class = if let Token::Ident(ident) = &self.cur {
-                    if ident == "extends" {
-                        self.bump();
-                        Some(self.parse_call_or_primary()?)
-                    } else {
-                        None
-                    }
-                } else {
-                    None
-                };
-                if self.cur != Token::LBrace {
-                    return Err(ParseError("expected '{' after class name".into()));
-                }
-                self.bump();
-                let mut methods = Vec::new();
-                while self.cur != Token::RBrace && self.cur != Token::Eof {
-                    if let Token::Ident(_) = &self.cur {
-                        let method_name = self.expect_ident()?.leak();
-                        self.expect_and_bump(Token::LParen, "expected '(' in method")?;
-                        let params = self.parse_param_list()?;
-                        let body = self.parse_function_body()?;
-                        methods.push(expr::FunctionDecl {
-                            name: method_name,
-                            params,
-                            body,
-                            generator: false,
-                            insert: false,
-                        });
-                        continue;
-                    }
-                    self.bump();
-                }
-                let class = expr::ClassDecl {
-                    name,
-                    super_class,
-                    methods: Rc::from(methods),
-                };
-                if self.cur == Token::RBrace {
-                    self.bump();
-                }
-                Ok(Some(Box::new(class)))
+                Ok(Some(Box::new(expr::ClassDecl::parse(self)?)))
             }
             Token::Let | Token::Const | Token::Var => {
                 self.bump();
-                let name = self.expect_ident()?;
-                logln(
-                    LogLevel::Info,
-                    &format!("parse_statement variable declaration name={}", name),
-                );
-                let initializer = if self.cur == Token::Assign {
-                    self.bump();
-                    Some(self.parse_expression()?)
-                } else {
-                    None
-                };
-                if self.cur == Token::Semicolon {
-                    self.bump();
-                }
-                Ok(Some(Box::new(expr::VarDecl { name, initializer })))
+                Ok(Some(Box::new(expr::VarDecl::parse(self)?)))
             }
             Token::If => {
                 self.bump();
-                logln(LogLevel::Info, "parse_statement if statement");
-                if self.cur != Token::LParen {
-                    return Err(ParseError("expected '(' after 'if'".into()));
-                }
-                self.bump();
-                let condition = self.parse_expression()?;
-                if self.cur != Token::RParen {
-                    return Err(ParseError("expected ')' after if condition".into()));
-                }
-                self.bump();
-
-                if self.cur != Token::LBrace {
-                    return Err(ParseError("expected '{' after if".into()));
-                }
-
-                let mut consequent = self.parse_block_body()?;
-                if consequent.len() != 1 {
-                    return Err(ParseError("Multiple bloc for same if".to_owned()));
-                };
-
-                let mut blocks = vec![(condition, consequent.pop().unwrap())];
-
-                if self.cur == Token::Else {
-                    self.bump();
-                    let mut consequent = self.parse_block_body()?;
-                    if consequent.len() != 1 {
-                        return Err(ParseError("Multiple bloc for same if".to_owned()));
-                    };
-                    blocks.push((
-                        Box::new(expr::ConstBoolean { b: true }),
-                        consequent.pop().unwrap(),
-                    ));
-                }
-
-                Ok(Some(Box::new(stmt::IfStmt { blocks })))
+                Ok(Some(Box::new(stmt::IfStmt::parse(self)?)))
             }
-            Token::While => {
-                self.bump();
-                logln(LogLevel::Info, "parse_statement while loop");
-                if self.cur != Token::LParen {
-                    return Err(ParseError("expected '(' after 'while'".into()));
-                }
-                self.bump();
-                let condition = Some(self.parse_expression()?);
-                if self.cur != Token::RParen {
-                    return Err(ParseError("expected ')' after while condition".into()));
-                }
-                self.bump();
-
-                if self.cur != Token::LBrace {
-                    return Err(ParseError("expected '{' for while body".into()));
-                }
-                let body = self.parse_block_body()?;
-
-                Ok(Some(Box::new(stmt::LoopStmt {
-                    init: None,
-                    condition,
-                    body,
-                    update: None,
-                    do_first: false,
-                })))
-            }
-            Token::For => {
-                self.bump();
-                logln(LogLevel::Info, "parse_statement for loop");
-                if self.cur != Token::LParen {
-                    return Err(ParseError("expected '(' after 'for'".into()));
-                }
-                self.bump();
-
-                // Parse init
-                let mut of = false;
-                let (init, of_cond): (Option<Box<dyn Expr>>, Option<Box<dyn Expr>>) =
-                    if self.cur == Token::Semicolon {
-                        (None, None)
-                    } else if self.cur == Token::Let
-                        || self.cur == Token::Const
-                        || self.cur == Token::Var
-                        || self.peek == Token::Of
-                    {
-                        if self.peek != Token::Of {
-                            self.bump();
-                        }
-                        let name = self.expect_ident()?;
-                        let initializer = if self.cur == Token::Assign {
-                            self.bump();
-                            Some(self.parse_expression()?)
-                        } else if self.cur == Token::Of {
-                            self.bump();
-                            of = true;
-                            Some(self.parse_expression()?)
-                        } else {
-                            None
-                        };
-                        if self.cur == Token::Semicolon {
-                            self.bump();
-                        }
-                        if of {
-                            (
-                                Some(Box::new([
-                                    Box::new(expr::VarDecl {
-                                        name: format!("__for_of_{name}__"),
-                                        initializer: Some(Box::new(expr::Call {
-                                            func: Box::new(expr::Member {
-                                                object: initializer.unwrap(),
-                                                property: Box::new(expr::Member {
-                                                    object: Box::new(expr::Identifier {
-                                                        name: stringify!(Symbol).to_owned(),
-                                                    }),
-                                                    property: Box::new(expr::ConstString {
-                                                        s: "iterator".to_owned(),
-                                                    }),
-                                                }),
-                                            }),
-                                            args: Vec::new(),
-                                        })),
-                                    }) as Box<dyn Expr>,
-                                    Box::new(expr::VarDecl {
-                                        name: name.clone(),
-                                        initializer: None,
-                                    }),
-                                ])),
-                                Some(Box::new(expr::Operator {
-                                    left: Box::new(expr::Assign {
-                                        value: Box::new(expr::Call {
-                                            func: Box::new(expr::Member {
-                                                object: Box::new(expr::Identifier {
-                                                    name: format!("__for_of_{name}__"),
-                                                }),
-                                                property: Box::new(expr::ConstString {
-                                                    s: "next".to_owned(),
-                                                }),
-                                            }),
-                                            args: Vec::new(),
-                                        }),
-                                        target: Box::new(expr::ConstString { s: name }),
-                                    }),
-                                    op: expr::BinaryOp::NotEq,
-                                    right: Box::new(expr::ConstObj {
-                                        obj: JsValue::Undefined,
-                                    }),
-                                })),
-                            )
-                        } else {
-                            (Some(Box::new(expr::VarDecl { name, initializer })), None)
-                        }
-                    } else {
-                        let expr = self.parse_expression()?;
-                        if self.cur == Token::Semicolon {
-                            self.bump();
-                        }
-                        (Some(expr), None)
-                    };
-
-                // Parse condition
-                let condition: Option<Box<dyn Expr>> = if of {
-                    of_cond
-                } else {
-                    Some(if self.cur == Token::Semicolon {
-                        Box::new(expr::ConstBoolean { b: true })
-                    } else {
-                        self.parse_expression()?
-                    })
-                };
-                if self.cur == Token::Semicolon {
-                    self.bump();
-                }
-
-                // Parse update
-                let update = if of || self.cur == Token::RParen {
-                    None
-                } else {
-                    Some(self.parse_expression()?)
-                };
-
-                if self.cur != Token::RParen {
-                    return Err(ParseError("expected ')' after for clauses".into()));
-                }
-                self.bump();
-
-                if self.cur != Token::LBrace {
-                    return Err(ParseError("expected '{' for for body".into()));
-                }
-                let body = self.parse_block_body()?;
-
-                Ok(Some(Box::new(stmt::LoopStmt {
-                    init,
-                    condition,
-                    update,
-                    body,
-                    do_first: false,
-                })))
-            }
+            Token::While => Ok(Some(Box::new(stmt::LoopStmt::parse(self)?))),
+            Token::For => Ok(Some(Box::new(stmt::LoopStmt::parse(self)?))),
             Token::Do => {
                 self.bump();
                 if self.cur != Token::LBrace {
@@ -485,30 +196,7 @@ impl<'a> Parser<'a> {
                 })))
             }
             Token::Break | Token::Continue | Token::Return | Token::Yield => {
-                let t = self.cur.clone();
-                self.bump();
-                let t2 = if t == Token::Yield && self.cur == Token::Break {
-                    self.bump();
-                    true
-                } else {
-                    false
-                };
-                logln(LogLevel::Info, "parse_statement return statement");
-                let expr = self.parse_expression()?;
-                if self.cur == Token::Semicolon {
-                    self.bump();
-                }
-                Ok(Some(Box::new(expr::Return {
-                    expr: Some(expr),
-                    rtype: match t {
-                        Token::Break => expr::ReturnType::Break,
-                        Token::Continue => expr::ReturnType::Continue,
-                        Token::Return => expr::ReturnType::Return,
-                        Token::Yield if t2 => expr::ReturnType::YieldBreak,
-                        Token::Yield => expr::ReturnType::Yield,
-                        _ => panic!("wierd return"),
-                    },
-                })))
+                Ok(Some(Box::new(expr::Return::parse(self)?)))
             }
             Token::Semicolon => {
                 self.bump();
@@ -550,7 +238,7 @@ impl<'a> Parser<'a> {
                 insert: false,
             }));
         }
-        let expr = self.parse_binary(0)?;
+        let expr = expr::Operator::parse(self)?;
         if self.cur == Token::Assign {
             self.bump();
             let rhs = self.parse_expression()?;
@@ -586,36 +274,7 @@ impl<'a> Parser<'a> {
             }
             Token::TemplateStart => {
                 self.bump();
-                let mut parts = Vec::new();
-                while self.cur != Token::TemplateEnd && self.cur != Token::Eof {
-                    match &self.cur {
-                        Token::TemplateString(value) => {
-                            parts.push(expr::TemplatePart::String(value.clone()));
-                            self.bump();
-                        }
-                        Token::TemplateExprStart => {
-                            self.bump();
-                            let expr = self.parse_expression()?;
-                            if self.cur != Token::RBrace {
-                                return Err(ParseError(
-                                    "expected '}' after template expression".into(),
-                                ));
-                            }
-                            self.bump();
-                            parts.push(expr::TemplatePart::Expr(expr));
-                        }
-                        _ => {
-                            return Err(ParseError(format!(
-                                "unexpected template token: {:?}",
-                                self.cur
-                            )));
-                        }
-                    }
-                }
-                if self.cur == Token::TemplateEnd {
-                    self.bump();
-                }
-                Ok(Box::new(expr::TemplateLiteral { parts }))
+                Ok(Box::new(expr::TemplateLiteral::parse(self)?))
             }
             Token::Str(s) => {
                 let value = s.clone();
@@ -746,33 +405,7 @@ impl<'a> Parser<'a> {
             Token::Function => {
                 // simple function expression: function name? (params) { ... }
                 self.bump();
-
-                let generator = if self.cur == Token::Star {
-                    self.bump();
-                    true
-                } else {
-                    false
-                };
-
-                let name = if let Token::Ident(s) = &self.cur {
-                    let name = s.clone().leak();
-                    self.bump();
-                    name
-                } else {
-                    "anonymous function"
-                };
-                self.skip_to(Token::LParen);
-                self.expect_and_bump(Token::LParen, "expected '(' in function expr")?;
-                let params = self.parse_param_list()?;
-                self.skip_to(Token::LBrace);
-                let body = self.parse_function_body()?;
-                Ok(Box::new(expr::FunctionDecl {
-                    name,
-                    params,
-                    body,
-                    generator,
-                    insert: false,
-                }))
+                Ok(Box::new(expr::FunctionDecl::parse(self, false)?))
             }
             Token::LParen => {
                 // grouping or call
@@ -857,49 +490,6 @@ impl<'a> Parser<'a> {
             }
         }
         Ok(expr)
-    }
-
-    pub const fn precedence(&self, tok: &Token) -> Option<(u8, u8)> {
-        match tok {
-            Token::Eq | Token::NotEq | Token::Lt | Token::Gt | Token::LtEq | Token::GtEq => {
-                Some((8, 9))
-            }
-            Token::Plus | Token::Minus => Some((10, 11)),
-            Token::Star | Token::Slash => Some((12, 13)),
-            _ => None,
-        }
-    }
-
-    pub fn parse_binary(&mut self, min_bp: u8) -> Result<Box<dyn Expr>, ParseError> {
-        let mut lhs = self.parse_call_or_primary()?;
-        // advance tokens for loop
-        while let Some((l_bp, r_bp)) = self.precedence(&self.cur) {
-            if l_bp < min_bp {
-                break;
-            }
-            let op = match &self.cur {
-                Token::Plus => expr::BinaryOp::Add,
-                Token::Minus => expr::BinaryOp::Sub,
-                Token::Star => expr::BinaryOp::Mul,
-                Token::Slash => expr::BinaryOp::Div,
-                Token::Eq => expr::BinaryOp::Eq,
-                Token::NotEq => expr::BinaryOp::NotEq,
-                Token::Lt => expr::BinaryOp::Lt,
-                Token::Gt => expr::BinaryOp::Gt,
-                Token::LtEq => expr::BinaryOp::LtEq,
-                Token::GtEq => expr::BinaryOp::GtEq,
-                _ => unreachable!(),
-            };
-            // consume operator
-            self.bump();
-            let rhs = self.parse_binary(r_bp)?;
-            lhs = Box::new(expr::Operator {
-                left: lhs,
-                op,
-                right: rhs,
-            });
-        }
-        Ok(lhs)
     }
 }
 

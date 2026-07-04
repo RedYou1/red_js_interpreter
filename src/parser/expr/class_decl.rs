@@ -2,13 +2,62 @@ use std::{cell::RefCell, rc::Rc};
 
 use crate::{
     Code, CodeIndex, CodeResult, JsValue, LogLevel, Prototype, handle_return, inline_borrow, logln,
-    parser::expr::{Expr, FunctionDecl},
+    parser::{
+        expr::{self, Expr, FunctionDecl},
+        lexer::Token,
+        parser::{ParseError, Parser},
+    },
 };
 
 pub struct ClassDecl {
     pub name: &'static str,
     pub super_class: Option<Box<dyn Expr>>,
     pub methods: Rc<[FunctionDecl]>,
+}
+
+impl ClassDecl {
+    pub fn parse(parser: &mut Parser) -> Result<Self, ParseError> {
+        let name = if let Token::Ident(_) = parser.current() {
+            parser.expect_ident()?.leak()
+        } else {
+            return Err(ParseError("expected class name".into()));
+        };
+        logln(
+            LogLevel::Info,
+            &format!("parse_statement class name={}", name),
+        );
+        let super_class = if let Token::Ident(ident) = parser.current() {
+            if ident.eq("extends") {
+                parser.bump();
+                Some(parser.parse_call_or_primary()?)
+            } else {
+                None
+            }
+        } else {
+            None
+        };
+        if !matches!(parser.current(), Token::LBrace) {
+            return Err(ParseError("expected '{' after class name".into()));
+        }
+        parser.bump();
+        let mut methods = Vec::new();
+        while !matches!(parser.current(), Token::RBrace | Token::Eof) {
+            if let Token::Ident(_) = parser.current() {
+                methods.push(expr::FunctionDecl::parse(parser, false)?);
+                continue;
+            }
+            parser.bump();
+        }
+        let class = Self {
+            name,
+            super_class,
+            methods: Rc::from(methods),
+        };
+        if let Token::RBrace = parser.current() {
+            parser.bump();
+        }
+        Ok(class)
+    }
 }
 
 impl Expr for ClassDecl {
