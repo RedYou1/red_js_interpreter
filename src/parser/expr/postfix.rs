@@ -18,8 +18,8 @@ impl Expr for Postfix {
             let target_ref = handle_return!(target(proto.clone(), i));
             let old_value = target_ref.borrow().clone();
             let new_value = match &old_value {
-                JsValue::Number(n) => JsValue::Number(n + if inc { 1.0 } else { -1.0 }),
-                JsValue::BigInt(n) => JsValue::BigInt(n + if inc { 1 } else { -1 }),
+                JsValue::Number(n) => JsValue::Number(*n + if inc { 1.0 } else { -1.0 }),
+                JsValue::BigInt(n) => JsValue::BigInt(*n + if inc { 1 } else { -1 }),
                 _ => JsValue::Undefined,
             };
             *target_ref.borrow_mut() = new_value.clone();
@@ -29,6 +29,12 @@ impl Expr for Postfix {
                 &format!("Exiting Expr::Postfix result={:?}", out),
             );
             CodeResult::Normal(out)
+        })
+    }
+    fn duplicate_expr(&self) -> Box<dyn Expr> {
+        Box::new(Self {
+            expr: self.expr.duplicate_expr(),
+            inc: self.inc,
         })
     }
 }

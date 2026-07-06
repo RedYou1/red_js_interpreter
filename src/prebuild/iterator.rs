@@ -51,8 +51,6 @@ new_class! {
             drop(unsafe{ Rc::from_raw(code) });
             return Rc::new(RefCell::new(JsValue::Undefined));
         }
-        let proto_before = inline_borrow!(proto.clone());
-        let start = code_index;
         let res = run_sub(code, proto.clone(), &mut code_index);
         match res {
             CodeResult::Normal(r) | CodeResult::Return(r) => {
@@ -64,10 +62,7 @@ new_class! {
                 Rc::new(RefCell::new(JsValue::Undefined))
             },
             CodeResult::Yield(r) => {
-                //detect direct yield to jump over
-                if code_index == start && proto_before == inline_borrow!(proto.clone()) {
-                    code_index.next();
-                }
+                code_index.next();
                 code_index.save_into(this.clone(), "Generator_CodeIndex");
                 r
             },

@@ -93,4 +93,10 @@ impl Expr for Return {
             }
         })
     }
+    fn duplicate_expr(&self) -> Box<dyn Expr> {
+        Box::new(Self {
+            rtype: self.rtype.clone(),
+            expr: self.expr.as_ref().map(|a| a.duplicate_expr()),
+        })
+    }
 }

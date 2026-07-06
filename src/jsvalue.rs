@@ -129,6 +129,24 @@ impl JsValue {
             JsValue::Function(_) => "[Function (anonymous)]".to_owned(),
             JsValue::Generator(_) => "[GeneratorFunction (anonymous)]".to_owned(),
             JsValue::Prototype(ref_cell) => {
+                if let JsValue::Prototype(ref class) =
+                    inline_borrow!(ref_cell.borrow().properties[&PROTO_NAME.into()].clone())
+                    && let Some(stringify!(Array)) = class.borrow().name
+                {
+                    let cell = ref_cell.borrow();
+                    let JsValue::BigInt(length) =
+                        inline_borrow!(cell.properties[&"length".into()].clone())
+                    else {
+                        panic!("print array")
+                    };
+                    return format!(
+                        "[{}]",
+                        (0..length)
+                            .map(|i| cell.properties[&i.into()].borrow().print())
+                            .collect::<Vec<_>>()
+                            .join(", ")
+                    );
+                }
                 let mut entries = vec![];
                 for (key, value) in ref_cell.borrow().properties.iter() {
                     if key == &PROTO_NAME.into() {

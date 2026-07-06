@@ -27,4 +27,10 @@ impl Expr for Member {
             CodeResult::NormalMember(out, obj, key)
         })
     }
+    fn duplicate_expr(&self) -> Box<dyn Expr> {
+        Box::new(Self {
+            object: self.object.duplicate_expr(),
+            property: self.property.duplicate_expr(),
+        })
+    }
 }

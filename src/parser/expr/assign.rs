@@ -31,4 +31,10 @@ impl Expr for Assign {
             CodeResult::Normal(value)
         })
     }
+    fn duplicate_expr(&self) -> Box<dyn Expr> {
+        Box::new(Self {
+            target: self.target.as_ref().duplicate_expr(),
+            value: self.value.as_ref().duplicate_expr(),
+        })
+    }
 }

@@ -85,4 +85,16 @@ impl Expr for TemplateLiteral {
             CodeResult::Normal(out)
         })
     }
+    fn duplicate_expr(&self) -> Box<dyn Expr> {
+        Box::new(Self {
+            parts: self
+                .parts
+                .iter()
+                .map(|a| match a {
+                    TemplatePart::String(a) => TemplatePart::String(a.clone()),
+                    TemplatePart::Expr(a) => TemplatePart::Expr(a.duplicate_expr()),
+                })
+                .collect(),
+        })
+    }
 }

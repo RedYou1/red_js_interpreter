@@ -52,4 +52,10 @@ impl Expr for Call {
             CodeResult::Normal(out)
         })
     }
+    fn duplicate_expr(&self) -> Box<dyn Expr> {
+        Box::new(Self {
+            func: self.func.as_ref().duplicate_expr(),
+            args: self.args.iter().map(|t| t.as_ref().duplicate_expr()).collect(),
+        })
+    }
 }

@@ -56,4 +56,10 @@ impl Expr for New {
             CodeResult::Normal(result)
         })
     }
+    fn duplicate_expr(&self) -> Box<dyn Expr> {
+        Box::new(Self {
+            constructor: self.constructor.duplicate_expr(),
+            args: self.args.iter().map(|t| t.duplicate_expr()).collect(),
+        })
+    }
 }

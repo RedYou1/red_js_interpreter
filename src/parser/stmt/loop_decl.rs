@@ -3,7 +3,7 @@ use std::{cell::RefCell, rc::Rc};
 use crate::{
     Code, CodeIndex, CodeResult, JsValue, LogLevel, Prototype, handle_return, inline_borrow, logln,
     parser::{
-        expr::{self, Expr},
+        expr::{self, BinaryOp, Expr},
         lexer::Token,
         parser::{ParseError, Parser},
         stmt::Stmt,
@@ -41,7 +41,8 @@ impl LoopStmt {
                     parser.bump();
                 }
                 let name = parser.expect_ident()?;
-                let initializer = if let Token::Assign = parser.current() {
+                let initializer = if let Token::Assign(t) = parser.current() {
+                    assert_eq!(*t, Option::<BinaryOp>::None);
                     parser.bump();
                     Some(parser.parse_expression()?)
                 } else if let Token::Of = parser.current() {
@@ -167,11 +168,7 @@ impl Stmt for LoopStmt {
         let init: Code = self.init.compile_expr(mem.clone());
         let condition: Code = self.condition.compile_expr(mem.clone());
         let update: Code = self.update.compile_expr(mem.clone());
-        let body: Vec<Code> = self
-            .body
-            .iter()
-            .flat_map(|c| c.compile_stmt(mem.clone()))
-            .collect();
+        let body: Vec<Code> = self.body.compile_stmt(mem.clone());
 
         vec![
             Box::new(move |proto, _i| {
@@ -238,5 +235,14 @@ impl Stmt for LoopStmt {
                 CodeResult::Normal(Rc::new(RefCell::new(JsValue::Undefined)))
             }),
         ]
+    }
+    fn duplicate_stmt(&self) -> Box<dyn Stmt> {
+        Box::new(Self {
+            init: self.init.as_ref().map(|a| a.as_ref().duplicate_expr()),
+            condition: self.condition.as_ref().map(|a| a.duplicate_expr()),
+            update: self.update.as_ref().map(|a| a.duplicate_expr()),
+            body: self.body.iter().map(|a| a.duplicate_stmt()).collect(),
+            do_first: self.do_first,
+        })
     }
 }

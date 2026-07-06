@@ -1,3 +1,5 @@
+#![feature(maybe_uninit_array_assume_init)]
+
 use std::{cell::RefCell, collections::HashMap, fmt::Debug, rc::Rc};
 
 mod code_manipulation;
@@ -82,7 +84,7 @@ pub fn prebuild_prototypes(
     let function = Prototype::new_child(object.clone(), Some("Function"), []);
 
     let prototypes = Rc::new(RefCell::new(Prototype {
-        name: Some("root memory"),
+        name: None,
         properties: HashMap::from([
             (
                 stringify!(Object).into(),

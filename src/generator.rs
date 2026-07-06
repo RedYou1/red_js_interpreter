@@ -82,7 +82,7 @@ pub fn run_generator_object(
 
     let proto = Prototype::new_child(
         mem.clone(),
-        Some("stack memory"),
+        None,
         params
             .iter()
             .take(runnable.params.len())

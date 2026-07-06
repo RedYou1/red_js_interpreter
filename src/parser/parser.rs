@@ -1,3 +1,5 @@
+use std::rc::Rc;
+
 use crate::parser::expr::{self, Expr};
 use crate::parser::lexer::{Lexer, Token};
 use crate::parser::stmt::Stmt;
@@ -221,14 +223,14 @@ impl<'a> Parser<'a> {
             let params = vec![name.clone()];
             self.bump();
             self.bump();
-            let body: Vec<Box<dyn Stmt>> = if self.cur == Token::LBrace {
-                self.parse_block_body()?
+            let body: Rc<[Box<dyn Stmt>]> = if self.cur == Token::LBrace {
+                Rc::from(self.parse_block_body()?)
             } else {
                 let expr = self.parse_expression()?;
-                vec![Box::new(expr::Return {
+                Rc::new([Box::new(expr::Return {
                     expr: Some(expr),
                     rtype: expr::ReturnType::Return,
-                })]
+                })])
             };
             return Ok(Box::new(expr::FunctionDecl {
                 name: "anonymous function",
@@ -239,9 +241,18 @@ impl<'a> Parser<'a> {
             }));
         }
         let expr = expr::Operator::parse(self)?;
-        if self.cur == Token::Assign {
+        if let Token::Assign(t) = &self.cur {
+            let t = t.clone();
             self.bump();
-            let rhs = self.parse_expression()?;
+            let rhs = if let Some(op) = t {
+                Box::new(expr::Operator {
+                    left: expr.duplicate_expr(),
+                    op,
+                    right: self.parse_expression()?,
+                })
+            } else {
+                self.parse_expression()?
+            };
             Ok(Box::new(expr::Assign {
                 target: expr,
                 value: rhs,

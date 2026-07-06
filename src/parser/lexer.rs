@@ -38,7 +38,7 @@ pub enum Token {
     Comma,
     Semicolon,
     Dot,
-    Assign,
+    Assign(Option<BinaryOp>),
     Colon,
 
     Plus,
@@ -58,7 +58,7 @@ pub enum Token {
     Eof,
 }
 
-use crate::{LogLevel, logln};
+use crate::{LogLevel, logln, parser::expr::BinaryOp};
 
 pub struct Lexer<'a> {
     chars: std::str::Chars<'a>,
@@ -109,6 +109,20 @@ impl<'a> Lexer<'a> {
         s
     }
 
+    fn read_escaped_char(&mut self) -> Option<char> {
+        self.bump()?;
+        self.bump().map(|escaped| match escaped {
+            'n' => '\n',
+            'r' => '\r',
+            't' => '\t',
+            '\\' => '\\',
+            '"' => '"',
+            '\'' => '\'',
+            '`' => '`',
+            other => other,
+        })
+    }
+
     pub fn next_token(&mut self) -> Token {
         logln(
             LogLevel::Trace,
@@ -152,8 +166,7 @@ impl<'a> Lexer<'a> {
                     }
                 }
                 if ch == '\\' {
-                    self.bump();
-                    if let Some(escaped) = self.bump() {
+                    if let Some(escaped) = self.read_escaped_char() {
                         literal.push(escaped);
                     }
                     continue;
@@ -195,6 +208,10 @@ impl<'a> Lexer<'a> {
                         self.bump();
                         self.eat_while(|ch| ch != '\n');
                         continue;
+                    }
+                    if self.peek() == Some('=') {
+                        self.bump();
+                        return Token::Assign(Some(BinaryOp::Div));
                     } else {
                         return Token::Slash;
                     }
@@ -249,7 +266,7 @@ impl<'a> Lexer<'a> {
                         self.bump();
                         return Token::Eq;
                     } else {
-                        return Token::Assign;
+                        return Token::Assign(None);
                     }
                 }
                 '!' => {
@@ -286,6 +303,10 @@ impl<'a> Lexer<'a> {
                         self.bump();
                         return Token::PlusPlus;
                     }
+                    if self.peek() == Some('=') {
+                        self.bump();
+                        return Token::Assign(Some(BinaryOp::Add));
+                    }
                     return Token::Plus;
                 }
                 '-' => {
@@ -294,10 +315,18 @@ impl<'a> Lexer<'a> {
                         self.bump();
                         return Token::MinusMinus;
                     }
+                    if self.peek() == Some('=') {
+                        self.bump();
+                        return Token::Assign(Some(BinaryOp::Sub));
+                    }
                     return Token::Minus;
                 }
                 '*' => {
                     self.bump();
+                    if self.peek() == Some('=') {
+                        self.bump();
+                        return Token::Assign(Some(BinaryOp::Mul));
+                    }
                     return Token::Star;
                 }
                 '`' => {
@@ -311,6 +340,12 @@ impl<'a> Lexer<'a> {
                         .expect("Lexer bump should return the opening quote");
                     let mut s = String::new();
                     while let Some(ch) = self.peek() {
+                        if ch == '\\' {
+                            if let Some(escaped) = self.read_escaped_char() {
+                                s.push(escaped);
+                            }
+                            continue;
+                        }
                         self.bump();
                         if ch == quote {
                             break;

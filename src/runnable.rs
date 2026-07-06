@@ -79,7 +79,7 @@ pub fn run_function_object(
     let mem = runnable.mem.clone();
 
     let proto = Rc::new(RefCell::new(Prototype {
-        name: Some("stack memory"),
+        name: None,
         properties: params
             .iter()
             .take(runnable.params.len())

@@ -224,4 +224,206 @@ assert_result!(
     "-42"
 );
 
+assert_result!(
+    test_recursive,
+    r#"
+    // Objet global (const : la référence ne change pas, mais son contenu oui)
+    const globalState = {
+        compteur: 0,
+        historique: [],
+        stats: {
+            appels: 0
+        }
+    };
+
+    // Fonction récursive
+    function traitement(obj, profondeur) {
+        globalState.stats.appels++;
+
+        // Lecture
+        console.log(`Entrée profondeur ${profondeur}, valeur = ${obj.valeur}`);
+
+        // Modification
+        obj.valeur += profondeur;
+        globalState.compteur += profondeur;
+        globalState.historique.push(obj.valeur);
+
+        // Boucle qui modifie également l'objet
+        for (let i = 0; i < 3; i++) {
+            obj.valeur += i;
+            globalState.compteur += i;
+        }
+
+        // Cas récursif
+        if (profondeur > 0) {
+            const objetLocal = {
+                valeur: obj.valeur * 2
+            };
+
+            traitement(objetLocal, profondeur - 1);
+
+            // Vérifie que le parent peut encore être modifié après le retour
+            obj.valeur += objetLocal.valeur;
+        }
+
+        console.log(`Sortie profondeur ${profondeur}, valeur = ${obj.valeur}`);
+    }
+
+    // Objet initial
+    let objet = {
+        valeur: 1
+    };
+
+    // Boucle principale
+    for (let i = 1; i <= 3; i++) {
+        console.log(`\n===== Itération ${i} =====`);
+        traitement(objet, 2);
+        objet.valeur += 1;
+    }
+
+    // Vérifications finales
+    console.log("\n===== Résultat =====");
+    console.log("Objet final :", objet);
+    console.log("État global :", globalState);
+    "#;
+    "",
+    "===== Itération 1 =====",
+    "Entrée profondeur 2, valeur = 1",
+    "Entrée profondeur 1, valeur = 12",
+    "Entrée profondeur 0, valeur = 32",
+    "Sortie profondeur 0, valeur = 35",
+    "Sortie profondeur 1, valeur = 51",
+    "Sortie profondeur 2, valeur = 57",
+    "",
+    "===== Itération 2 =====",
+    "Entrée profondeur 2, valeur = 58",
+    "Entrée profondeur 1, valeur = 126",
+    "Entrée profondeur 0, valeur = 260",
+    "Sortie profondeur 0, valeur = 263",
+    "Sortie profondeur 1, valeur = 393",
+    "Sortie profondeur 2, valeur = 456",
+    "",
+    "===== Itération 3 =====",
+    "Entrée profondeur 2, valeur = 457",
+    "Entrée profondeur 1, valeur = 924",
+    "Entrée profondeur 0, valeur = 1856",
+    "Sortie profondeur 0, valeur = 1859",
+    "Sortie profondeur 1, valeur = 2787",
+    "Sortie profondeur 2, valeur = 3249",
+    "",
+    "===== Résultat =====",
+    "Objet final : { valeur: 3250 }",
+    "État global : { compteur: 36, historique: [3, 13, 32, 60, 127, 260, 459, 925, 1856], stats: { appels: 9 } }"
+);
+
+assert_result!(
+    test_recursive_generator,
+    r#"
+    // Objet global (const : la référence ne change pas, mais son contenu oui)
+    const globalState = {
+        compteur: 0,
+        historique: [],
+        stats: {
+            appels: 0
+        }
+    };
+
+    // Fonction récursive
+    function* traitement(obj, profondeur) {
+        globalState.stats.appels++;
+
+        // Lecture
+        console.log(`Entrée profondeur ${profondeur}, valeur = ${obj.valeur}`);
+
+        // Modification
+        obj.valeur += profondeur;
+        globalState.compteur += profondeur;
+        globalState.historique.push(obj.valeur);
+
+        // Boucle qui modifie également l'objet
+        for (let i = 0; i < 3; i++) {
+            obj.valeur += i;
+            globalState.compteur += i;
+        }
+
+        // Cas récursif
+        if (profondeur > 0) {
+            const objetLocal = {
+                valeur: obj.valeur * 2
+            };
+
+            yield [obj.valeur, objetLocal.valeur]
+            for (let i of traitement(objetLocal, profondeur - 1)) {
+                yield i
+            }
+            yield [obj.valeur, objetLocal.valeur]
+
+            // Vérifie que le parent peut encore être modifié après le retour
+            obj.valeur += objetLocal.valeur;
+        }
+
+        console.log(`Sortie profondeur ${profondeur}, valeur = ${obj.valeur}`);
+    }
+
+    // Objet initial
+    let objet = {
+        valeur: 1
+    };
+
+    // Boucle principale
+    for (let i = 1; i <= 3; i++) {
+        console.log(`\n===== Itération ${i} =====`);
+        for (let k of traitement(objet, 2)){
+            console.log(`Yield obj=${k[0]}, local=${k[1]}`);
+        }
+        objet.valeur += 1;
+    }
+
+    // Vérifications finales
+    console.log("\n===== Résultat =====");
+    console.log("Objet final :", objet);
+    console.log("État global :", globalState);
+    "#;
+    "",
+    "===== Itération 1 =====",
+    "Entrée profondeur 2, valeur = 1",
+    "Yield obj=6, local=12",
+    "Entrée profondeur 1, valeur = 12",
+    "Yield obj=16, local=32",
+    "Entrée profondeur 0, valeur = 32",
+    "Sortie profondeur 0, valeur = 35",
+    "Yield obj=16, local=35",
+    "Sortie profondeur 1, valeur = 51",
+    "Yield obj=6, local=51",
+    "Sortie profondeur 2, valeur = 57",
+    "",
+    "===== Itération 2 =====",
+    "Entrée profondeur 2, valeur = 58",
+    "Yield obj=63, local=126",
+    "Entrée profondeur 1, valeur = 126",
+    "Yield obj=130, local=260",
+    "Entrée profondeur 0, valeur = 260",
+    "Sortie profondeur 0, valeur = 263",
+    "Yield obj=130, local=263",
+    "Sortie profondeur 1, valeur = 393",
+    "Yield obj=63, local=393",
+    "Sortie profondeur 2, valeur = 456",
+    "",
+    "===== Itération 3 =====",
+    "Entrée profondeur 2, valeur = 457",
+    "Yield obj=462, local=924",
+    "Entrée profondeur 1, valeur = 924",
+    "Yield obj=928, local=1856",
+    "Entrée profondeur 0, valeur = 1856",
+    "Sortie profondeur 0, valeur = 1859",
+    "Yield obj=928, local=1859",
+    "Sortie profondeur 1, valeur = 2787",
+    "Yield obj=462, local=2787",
+    "Sortie profondeur 2, valeur = 3249",
+    "",
+    "===== Résultat =====",
+    "Objet final : { valeur: 3250 }",
+    "État global : { compteur: 36, historique: [3, 13, 32, 60, 127, 260, 459, 925, 1856], stats: { appels: 9 } }"
+);
+
 //TODO test recusive for all expr and stmt

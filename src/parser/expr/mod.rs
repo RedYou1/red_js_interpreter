@@ -1,4 +1,4 @@
-use std::{cell::RefCell, fmt::Debug, rc::Rc};
+use std::{cell::RefCell, fmt::Debug, mem::MaybeUninit, rc::Rc};
 
 use crate::{
     Code, CodeIndex, CodeResult, JsValue, LogLevel, Prototype, handle_return, inline_borrow, logln,
@@ -12,11 +12,15 @@ use crate::{
 
 pub trait Expr: Stmt {
     fn compile_expr(&self, mem: Rc<RefCell<Prototype>>) -> Code;
+    fn duplicate_expr(&self) -> Box<dyn Expr>;
 }
 
 impl<E: Expr> Stmt for E {
     fn compile_stmt(&self, mem: Rc<RefCell<Prototype>>) -> Vec<Code> {
         vec![self.compile_expr(mem)]
+    }
+    fn duplicate_stmt(&self) -> Box<dyn Stmt> {
+        self.duplicate_expr()
     }
 }
 
@@ -28,6 +32,9 @@ impl Expr for Option<Box<dyn Expr>> {
             Box::new(|_, _| CodeResult::Normal(Rc::new(RefCell::new(JsValue::Undefined))))
         }
     }
+    fn duplicate_expr(&self) -> Box<dyn Expr> {
+        Box::new(self.as_ref().map(|a| Expr::duplicate_expr(a.as_ref())))
+    }
 }
 
 impl<const LEN: usize> Expr for [Box<dyn Expr>; LEN] {
@@ -37,6 +44,13 @@ impl<const LEN: usize> Expr for [Box<dyn Expr>; LEN] {
             .map(|code| code.compile_expr(mem.clone()))
             .collect();
         Box::new(move |proto, _| run_sub(codes.as_ref(), proto, &mut CodeIndex::new()))
+    }
+    fn duplicate_expr(&self) -> Box<dyn Expr> {
+        let mut t = [const { MaybeUninit::<Box<dyn Expr>>::uninit() }; LEN];
+        for (v, t) in self.iter().zip(t.iter_mut()) {
+            t.write(v.as_ref().duplicate_expr());
+        }
+        Box::new(unsafe { MaybeUninit::array_assume_init(t) })
     }
 }
 
@@ -93,6 +107,9 @@ impl Expr for Identifier {
             }
         })
     }
+    fn duplicate_expr(&self) -> Box<dyn Expr> {
+        Box::new(self.clone())
+    }
 }
 
 pub struct VarDecl {
@@ -107,7 +124,8 @@ impl VarDecl {
             LogLevel::Info,
             &format!("parse_statement variable declaration name={}", name),
         );
-        let initializer = if let Token::Assign = parser.current() {
+        let initializer = if let Token::Assign(t) = parser.current() {
+            assert_eq!(*t, Option::<BinaryOp>::None);
             parser.bump();
             Some(parser.parse_expression()?)
         } else {
@@ -139,6 +157,15 @@ impl Expr for VarDecl {
                 &format!("Exiting Expr::VarDecl name={} value={:?}", name, value),
             );
             CodeResult::Normal(Rc::new(RefCell::new(JsValue::Undefined)))
+        })
+    }
+    fn duplicate_expr(&self) -> Box<dyn Expr> {
+        Box::new(Self {
+            name: self.name.clone(),
+            initializer: self
+                .initializer
+                .as_ref()
+                .map(|a| a.as_ref().duplicate_expr()),
         })
     }
 }

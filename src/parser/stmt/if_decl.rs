@@ -11,7 +11,7 @@ use crate::{
 };
 
 pub struct IfStmt {
-    pub blocks: Vec<(Box<dyn Expr>, Box<dyn Stmt>)>,
+    pub blocks: Vec<(Box<dyn Expr>, Vec<Box<dyn Stmt>>)>,
 }
 
 impl IfStmt {
@@ -31,23 +31,29 @@ impl IfStmt {
             return Err(ParseError("expected '{' after if".into()));
         }
 
-        let mut consequent = parser.parse_block_body()?;
-        if consequent.len() != 1 {
-            return Err(ParseError("Multiple bloc for same if".to_owned()));
-        };
+        let mut blocks = vec![(condition, parser.parse_block_body()?)];
 
-        let mut blocks = vec![(condition, consequent.pop().unwrap())];
-
-        if let Token::Else = parser.current() {
+        while let Token::Else = parser.current() {
             parser.bump();
-            let mut consequent = parser.parse_block_body()?;
-            if consequent.len() != 1 {
-                return Err(ParseError("Multiple bloc for same if".to_owned()));
+            let condition = if let Token::If = parser.current() {
+                if !matches!(parser.current(), Token::LParen) {
+                    return Err(ParseError("expected '(' after 'if'".into()));
+                }
+                parser.bump();
+                let condition = parser.parse_expression()?;
+                if !matches!(parser.current(), Token::RParen) {
+                    return Err(ParseError("expected ')' after if condition".into()));
+                }
+                parser.bump();
+
+                if !matches!(parser.current(), Token::LBrace) {
+                    return Err(ParseError("expected '{' after if".into()));
+                }
+                condition
+            } else {
+                Box::new(expr::ConstBoolean { b: true })
             };
-            blocks.push((
-                Box::new(expr::ConstBoolean { b: true }),
-                consequent.pop().unwrap(),
-            ));
+            blocks.push((condition, parser.parse_block_body()?));
         }
 
         Ok(Self { blocks })
@@ -92,5 +98,19 @@ impl Stmt for IfStmt {
                 v
             })
             .collect()
+    }
+    fn duplicate_stmt(&self) -> Box<dyn Stmt> {
+        Box::new(Self {
+            blocks: self
+                .blocks
+                .iter()
+                .map(|(a, b)| {
+                    (
+                        a.duplicate_expr(),
+                        b.iter().map(|a| a.duplicate_stmt()).collect(),
+                    )
+                })
+                .collect(),
+        })
     }
 }

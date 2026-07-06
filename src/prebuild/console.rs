@@ -92,7 +92,9 @@ fn push_to_logs(console: Rc<RefCell<Prototype>>, text: String) {
         return;
     };
     let vec: &mut Vec<String> = unsafe { (vec_ptr as *mut Vec<String>).as_mut_unchecked() };
-    vec.push(text);
+    for line in text.split('\n') {
+        vec.push(line.to_owned());
+    }
 }
 
 new_class!(
@@ -106,7 +108,7 @@ new_class!(
 
             #[cfg(test)]
             push_to_logs(this.borrow().unwrap_proto("Console.log for this"), "".to_owned());
-        }else if let Some(JsValue::String(format)) = arguments.first().map(|t| inline_borrow!(t)) {
+        }else if let Some(JsValue::String(format)) = arguments.first().map(|t| inline_borrow!(t)) && format.contains("%"){
             let config = Prototype::find(this.borrow().unwrap_proto("Console.log for this"), &JsValue::String("__config__".to_owned())).1.borrow().unwrap_proto("Console.log for __config__");
             let mut text = String::new();
             let mut argi:usize = 1;

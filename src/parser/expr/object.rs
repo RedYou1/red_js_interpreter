@@ -48,6 +48,15 @@ impl Expr for Object {
             CodeResult::Normal(out)
         })
     }
+    fn duplicate_expr(&self) -> Box<dyn Expr> {
+        Box::new(Self {
+            properties: self
+                .properties
+                .iter()
+                .map(|(a, b)| (a.duplicate_expr(), b.duplicate_expr()))
+                .collect(),
+        })
+    }
 }
 
 pub struct Array {
@@ -77,6 +86,11 @@ impl Expr for Array {
                 &format!("Exiting Expr::Array result={:?}", out),
             );
             CodeResult::Normal(out)
+        })
+    }
+    fn duplicate_expr(&self) -> Box<dyn Expr> {
+        Box::new(Self {
+            elems: self.elems.iter().map(|a| a.duplicate_expr()).collect(),
         })
     }
 }

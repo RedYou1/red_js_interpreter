@@ -9,7 +9,7 @@ use crate::{
     },
 };
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq)]
 pub enum BinaryOp {
     Add,
     Sub,
@@ -164,6 +164,13 @@ impl Expr for Operator {
                 &format!("Exiting Expr::Operator result={:?}", out),
             );
             CodeResult::Normal(out)
+        })
+    }
+    fn duplicate_expr(&self) -> Box<dyn Expr> {
+        Box::new(Self {
+            left: self.left.duplicate_expr(),
+            op: self.op.clone(),
+            right: self.right.duplicate_expr(),
         })
     }
 }

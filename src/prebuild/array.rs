@@ -298,5 +298,23 @@ new_class! {
                 .insert("i".into(), Rc::new(RefCell::new(JsValue::BigInt(i + 1))));
             CodeResult::Yield(obj)
         }
+    };
+    |proto, ind| {
+        let JsValue::BigInt(i) = inline_borrow!(Prototype::find(proto.clone(), &"i".into()).1) else {
+            panic!("?")
+        };
+        let this = proto
+            .borrow()
+            .properties[&"this".into()]
+            .borrow()
+            .unwrap_proto("Array.iterator this not found");
+        let JsValue::BigInt(arr_len) = inline_borrow!(Prototype::find(this.clone(), &"length".into()).1) else {
+            panic!("?")
+        };
+        if i < arr_len {
+            ind.move_iamount(-1);
+            ind.set_retry();
+        }
+        CodeResult::Normal(Rc::new(RefCell::new(JsValue::Undefined)))
     }
 }

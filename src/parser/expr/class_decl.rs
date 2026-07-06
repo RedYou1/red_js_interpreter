@@ -76,7 +76,7 @@ impl Expr for ClassDecl {
             FunctionDecl {
                 name: "constructor",
                 params: vec![],
-                body: vec![],
+                body: Rc::new([]),
                 generator: false,
                 insert: false,
             }
@@ -95,6 +95,7 @@ impl Expr for ClassDecl {
                 LogLevel::Trace,
                 &format!("Expr::ClassDecl executing name={}", name),
             );
+            let outer_proto = proto.clone();
 
             let class_proto = Prototype::new_child(
                 if let JsValue::Prototype(super_func_proto) =
@@ -116,7 +117,7 @@ impl Expr for ClassDecl {
             class_proto.borrow_mut().properties.insert(
                 "constructor".into(),
                 handle_return!(constructor_runnable(
-                    class_proto.clone(),
+                    outer_proto.clone(),
                     &mut CodeIndex::new()
                 )),
             );
@@ -128,7 +129,7 @@ impl Expr for ClassDecl {
             for (methode_name, methode_code) in methodes.iter() {
                 class_proto.borrow_mut().properties.insert(
                     (*methode_name).into(),
-                    handle_return!(methode_code(class_proto.clone(), &mut CodeIndex::new())),
+                    handle_return!(methode_code(outer_proto.clone(), &mut CodeIndex::new())),
                 );
             }
 
@@ -141,6 +142,16 @@ impl Expr for ClassDecl {
                 Rc::new(RefCell::new(JsValue::Prototype(class_proto))),
             );
             CodeResult::Normal(Rc::new(RefCell::new(JsValue::Undefined)))
+        })
+    }
+    fn duplicate_expr(&self) -> Box<dyn Expr> {
+        Box::new(Self {
+            name: self.name,
+            super_class: self
+                .super_class
+                .as_ref()
+                .map(|t| t.as_ref().duplicate_expr()),
+            methods: self.methods.clone(),
         })
     }
 }
