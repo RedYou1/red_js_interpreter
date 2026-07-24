@@ -194,6 +194,8 @@ pub fn prebuild_prototypes(
             )))),
         );
     prebuild_itergen(prototypes.clone());
+    prototypes.borrow_mut().properties.insert("NaN".into(), Rc::new(RefCell::new(JsValue::Number(f64::NAN))));
+    prototypes.borrow_mut().properties.insert("Infinity".into(), Rc::new(RefCell::new(JsValue::Number(f64::INFINITY))));
     prototypes
 }
 

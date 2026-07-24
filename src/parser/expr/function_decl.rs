@@ -2,12 +2,7 @@ use std::{cell::RefCell, rc::Rc};
 
 use crate::{
     Code, CodeResult, LogLevel, Prototype, logln, new_generator, new_runnable,
-    parser::{
-        expr::Expr,
-        lexer::Token,
-        parser::{ParseError, Parser},
-        stmt::Stmt,
-    },
+    parser::{expr::Expr, lexer::Token, parser::Parser, stmt::Stmt},
 };
 
 pub struct FunctionDecl {
@@ -19,14 +14,14 @@ pub struct FunctionDecl {
 }
 
 impl FunctionDecl {
-    pub fn parse(parser: &mut Parser, insert: bool) -> Result<Self, ParseError> {
-        let generator = if let Token::Star = parser.current() {
+    pub fn parse(parser: &mut Parser, insert: bool) -> Self {
+        let generator = if let Token::Star = parser.tokens()[parser.index()] {
             parser.bump();
             true
         } else {
             false
         };
-        let name = if let Token::Ident(s) = &parser.current() {
+        let name = if let Token::Ident(s) = &parser.tokens()[parser.index()] {
             let name = s.clone().leak();
             parser.bump();
             name
@@ -39,17 +34,20 @@ impl FunctionDecl {
         );
         // Expect LParen
         parser.skip_to(Token::LParen);
-        parser.expect_and_bump(Token::LParen, "expected '('")?;
-        let params = parser.parse_param_list()?;
+        if !matches!(parser.tokens()[parser.index()], Token::LParen) {
+            panic!("expected '('");
+        }
+        parser.bump();
+        let params = parser.parse_param_list();
         parser.skip_to(Token::LBrace);
-        let body = Rc::from(parser.parse_block_body()?);
-        Ok(Self {
+        let body = Rc::from(parser.parse_block_body());
+        Self {
             name,
             params,
             body,
             generator,
             insert,
-        })
+        }
     }
 }
 

@@ -43,7 +43,36 @@ impl Expr for Call {
                             .unwrap_proto("expr::Call Generator not proto"),
                     ),
                 ))),
-                _ => panic!("call a none function or generator {:?}", func),
+                _ => {
+                    let func = inline_borrow!(func.clone()).unwrap_proto("func not proto");
+                    if func.borrow().name.is_some() {
+                        let t = func
+                            .borrow()
+                            .properties
+                            .get(&"constructor".into())
+                            .expect("call an obj without a constructor")
+                            .clone();
+                        let func_proto =
+                            inline_borrow!(t).unwrap_proto("call an obj without a constructor");
+                        match *Prototype::find(func_proto.clone(), &RUNNABLE.into())
+                            .1
+                            .borrow()
+                        {
+                            JsValue::Function(_) => run_function_object(func_proto, this, args),
+                            JsValue::Generator(_) => Rc::new(RefCell::new(JsValue::Prototype(
+                                run_generator_object(func_proto, this, args).into_proto(
+                                    inline_borrow!(
+                                        Prototype::find(proto, &stringify!(Generator).into()).1
+                                    )
+                                    .unwrap_proto("expr::Call Generator not proto 2"),
+                                ),
+                            ))),
+                            _ => panic!("call a none function or generator 2 {:?}", func),
+                        }
+                    } else {
+                        panic!("call a none function or generator {:?}", func);
+                    }
+                }
             };
             logln(
                 LogLevel::Trace,
@@ -55,7 +84,11 @@ impl Expr for Call {
     fn duplicate_expr(&self) -> Box<dyn Expr> {
         Box::new(Self {
             func: self.func.as_ref().duplicate_expr(),
-            args: self.args.iter().map(|t| t.as_ref().duplicate_expr()).collect(),
+            args: self
+                .args
+                .iter()
+                .map(|t| t.as_ref().duplicate_expr())
+                .collect(),
         })
     }
 }

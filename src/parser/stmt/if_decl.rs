@@ -5,7 +5,7 @@ use crate::{
     parser::{
         expr::{self, Expr},
         lexer::Token,
-        parser::{ParseError, Parser},
+        parser::Parser,
         stmt::Stmt,
     },
 };
@@ -15,48 +15,48 @@ pub struct IfStmt {
 }
 
 impl IfStmt {
-    pub fn parse(parser: &mut Parser) -> Result<Self, ParseError> {
+    pub fn parse(parser: &mut Parser) -> Self {
         logln(LogLevel::Info, "parse_statement if statement");
-        if !matches!(parser.current(), Token::LParen) {
-            return Err(ParseError("expected '(' after 'if'".into()));
+        if !matches!(parser.tokens()[parser.index()], Token::LParen) {
+            panic!("expected '(' after 'if'");
         }
         parser.bump();
-        let condition = parser.parse_expression()?;
-        if !matches!(parser.current(), Token::RParen) {
-            return Err(ParseError("expected ')' after if condition".into()));
+        let condition = parser.parse_expression();
+        if !matches!(parser.tokens()[parser.index()], Token::RParen) {
+            panic!("expected ')' after if condition");
         }
         parser.bump();
 
-        if !matches!(parser.current(), Token::LBrace) {
-            return Err(ParseError("expected '{' after if".into()));
+        if !matches!(parser.tokens()[parser.index()], Token::LBrace) {
+            panic!("expected '{{' after if");
         }
 
-        let mut blocks = vec![(condition, parser.parse_block_body()?)];
+        let mut blocks = vec![(condition, parser.parse_block_body())];
 
-        while let Token::Else = parser.current() {
+        while let Token::Else = parser.tokens()[parser.index()] {
             parser.bump();
-            let condition = if let Token::If = parser.current() {
-                if !matches!(parser.current(), Token::LParen) {
-                    return Err(ParseError("expected '(' after 'if'".into()));
+            let condition = if let Token::If = parser.tokens()[parser.index()] {
+                if !matches!(parser.tokens()[parser.index()], Token::LParen) {
+                    panic!("expected '(' after 'if'");
                 }
                 parser.bump();
-                let condition = parser.parse_expression()?;
-                if !matches!(parser.current(), Token::RParen) {
-                    return Err(ParseError("expected ')' after if condition".into()));
+                let condition = parser.parse_expression();
+                if !matches!(parser.tokens()[parser.index()], Token::RParen) {
+                    panic!("expected ')' after if condition");
                 }
                 parser.bump();
 
-                if !matches!(parser.current(), Token::LBrace) {
-                    return Err(ParseError("expected '{' after if".into()));
+                if !matches!(parser.tokens()[parser.index()], Token::LBrace) {
+                    panic!("expected '{{' after if");
                 }
                 condition
             } else {
                 Box::new(expr::ConstBoolean { b: true })
             };
-            blocks.push((condition, parser.parse_block_body()?));
+            blocks.push((condition, parser.parse_block_body()));
         }
 
-        Ok(Self { blocks })
+        Self { blocks }
     }
 }
 

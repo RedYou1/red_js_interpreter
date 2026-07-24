@@ -5,7 +5,7 @@ use crate::{
     parser::{
         expr::{self, Expr},
         lexer::Token,
-        parser::{ParseError, Parser},
+        parser::Parser,
     },
 };
 
@@ -24,35 +24,32 @@ pub struct TemplateLiteral {
 }
 
 impl TemplateLiteral {
-    pub fn parse(parser: &mut Parser) -> Result<Self, ParseError> {
+    pub fn parse(parser: &mut Parser) -> Self {
         let mut parts = Vec::new();
-        while !matches!(parser.current(), Token::TemplateEnd | Token::Eof) {
-            match parser.current() {
+        while !matches!(parser.tokens()[parser.index()], Token::TemplateEnd | Token::Eof) {
+            match &parser.tokens()[parser.index()] {
                 Token::TemplateString(value) => {
                     parts.push(expr::TemplatePart::String(value.clone()));
                     parser.bump();
                 }
                 Token::TemplateExprStart => {
                     parser.bump();
-                    let expr = parser.parse_expression()?;
-                    if !matches!(parser.current(), Token::RBrace) {
-                        return Err(ParseError("expected '}' after template expression".into()));
+                    let expr = parser.parse_expression();
+                    if !matches!(parser.tokens()[parser.index()], Token::RBrace) {
+                        panic!("expected '}}' after template expression");
                     }
                     parser.bump();
                     parts.push(expr::TemplatePart::Expr(expr));
                 }
                 _ => {
-                    return Err(ParseError(format!(
-                        "unexpected template token: {:?}",
-                        *parser.current()
-                    )));
+                    panic!("unexpected template token: {:?}", parser.tokens()[parser.index()]);
                 }
             }
         }
-        if matches!(parser.current(), Token::TemplateEnd) {
+        if matches!(parser.tokens()[parser.index()], Token::TemplateEnd) {
             parser.bump();
         }
-        Ok(Self { parts })
+        Self { parts }
     }
 }
 

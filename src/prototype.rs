@@ -104,6 +104,7 @@ impl Debug for Prototype {
             let t = f
                 .debug_struct("Prototype")
                 .field("ptr", &(self as *const Prototype as *const () as usize))
+                .field("name", &self.name)
                 .field(
                     "properties",
                     &self

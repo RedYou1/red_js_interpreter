@@ -28,6 +28,7 @@ pub enum Token {
     If,
     Else,
     Of,
+    Typeof,
 
     LParen,
     RParen,
@@ -39,6 +40,7 @@ pub enum Token {
     Semicolon,
     Dot,
     Assign(Option<BinaryOp>),
+    QMark,
     Colon,
 
     Plus,
@@ -54,6 +56,9 @@ pub enum Token {
     LtEq,
     GtEq,
     Arrow,
+
+    And,
+    Or,
 
     Eof,
 }
@@ -89,7 +94,7 @@ impl<'a> Lexer<'a> {
         cur
     }
 
-    const fn peek(&self) -> Option<char> {
+    pub const fn peek(&self) -> Option<char> {
         self.peeked
     }
 
@@ -216,6 +221,15 @@ impl<'a> Lexer<'a> {
                         return Token::Slash;
                     }
                 }
+                '&' => {
+                    self.bump();
+                    return Token::And;
+                }
+                '|' => {
+                    self.bump();
+                    return Token::Or;
+                }
+                '^'|'%' => todo!(),
                 '(' => {
                     self.bump();
                     return Token::LParen;
@@ -264,6 +278,9 @@ impl<'a> Lexer<'a> {
                     }
                     if self.peek() == Some('=') {
                         self.bump();
+                        if self.peek() == Some('=') {
+                            self.bump();
+                        }
                         return Token::Eq;
                     } else {
                         return Token::Assign(None);
@@ -278,6 +295,10 @@ impl<'a> Lexer<'a> {
                         // For now, skip unknown '!'
                         continue;
                     }
+                }
+                '?' => {
+                    self.bump();
+                    return Token::QMark;
                 }
                 '<' => {
                     self.bump();
@@ -356,6 +377,9 @@ impl<'a> Lexer<'a> {
                 }
                 c if c.is_ascii_digit() => {
                     let s = self.eat_while(|ch| ch.is_ascii_digit() || ch == '.');
+                    if let Some('n') = self.peek() {
+                        self.bump();
+                    }
                     if let Ok(n) = s.parse::<i64>() {
                         return Token::BigInt(n);
                     } else if let Ok(n) = s.parse::<f64>() {
@@ -387,6 +411,7 @@ impl<'a> Lexer<'a> {
                         "if" => Token::If,
                         "else" => Token::Else,
                         "of" => Token::Of,
+                        "typeof" => Token::Typeof,
                         _ => Token::Ident(s),
                     };
                 }

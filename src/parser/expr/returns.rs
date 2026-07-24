@@ -5,7 +5,7 @@ use crate::{
     parser::{
         expr::{self, Expr},
         lexer::Token,
-        parser::{ParseError, Parser},
+        parser::Parser,
     },
 };
 
@@ -24,21 +24,21 @@ pub struct Return {
 }
 
 impl Return {
-    pub fn parse(parser: &mut Parser) -> Result<Self, ParseError> {
-        let t = parser.current().clone();
+    pub fn parse(parser: &mut Parser) -> Self {
+        let t = parser.tokens()[parser.index()].clone();
         parser.bump();
-        let t2 = if t == Token::Yield && matches!(parser.current(), Token::Break) {
+        let t2 = if t == Token::Yield && matches!(parser.tokens()[parser.index()], Token::Break) {
             parser.bump();
             true
         } else {
             false
         };
         logln(LogLevel::Info, "parse_statement return statement");
-        let expr = parser.parse_expression()?;
-        if let Token::Semicolon = parser.current() {
+        let expr = parser.parse_expression();
+        if let Token::Semicolon = parser.tokens()[parser.index()] {
             parser.bump();
         }
-        Ok(Self {
+        Self {
             expr: Some(expr),
             rtype: match t {
                 Token::Break => expr::ReturnType::Break,
@@ -48,7 +48,7 @@ impl Return {
                 Token::Yield => expr::ReturnType::Yield,
                 _ => panic!("wierd return"),
             },
-        })
+        }
     }
 }
 

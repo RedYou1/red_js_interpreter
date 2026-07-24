@@ -1,13 +1,43 @@
 use crate::tests::*;
 
+struct AssertResultData<'a> {
+    wanted: &'a [String],
+    current: usize,
+}
+
+fn append(data_ptr: &mut i64, value: String) {
+    let data = unsafe { ((*data_ptr) as *mut AssertResultData).as_mut_unchecked() };
+    assert!(data.current < data.wanted.len());
+    if data.wanted[data.current].ne(&value) {
+        panic!(
+            "err at result {}:\n{}{}\n{}\n-----------------\n!= {}",
+            data.current,
+            if data.current > NB_LOGS { "...\n" } else { "" },
+            data.wanted[(data.current.saturating_sub(NB_LOGS))..data.current].join("\n"),
+            value,
+            data.wanted[data.current]
+        );
+    }
+    data.current += 1;
+}
+
+const NB_LOGS: usize = 10;
 macro_rules! assert_result {
     ($name:ident, $src:expr; $($result:expr),*) => {
         #[test]
         fn $name() {
-            let mut logs = Vec::new();
-            let protos = prebuild_prototypes_test(&mut logs);
+            let wanted = [$($result.to_owned(),)*];
+            let mut data = AssertResultData {
+                wanted: &wanted,
+                current: 0,
+            };
+            let protos = prebuild_prototypes_test(&mut Loggable::<i64> {
+                logger: &(append as fn(&mut i64, String)),
+                data: &mut data as *mut AssertResultData as i64,
+            });
+
             let program = crate::parser::parse($src)
-                .expect("parse failed")
+                //.expect("parse failed")
                 .compile(protos.clone());
             run_function_object(
                 new_runnable(
@@ -21,7 +51,6 @@ macro_rules! assert_result {
                 Rc::new(RefCell::new(JsValue::Undefined)),
                 vec![],
             );
-            assert_eq!(logs.as_slice(), [$($result.to_owned(),)*]);
         }
     }
 }
@@ -424,6 +453,297 @@ assert_result!(
     "===== Résultat =====",
     "Objet final : { valeur: 3250 }",
     "État global : { compteur: 36, historique: [3, 13, 32, 60, 127, 260, 459, 925, 1856], stats: { appels: 9 } }"
+);
+
+assert_result!(
+    test_typeof,
+    r#"
+    console.log("=== Primitive values ===");
+    console.log(typeof undefined);
+    console.log(typeof null);
+    console.log(typeof true);
+    console.log(typeof false);
+    console.log(typeof 0);
+    console.log(typeof -42);
+    console.log(typeof 3.14);
+    console.log(typeof NaN);
+    console.log(typeof Infinity);
+    console.log(typeof 123n);
+    console.log(typeof "");
+    console.log(typeof "hello");
+    console.log(typeof Symbol());
+    console.log(typeof Symbol("test"));
+
+    console.log("=== Objects ===");
+    console.log(typeof {});
+    console.log(typeof { a: 1 });
+    console.log(typeof []);
+    console.log(typeof [1, 2, 3]);
+    console.log(typeof new Object());
+    console.log(typeof new Array());
+    console.log(typeof /abc/);
+
+    console.log("=== Functions ===");
+    console.log(typeof function () {});
+    console.log(typeof (() => {}));
+    console.log(typeof class Test {});
+    console.log(typeof Object);
+    console.log(typeof Array);
+    console.log(typeof console.log);
+
+    console.log("=== Special expressions ===");
+
+    let x;
+    console.log(typeof x);
+
+    let y = null;
+    console.log(typeof y);
+
+    console.log(typeof (1 + 2));
+    console.log(typeof ("a" + "b"));
+    console.log(typeof (1 < 2));
+    console.log(typeof ({}));
+    console.log(typeof (() => 42));
+
+    console.log("=== Missing property ===");
+    const obj = {};
+    console.log(typeof obj.missing);
+
+    console.log("=== Nested values ===");
+    const nested = {
+        number: 1,
+        string: "abc",
+        bool: true,
+        array: [],
+        object: {},
+        func() {},
+        value: null,
+    };
+
+    console.log(typeof nested.number);
+    console.log(typeof nested.string);
+    console.log(typeof nested.bool);
+    console.log(typeof nested.array);
+    console.log(typeof nested.object);
+    console.log(typeof nested.func);
+    console.log(typeof nested.value);
+
+    console.log("=== typeof never throws ===");
+    console.log(typeof nonexistentVariable);
+    "#;
+    "=== Primitive values ===",
+    "undefined",
+    "object",
+    "boolean",
+    "boolean",
+    "number",
+    "number",
+    "number",
+    "number",
+    "number",
+    "number",
+    "string",
+    "string",
+    "symbol",
+    "symbol",
+    "=== Objects ===",
+    "object",
+    "object",
+    "object",
+    "object",
+    "object",
+    "object",
+    "object",
+    "=== Functions ===",
+    "function",
+    "function",
+    "function",
+    "function",
+    "function",
+    "function",
+    "=== Special expressions ===",
+    "undefined",
+    "object",
+    "number",
+    "string",
+    "boolean",
+    "object",
+    "function",
+    "=== Missing property ===",
+    "undefined",
+    "=== Nested values ===",
+    "number",
+    "string",
+    "boolean",
+    "object",
+    "object",
+    "function",
+    "object",
+    "=== typeof never throws ===",
+    "undefined"
+);
+
+assert_result!(
+    test_conditional_operator,
+    r#"
+    // Basic booleans
+    console.log(true ? "yes" : "no");           // yes
+    console.log(false ? "yes" : "no");          // no
+
+    // Numbers
+    console.log(1 ? "truthy" : "falsy");        // truthy
+    console.log(0 ? "truthy" : "falsy");        // falsy
+    console.log(-1 ? "truthy" : "falsy");       // truthy
+
+    // Strings
+    console.log("" ? "truthy" : "falsy");       // falsy
+    console.log("hello" ? "truthy" : "falsy");  // truthy
+
+    // null / undefined
+    console.log(null ? "truthy" : "falsy");     // falsy
+    console.log(undefined ? "truthy" : "falsy");// falsy
+
+    // NaN
+    console.log(NaN ? "truthy" : "falsy");      // falsy
+
+    // Objects and arrays
+    console.log({} ? "truthy" : "falsy");       // truthy
+    console.log([] ? "truthy" : "falsy");       // truthy
+
+    // Variables
+    let x = 5;
+    console.log(x > 3 ? "big" : "small");       // big
+
+    x = 2;
+    console.log(x > 3 ? "big" : "small");       // small
+
+    // Expressions
+    console.log((2 + 3) === 5 ? 100 : 200);     // 100
+    console.log((2 * 3) === 5 ? 100 : 200);     // 200
+
+    // Nested ternary
+    console.log(
+        5 > 10
+            ? "greater"
+            : 5 === 10
+                ? "equal"
+                : "less"
+    ); // less
+
+    console.log(
+        10 > 5
+            ? "greater"
+            : 10 === 5
+                ? "equal"
+                : "less"
+    ); // greater
+
+    // Ternary returning different types
+    console.log(true ? 42 : "no");              // 42
+    console.log(false ? 42 : "no");             // no
+
+    // Objects returned
+    console.log((true ? { a: 1 } : { a: 2 }).a);    // 1
+    console.log((false ? { a: 1 } : { a: 2 }).a);   // 2
+
+    // Arrays returned
+    console.log((true ? [1,2] : [3,4])[1]);     // 2
+    console.log((false ? [1,2] : [3,4])[0]);    // 3
+
+    // Function calls
+    function f() { return "F"; }
+    function g() { return "G"; }
+
+    console.log(true ? f() : g());              // F
+    console.log(false ? f() : g());             // G
+
+    // Side effects (only one branch should execute)
+    let count = 0;
+
+    function inc() {
+        count++;
+        return count;
+    }
+
+    console.log(true ? inc() : inc() + 100);    // 1
+    console.log(count);                         // 1
+
+    console.log(false ? inc() : inc() + 100);   // 102
+    console.log(count);                         // 2
+
+    // Assignment
+    let y;
+    y = true ? 10 : 20;
+    console.log(y);                             // 10
+
+    y = false ? 10 : 20;
+    console.log(y);                             // 20
+
+    // Chained
+    let score = 75;
+    console.log(
+        score >= 90 ? "A"
+        : score >= 80 ? "B"
+        : score >= 70 ? "C"
+        : score >= 60 ? "D"
+        : "F"
+    ); // C
+
+    // Precedence
+    console.log(1 + (true ? 2 : 3));            // 3
+    console.log((true ? 2 : 3) * 5);            // 10
+
+    // Logical operators with ternary
+    console.log((true && false) ? 1 : 2);       // 2
+    console.log((true || false) ? 1 : 2);       // 1
+
+    // Conditional expression as function argument
+    function identity(v) {
+        return v;
+    }
+
+    console.log(identity(true ? "left" : "right"));   // left
+    console.log(identity(false ? "left" : "right"));  // right
+    "#;
+    "yes",
+    "no",
+    "truthy",
+    "falsy",
+    "truthy",
+    "falsy",
+    "truthy",
+    "falsy",
+    "falsy",
+    "falsy",
+    "truthy",
+    "truthy",
+    "big",
+    "small",
+    "100",
+    "200",
+    "less",
+    "greater",
+    "42",
+    "no",
+    "1",
+    "2",
+    "2",
+    "3",
+    "F",
+    "G",
+    "1",
+    "1",
+    "102",
+    "2",
+    "10",
+    "20",
+    "C",
+    "3",
+    "10",
+    "2",
+    "1",
+    "left",
+    "right"
 );
 
 //TODO test recusive for all expr and stmt

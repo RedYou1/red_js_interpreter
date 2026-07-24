@@ -2,11 +2,7 @@ use std::{cell::RefCell, fmt::Debug, mem::MaybeUninit, rc::Rc};
 
 use crate::{
     Code, CodeIndex, CodeResult, JsValue, LogLevel, Prototype, handle_return, inline_borrow, logln,
-    parser::{
-        lexer::Token,
-        parser::{ParseError, Parser},
-        stmt::Stmt,
-    },
+    parser::{lexer::Token, parser::Parser, stmt::Stmt},
     run_sub,
 };
 
@@ -103,7 +99,11 @@ impl Expr for Identifier {
                     LogLevel::Trace,
                     &format!("Exiting Expr::Identifier result={:?}", res),
                 );
-                CodeResult::Normal(res)
+                CodeResult::NormalMember(
+                    res,
+                    proto,
+                    Rc::new(RefCell::new(name.as_str().into())),
+                )
             }
         })
     }
@@ -112,60 +112,47 @@ impl Expr for Identifier {
     }
 }
 
-pub struct VarDecl {
-    pub name: String,
-    pub initializer: Option<Box<dyn Expr>>,
+pub struct Typeof {
+    pub obj: Box<dyn Stmt>,
 }
 
-impl VarDecl {
-    pub fn parse(parser: &mut Parser) -> Result<Self, ParseError> {
-        let name = parser.expect_ident()?;
-        logln(
-            LogLevel::Info,
-            &format!("parse_statement variable declaration name={}", name),
-        );
-        let initializer = if let Token::Assign(t) = parser.current() {
-            assert_eq!(*t, Option::<BinaryOp>::None);
-            parser.bump();
-            Some(parser.parse_expression()?)
-        } else {
-            None
-        };
-        if let Token::Semicolon = parser.current() {
-            parser.bump();
-        }
-        Ok(Self { name, initializer })
-    }
-}
-
-impl Expr for VarDecl {
+impl Expr for Typeof {
     fn compile_expr(&self, mem: Rc<RefCell<Prototype>>) -> Code {
-        let name = self.name.clone();
-        let code = self.initializer.compile_expr(mem);
-        Box::new(move |proto, _| {
-            logln(
-                LogLevel::Trace,
-                &format!("Entering Expr::VarDecl name={}", name),
-            );
-            let value = handle_return!(code(proto.clone(), &mut CodeIndex::new()));
-            proto
-                .borrow_mut()
-                .properties
-                .insert(name.clone().into(), value.clone());
-            logln(
-                LogLevel::Trace,
-                &format!("Exiting Expr::VarDecl name={} value={:?}", name, value),
-            );
-            CodeResult::Normal(Rc::new(RefCell::new(JsValue::Undefined)))
+        let obj = self.obj.compile_stmt(mem);
+        Box::new(move |prop, _| {
+            if obj.len() > 1 {
+                handle_return!(run_sub(
+                    &obj[..(obj.len() - 1)],
+                    prop.clone(),
+                    &mut CodeIndex::new()
+                ));
+            }
+            let t = handle_return!(obj[obj.len() - 1](prop, &mut CodeIndex::new()));
+            CodeResult::Normal(Rc::new(RefCell::new(JsValue::String(
+                match inline_borrow!(t) {
+                    JsValue::Function(_) => "function",
+                    JsValue::Generator(_) => "function",
+                    JsValue::Prototype(proto) => {
+                        if proto.borrow().name.is_some() {
+                            "function"
+                        } else {
+                            "object"
+                        }
+                    }
+                    JsValue::Symbol(_, _) => "symbol",
+                    JsValue::String(_) => "string",
+                    JsValue::Number(_) | JsValue::BigInt(_) => "number",
+                    JsValue::Boolean(_) => "boolean",
+                    JsValue::Undefined => "undefined",
+                    JsValue::Null => "object",
+                }
+                .to_owned(),
+            ))))
         })
     }
     fn duplicate_expr(&self) -> Box<dyn Expr> {
         Box::new(Self {
-            name: self.name.clone(),
-            initializer: self
-                .initializer
-                .as_ref()
-                .map(|a| a.as_ref().duplicate_expr()),
+            obj: self.obj.duplicate_stmt(),
         })
     }
 }

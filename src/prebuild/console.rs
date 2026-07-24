@@ -83,17 +83,26 @@ pub fn default_console_config(mem: Rc<RefCell<Prototype>>) -> Rc<RefCell<Prototy
 }
 
 #[cfg(test)]
+pub struct Loggable<'a, T> {
+    pub logger: &'a fn(&mut T, String),
+    pub data: T,
+}
+
+#[cfg(test)]
 fn push_to_logs(console: Rc<RefCell<Prototype>>, text: String) {
-    let JsValue::BigInt(vec_ptr) =
+    let JsValue::BigInt(logger_ptr) =
         *Prototype::find(console, &JsValue::String(CONSOLE_LOGS.to_owned()))
             .1
             .borrow()
     else {
         return;
     };
-    let vec: &mut Vec<String> = unsafe { (vec_ptr as *mut Vec<String>).as_mut_unchecked() };
+    let loggable: &mut Loggable<()> =
+        unsafe { (logger_ptr as *mut Loggable<()>).as_mut_unchecked() };
+    let logger = loggable.logger;
+    let data = &mut loggable.data;
     for line in text.split('\n') {
-        vec.push(line.to_owned());
+        logger(data, line.to_owned());
     }
 }
 

@@ -5,7 +5,7 @@ use crate::{
     parser::{
         expr::{self, Expr, FunctionDecl},
         lexer::Token,
-        parser::{ParseError, Parser},
+        parser::Parser,
     },
 };
 
@@ -16,34 +16,34 @@ pub struct ClassDecl {
 }
 
 impl ClassDecl {
-    pub fn parse(parser: &mut Parser) -> Result<Self, ParseError> {
-        let name = if let Token::Ident(_) = parser.current() {
-            parser.expect_ident()?.leak()
+    pub fn parse(parser: &mut Parser) -> Self {
+        let name = if let Token::Ident(_) = parser.tokens()[parser.index()] {
+            parser.expect_ident().leak()
         } else {
-            return Err(ParseError("expected class name".into()));
+            panic!("expected class name");
         };
         logln(
             LogLevel::Info,
             &format!("parse_statement class name={}", name),
         );
-        let super_class = if let Token::Ident(ident) = parser.current() {
+        let super_class = if let Token::Ident(ident) = &parser.tokens()[parser.index()] {
             if ident.eq("extends") {
                 parser.bump();
-                Some(parser.parse_call_or_primary()?)
+                Some(parser.parse_call_or_primary(true))
             } else {
                 None
             }
         } else {
             None
         };
-        if !matches!(parser.current(), Token::LBrace) {
-            return Err(ParseError("expected '{' after class name".into()));
+        if !matches!(parser.tokens()[parser.index()], Token::LBrace) {
+            panic!("expected '{{' after class name");
         }
         parser.bump();
         let mut methods = Vec::new();
-        while !matches!(parser.current(), Token::RBrace | Token::Eof) {
-            if let Token::Ident(_) = parser.current() {
-                methods.push(expr::FunctionDecl::parse(parser, false)?);
+        while !matches!(parser.tokens()[parser.index()], Token::RBrace | Token::Eof) {
+            if let Token::Ident(_) = parser.tokens()[parser.index()] {
+                methods.push(expr::FunctionDecl::parse(parser, false));
                 continue;
             }
             parser.bump();
@@ -53,10 +53,10 @@ impl ClassDecl {
             super_class,
             methods: Rc::from(methods),
         };
-        if let Token::RBrace = parser.current() {
+        if let Token::RBrace = parser.tokens()[parser.index()] {
             parser.bump();
         }
-        Ok(class)
+        class
     }
 }
 
@@ -137,11 +137,9 @@ impl Expr for ClassDecl {
                 LogLevel::Trace,
                 &format!("Exiting Expr::ClassDecl {class_proto:?}"),
             );
-            mem.borrow_mut().properties.insert(
-                name.into(),
-                Rc::new(RefCell::new(JsValue::Prototype(class_proto))),
-            );
-            CodeResult::Normal(Rc::new(RefCell::new(JsValue::Undefined)))
+            let res = Rc::new(RefCell::new(JsValue::Prototype(class_proto)));
+            mem.borrow_mut().properties.insert(name.into(), res.clone());
+            CodeResult::Normal(res)
         })
     }
     fn duplicate_expr(&self) -> Box<dyn Expr> {

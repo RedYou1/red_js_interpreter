@@ -56,16 +56,27 @@ pub fn test_new_array() {
     assert_eq!(arr, new_array(array.clone(), content.clone()));
 }
 
+fn append(logs_ptr: &mut i64, value: String) {
+    let logs = unsafe { ((*logs_ptr) as *mut Vec<String>).as_mut_unchecked() };
+    logs.push(value);
+}
+
 #[test]
 pub fn test_console() {
     let mut logs = Vec::new();
-    let protos = prebuild_prototypes_test(&mut logs);
+    let protos = prebuild_prototypes_test(&mut Loggable::<i64> {
+        logger: &(append as fn(&mut i64, String)),
+        data: &mut logs as *mut Vec<String> as i64,
+    });
 
     let console = Prototype::find(protos.clone(), &"console".into()).1;
-    let console_log = Prototype::find(console.borrow().unwrap_proto("test_console for console"), &"log".into())
-        .1
-        .borrow()
-        .unwrap_proto("test_console for console.log");
+    let console_log = Prototype::find(
+        console.borrow().unwrap_proto("test_console for console"),
+        &"log".into(),
+    )
+    .1
+    .borrow()
+    .unwrap_proto("test_console for console.log");
     let log = run_function_object(
         console_log.clone(),
         console.clone(),

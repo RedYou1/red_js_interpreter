@@ -5,7 +5,7 @@ use crate::{
     parser::{
         expr::{self, BinaryOp, Expr},
         lexer::Token,
-        parser::{ParseError, Parser},
+        parser::Parser,
         stmt::Stmt,
     },
     run_sub,
@@ -20,39 +20,43 @@ pub struct LoopStmt {
 }
 
 impl LoopStmt {
-    pub fn parse(parser: &mut Parser) -> Result<Self, ParseError> {
-        let t = parser.current().clone();
+    pub fn parse(parser: &mut Parser) -> Self {
+        let t = parser.tokens()[parser.index()].clone();
         parser.bump();
         logln(LogLevel::Info, "parse_statement for loop");
-        if !matches!(parser.current(), Token::LParen) {
-            return Err(ParseError("expected '(' after 'for'".into()));
+        if !matches!(parser.tokens()[parser.index()], Token::LParen) {
+            panic!("expected '(' after 'for'");
         }
         parser.bump();
 
         // Parse init
         let mut of = false;
         let (init, of_cond): (Option<Box<dyn Expr>>, Option<Box<dyn Expr>>) =
-            if !matches!(t, Token::For) || matches!(parser.current(), Token::Semicolon) {
-                (None, None)
-            } else if matches!(parser.current(), Token::Let | Token::Const | Token::Var)
-                || matches!(parser.peek(), Token::Of)
+            if !matches!(t, Token::For)
+                || matches!(parser.tokens()[parser.index()], Token::Semicolon)
             {
-                if !matches!(parser.peek(), Token::Of) {
+                (None, None)
+            } else if matches!(
+                parser.tokens()[parser.index()],
+                Token::Let | Token::Const | Token::Var
+            ) || matches!(parser.tokens()[parser.index() + 1], Token::Of)
+            {
+                if !matches!(parser.tokens()[parser.index() + 1], Token::Of) {
                     parser.bump();
                 }
-                let name = parser.expect_ident()?;
-                let initializer = if let Token::Assign(t) = parser.current() {
+                let name = parser.expect_ident();
+                let initializer = if let Token::Assign(t) = &parser.tokens()[parser.index()] {
                     assert_eq!(*t, Option::<BinaryOp>::None);
                     parser.bump();
-                    Some(parser.parse_expression()?)
-                } else if let Token::Of = parser.current() {
+                    Some(parser.parse_expression())
+                } else if let Token::Of = parser.tokens()[parser.index()] {
                     parser.bump();
                     of = true;
-                    Some(parser.parse_expression()?)
+                    Some(parser.parse_expression())
                 } else {
                     None
                 };
-                if let Token::Semicolon = parser.current() {
+                if let Token::Semicolon = parser.tokens()[parser.index()] {
                     parser.bump();
                 }
                 if of {
@@ -105,8 +109,8 @@ impl LoopStmt {
                     (Some(Box::new(expr::VarDecl { name, initializer })), None)
                 }
             } else {
-                let expr = parser.parse_expression()?;
-                if let Token::Semicolon = parser.current() {
+                let expr = parser.parse_expression();
+                if let Token::Semicolon = parser.tokens()[parser.index()] {
                     parser.bump();
                 }
                 (Some(expr), None)
@@ -116,40 +120,40 @@ impl LoopStmt {
         let condition: Option<Box<dyn Expr>> = if of {
             of_cond
         } else {
-            Some(if let Token::Semicolon = parser.current() {
+            Some(if let Token::Semicolon = parser.tokens()[parser.index()] {
                 Box::new(expr::ConstBoolean { b: true })
             } else {
-                parser.parse_expression()?
+                parser.parse_expression()
             })
         };
-        if let Token::Semicolon = parser.current() {
+        if let Token::Semicolon = parser.tokens()[parser.index()] {
             parser.bump();
         }
 
         // Parse update
-        let update = if of || matches!(parser.current(), Token::RParen) {
+        let update = if of || matches!(parser.tokens()[parser.index()], Token::RParen) {
             None
         } else {
-            Some(parser.parse_expression()?)
+            Some(parser.parse_expression())
         };
 
-        if !matches!(parser.current(), Token::RParen) {
-            return Err(ParseError("expected ')' after for clauses".into()));
+        if !matches!(parser.tokens()[parser.index()], Token::RParen) {
+            panic!("expected ')' after for clauses");
         }
         parser.bump();
 
-        if !matches!(parser.current(), Token::LBrace) {
-            return Err(ParseError("expected '{' for for body".into()));
+        if !matches!(parser.tokens()[parser.index()], Token::LBrace) {
+            panic!("expected '{{' for for body");
         }
-        let body = parser.parse_block_body()?;
+        let body = parser.parse_block_body();
 
-        Ok(Self {
+        Self {
             init,
             condition,
             update,
             body,
             do_first: false,
-        })
+        }
     }
 }
 
