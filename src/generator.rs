@@ -1,7 +1,9 @@
 use std::{cell::RefCell, fmt::Debug, rc::Rc};
 
-use crate::{ARGUMENTS, Code, CodeIndex, CodeResult, JsValue, LogLevel, PROTOTYPE_NAME, Prototype, RUNNABLE, inline_borrow, new_array};
-
+use crate::{
+    ARGUMENTS, Code, CodeIndex, CodeResult, JsValue, LogLevel, PROTOTYPE_NAME, Prototype, RUNNABLE,
+    inline_borrow, new_array,
+};
 
 pub struct Generator {
     pub params: Vec<String>,
@@ -11,12 +13,12 @@ pub struct Generator {
 }
 
 pub struct IterGenerator {
-    pub(crate)index: CodeIndex,
-    pub(crate)proto: Rc<RefCell<Prototype>>,
+    pub(crate) index: CodeIndex,
+    pub(crate) proto: Rc<RefCell<Prototype>>,
     pub(crate) code: Rc<[Code]>,
 }
 impl Iterator for IterGenerator {
-    type Item = Rc<RefCell<JsValue>>;
+    type Item = CodeResult;
 
     fn next(&mut self) -> Option<Self::Item> {
         while self.index.current() < self.code.len() {
@@ -25,11 +27,15 @@ impl Iterator for IterGenerator {
                 CodeResult::Return(_) => panic!("return in generator?"),
                 CodeResult::Yield(res) => {
                     self.index.set_retry();
-                    return Some(res);
+                    return Some(CodeResult::Normal(res));
                 }
                 CodeResult::YieldBreak => {
                     self.index.goto_end();
                     return None;
+                }
+                CodeResult::Error(_) => {
+                    self.index.goto_end();
+                    return Some(res);
                 }
                 _ => {}
             }
@@ -89,7 +95,8 @@ pub fn run_generator_object(
             .enumerate()
             .map(|(i, param)| (runnable.params[i].as_str().into(), param.clone())),
     );
-    let JsValue::Prototype(array) = inline_borrow!(Prototype::find(mem.clone(), &stringify!(Array).into()).1)
+    let JsValue::Prototype(array) =
+        inline_borrow!(Prototype::find(mem.clone(), &stringify!(Array).into()).1)
     else {
         panic!("Array not found")
     };

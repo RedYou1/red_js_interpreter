@@ -2,22 +2,20 @@ use std::{cell::RefCell, rc::Rc};
 
 use crate::{
     Code, CodeResult, LogLevel, Prototype, handle_return, logln,
-    parser::{
-        expr::{self, Expr},
-        lexer::Token,
-        parser::Parser,
-    },
+    parser::{expr::Expr, lexer::Token, parser::Parser},
 };
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone)]
 pub enum ReturnType {
     Return,
     Yield,
-    Break,
+    Break(Option<String>),
     YieldBreak,
-    Continue,
+    Continue(Option<String>),
+    Error,
 }
 
+#[derive(Debug)]
 pub struct Return {
     pub rtype: ReturnType,
     pub expr: Option<Box<dyn Expr>>,
@@ -33,6 +31,14 @@ impl Return {
         } else {
             false
         };
+        let name = if matches!(t, Token::Break | Token::Continue) {
+            match &parser.tokens()[parser.index()] {
+                Token::Ident(name) => Some(name.clone()),
+                _ => None,
+            }
+        } else {
+            None
+        };
         logln(LogLevel::Info, "parse_statement return statement");
         let expr = parser.parse_expression();
         if let Token::Semicolon = parser.tokens()[parser.index()] {
@@ -41,11 +47,12 @@ impl Return {
         Self {
             expr: Some(expr),
             rtype: match t {
-                Token::Break => expr::ReturnType::Break,
-                Token::Continue => expr::ReturnType::Continue,
-                Token::Return => expr::ReturnType::Return,
-                Token::Yield if t2 => expr::ReturnType::YieldBreak,
-                Token::Yield => expr::ReturnType::Yield,
+                Token::Break => ReturnType::Break(name),
+                Token::Continue => ReturnType::Continue(name),
+                Token::Return => ReturnType::Return,
+                Token::Yield if t2 => ReturnType::YieldBreak,
+                Token::Yield => ReturnType::Yield,
+                Token::Throw => ReturnType::Error,
                 _ => panic!("wierd return"),
             },
         }
@@ -54,14 +61,14 @@ impl Return {
 
 impl Expr for Return {
     fn compile_expr(&self, mem: Rc<RefCell<Prototype>>) -> Code {
-        let rtype = self.rtype;
+        let rtype = self.rtype.clone();
         let code: Code = self.expr.compile_expr(mem);
         Box::new(move |_proto, _i| {
             logln(
                 LogLevel::Trace,
                 &format!("Entering Expr::Return rtype={:?}", rtype),
             );
-            match rtype {
+            match rtype.clone() {
                 ReturnType::Return => {
                     let v = handle_return!(code(_proto, _i));
                     logln(
@@ -78,17 +85,25 @@ impl Expr for Return {
                     );
                     CodeResult::Yield(v)
                 }
-                ReturnType::Break => {
+                ReturnType::Break(name) => {
                     logln(LogLevel::Trace, "Exiting Expr::Return Break");
-                    CodeResult::Break
+                    CodeResult::Break(name)
                 }
                 ReturnType::YieldBreak => {
                     logln(LogLevel::Trace, "Exiting Expr::Return YieldBreak");
                     CodeResult::YieldBreak
                 }
-                ReturnType::Continue => {
+                ReturnType::Continue(name) => {
                     logln(LogLevel::Trace, "Exiting Expr::Return Continue");
-                    CodeResult::Continue
+                    CodeResult::Continue(name)
+                }
+                ReturnType::Error => {
+                    let v = handle_return!(code(_proto, _i));
+                    logln(
+                        LogLevel::Trace,
+                        &format!("Exiting Expr::Return Error value={:?}", v),
+                    );
+                    CodeResult::Error(v)
                 }
             }
         })

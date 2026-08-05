@@ -4,6 +4,7 @@ use crate::{
     Code, CodeResult, LogLevel, Prototype, handle_return, inline_borrow, logln, parser::expr::Expr,
 };
 
+#[derive(Debug)]
 pub struct Member {
     pub object: Box<dyn Expr>,
     pub property: Box<dyn Expr>,

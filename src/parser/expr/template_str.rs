@@ -9,6 +9,7 @@ use crate::{
     },
 };
 
+#[derive(Debug)]
 pub enum TemplatePart {
     String(String),
     Expr(Box<dyn Expr>),
@@ -19,6 +20,7 @@ enum CompiledTemplatePart {
     Expr(Code),
 }
 
+#[derive(Debug)]
 pub struct TemplateLiteral {
     pub parts: Vec<TemplatePart>,
 }

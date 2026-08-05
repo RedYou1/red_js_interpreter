@@ -9,6 +9,7 @@ use crate::{
     },
 };
 
+#[derive(Debug)]
 pub struct ClassDecl {
     pub name: &'static str,
     pub super_class: Option<Box<dyn Expr>>,

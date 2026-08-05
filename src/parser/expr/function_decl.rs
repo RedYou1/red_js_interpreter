@@ -5,6 +5,7 @@ use crate::{
     parser::{expr::Expr, lexer::Token, parser::Parser, stmt::Stmt},
 };
 
+#[derive(Debug)]
 pub struct FunctionDecl {
     pub name: &'static str,
     pub params: Vec<String>,

@@ -10,6 +10,7 @@ use crate::{
     },
 };
 
+#[derive(Debug)]
 pub struct IfStmt {
     pub blocks: Vec<(Box<dyn Expr>, Vec<Box<dyn Stmt>>)>,
 }
@@ -23,19 +24,23 @@ impl IfStmt {
         parser.bump();
         let condition = parser.parse_expression();
         if !matches!(parser.tokens()[parser.index()], Token::RParen) {
-            panic!("expected ')' after if condition");
+            panic!("expected ')' after if condition, {condition:?}");
         }
         parser.bump();
 
-        if !matches!(parser.tokens()[parser.index()], Token::LBrace) {
-            panic!("expected '{{' after if");
-        }
-
-        let mut blocks = vec![(condition, parser.parse_block_body())];
+        let mut blocks = vec![(
+            condition,
+            if parser.tokens()[parser.index()] == Token::LBrace {
+                parser.parse_block_body()
+            } else {
+                vec![parser.parse_statement().unwrap()]
+            },
+        )];
 
         while let Token::Else = parser.tokens()[parser.index()] {
             parser.bump();
             let condition = if let Token::If = parser.tokens()[parser.index()] {
+                parser.bump();
                 if !matches!(parser.tokens()[parser.index()], Token::LParen) {
                     panic!("expected '(' after 'if'");
                 }
@@ -46,14 +51,18 @@ impl IfStmt {
                 }
                 parser.bump();
 
-                if !matches!(parser.tokens()[parser.index()], Token::LBrace) {
-                    panic!("expected '{{' after if");
-                }
                 condition
             } else {
                 Box::new(expr::ConstBoolean { b: true })
             };
-            blocks.push((condition, parser.parse_block_body()));
+            blocks.push((
+                condition,
+                if parser.tokens()[parser.index()] == Token::LBrace {
+                    parser.parse_block_body()
+                } else {
+                    vec![parser.parse_statement().unwrap()]
+                },
+            ));
         }
 
         Self { blocks }

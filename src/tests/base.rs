@@ -1,4 +1,4 @@
-use crate::tests::*;
+use crate::{CodeResult, tests::*};
 
 #[test]
 pub fn test_new_array() {
@@ -16,7 +16,7 @@ pub fn test_new_array() {
         Rc::new(RefCell::new(JsValue::Undefined)),
         vec![],
     );
-    assert_eq!(arr, new_array(array.clone(), vec![]));
+    assert_eq!(arr, CodeResult::Return(new_array(array.clone(), vec![])));
     let arr = run_function_object(
         constructor.clone(),
         Rc::new(RefCell::new(JsValue::Undefined)),
@@ -24,7 +24,7 @@ pub fn test_new_array() {
     );
     assert_eq!(
         arr,
-        new_array(
+        CodeResult::Return(new_array(
             array.clone(),
             vec![
                 Rc::new(RefCell::new(JsValue::Undefined)),
@@ -33,7 +33,7 @@ pub fn test_new_array() {
                 Rc::new(RefCell::new(JsValue::Undefined)),
                 Rc::new(RefCell::new(JsValue::Undefined))
             ]
-        )
+        ))
     );
     let content = vec![
         Rc::new(RefCell::new(JsValue::BigInt(1))),
@@ -44,7 +44,10 @@ pub fn test_new_array() {
         Rc::new(RefCell::new(JsValue::Undefined)),
         content.clone(),
     );
-    assert_eq!(arr, new_array(array.clone(), content.clone()));
+    assert_eq!(
+        arr,
+        CodeResult::Return(new_array(array.clone(), content.clone()))
+    );
     let arr = run_function_object(
         Prototype::find(array.clone(), &"of".into())
             .1
@@ -53,7 +56,10 @@ pub fn test_new_array() {
         Rc::new(RefCell::new(JsValue::Undefined)),
         content.clone(),
     );
-    assert_eq!(arr, new_array(array.clone(), content.clone()));
+    assert_eq!(
+        arr,
+        CodeResult::Return(new_array(array.clone(), content.clone()))
+    );
 }
 
 fn append(logs_ptr: &mut i64, value: String) {
@@ -84,7 +90,10 @@ pub fn test_console() {
             "%%Hello World%%".to_owned(),
         )))],
     );
-    assert_eq!(log, Rc::new(RefCell::new(JsValue::Undefined)));
+    assert_eq!(
+        log,
+        CodeResult::Return(Rc::new(RefCell::new(JsValue::Undefined)))
+    );
 
     assert_eq!(logs.as_slice(), ["%Hello World%".to_owned()]);
     logs.clear();

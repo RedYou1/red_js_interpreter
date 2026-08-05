@@ -1,10 +1,11 @@
 use std::{cell::RefCell, rc::Rc};
 
 use crate::{
-    Code, CodeResult, JsValue, LogLevel, Prototype, RUNNABLE, inline_borrow, logln,
+    Code, CodeResult, JsValue, LogLevel, Prototype, RUNNABLE, handle_error, inline_borrow, logln,
     parser::expr::Expr, run_function_object, run_generator_object,
 };
 
+#[derive(Debug)]
 pub struct Call {
     pub func: Box<dyn Expr>,
     pub args: Vec<Box<dyn Expr>>,
@@ -28,15 +29,20 @@ impl Expr for Call {
                 e => return e,
             };
             let func_proto = func.borrow().unwrap_proto("expr::Call func_proto");
-            let args = args
-                .iter()
-                .map(|arg| arg(proto.clone(), i).unwrap_normal())
-                .collect();
+            let mut args_evaluated: Vec<Rc<RefCell<JsValue>>> = Vec::new();
+            for arg in args.iter() {
+                match arg(proto.clone(), i) {
+                    CodeResult::Normal(res) => args_evaluated.push(res),
+                    CodeResult::NormalMember(res, _, _) => args_evaluated.push(res),
+                    e => return e,
+                }
+            }
+            let args = args_evaluated;
             let out = match *Prototype::find(func_proto.clone(), &RUNNABLE.into())
                 .1
                 .borrow()
             {
-                JsValue::Function(_) => run_function_object(func_proto, this, args),
+                JsValue::Function(_) => handle_error!(run_function_object(func_proto, this, args)),
                 JsValue::Generator(_) => Rc::new(RefCell::new(JsValue::Prototype(
                     run_generator_object(func_proto, this, args).into_proto(
                         inline_borrow!(Prototype::find(proto, &stringify!(Generator).into()).1)
@@ -58,7 +64,9 @@ impl Expr for Call {
                             .1
                             .borrow()
                         {
-                            JsValue::Function(_) => run_function_object(func_proto, this, args),
+                            JsValue::Function(_) => {
+                                handle_error!(run_function_object(func_proto, this, args))
+                            }
                             JsValue::Generator(_) => Rc::new(RefCell::new(JsValue::Prototype(
                                 run_generator_object(func_proto, this, args).into_proto(
                                     inline_borrow!(

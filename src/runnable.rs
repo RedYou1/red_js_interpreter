@@ -62,7 +62,7 @@ pub fn run_function_object(
     func: Rc<RefCell<Prototype>>,
     this: Rc<RefCell<JsValue>>,
     params: Vec<Rc<RefCell<JsValue>>>,
-) -> Rc<RefCell<JsValue>> {
+) -> CodeResult {
     let JsValue::Function(ref runnable) =
         inline_borrow!(inline_borrow!(func.clone()).properties[&RUNNABLE.into()].clone())
     else {
@@ -135,10 +135,9 @@ pub fn run_function_object(
     }
 
     let res = run_sub(&runnable.code, proto, &mut CodeIndex::new());
-    if let CodeResult::Return(res) = res {
-        res
-    } else {
-        Rc::new(RefCell::new(JsValue::Undefined))
+    match res {
+        CodeResult::Return(_) | CodeResult::Error(_) => res,
+        _ => CodeResult::Return(Rc::new(RefCell::new(JsValue::Undefined))),
     }
 }
 

@@ -49,27 +49,31 @@ new_class! {
         let mut code_index = CodeIndex::load_from(this.clone(), "Generator_CodeIndex");
         if code_index.current >= code.len() {
             drop(unsafe{ Rc::from_raw(code) });
-            return Rc::new(RefCell::new(JsValue::Undefined));
+            return CodeResult::Return(Rc::new(RefCell::new(JsValue::Undefined)));
         }
         let res = run_sub(code, proto.clone(), &mut code_index);
         match res {
             CodeResult::Normal(r) | CodeResult::Return(r) => {
                 drop(unsafe{ Rc::from_raw(code) });
-                r
+                CodeResult::Return(r)
             },
             CodeResult::YieldBreak => {
                 drop(unsafe{ Rc::from_raw(code) });
-                Rc::new(RefCell::new(JsValue::Undefined))
+                CodeResult::Return(Rc::new(RefCell::new(JsValue::Undefined)))
             },
             CodeResult::Yield(r) => {
                 code_index.next();
                 code_index.save_into(this.clone(), "Generator_CodeIndex");
-                r
+                CodeResult::Return(r)
             },
+            CodeResult::Error(_) => {
+                drop(unsafe{ Rc::from_raw(code) });
+                res
+            }
             _ => {
                 panic!("got wrong codeResult from iterator in Generator obj {res:?}");
             }
         }
     };
-    Symbol.iterator, fn, |_, this, []| { this }
+    Symbol.iterator, fn, |_, this, []| { CodeResult::Return(this) }
 }

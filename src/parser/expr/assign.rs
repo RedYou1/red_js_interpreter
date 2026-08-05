@@ -1,9 +1,15 @@
 use std::{cell::RefCell, rc::Rc};
 
 use crate::{
-    Code, CodeIndex, CodeResult, JsValue, LogLevel, Prototype, handle_return, inline_borrow, logln, parser::{expr::{BinaryOp, Expr}, lexer::Token, parser::Parser},
+    Code, CodeIndex, CodeResult, JsValue, LogLevel, Prototype, handle_return, inline_borrow, logln,
+    parser::{
+        expr::{BinaryOp, Expr},
+        lexer::Token,
+        parser::Parser,
+    },
 };
 
+#[derive(Debug)]
 pub struct Assign {
     pub target: Box<dyn Expr>,
     pub value: Box<dyn Expr>,
@@ -17,8 +23,33 @@ impl Expr for Assign {
             logln(LogLevel::Trace, "Entering Expr::Assign");
             let value = handle_return!(value(proto.clone(), i));
             let (obj, key) = match target(proto.clone(), i) {
-                CodeResult::Normal(key) => (proto, key),
-                CodeResult::NormalMember(_, obj, key) => (obj, key),
+                CodeResult::Normal(key) => {
+                    let key_clone = key.clone();
+                    let key_val = inline_borrow!(key_clone.clone());
+                    if let Some((found_proto, _)) = Prototype::opt_find(proto.clone(), &key_val)
+                    {
+                        (found_proto, key_clone)
+                    } else {
+                        (proto, key_clone)
+                    }
+                }
+                CodeResult::NormalMember(_, obj, key) => {
+                    // Distinguish identifier targets (obj == current proto) from member targets.
+                    let key_clone = key.clone();
+                    let key_val = inline_borrow!(key_clone.clone());
+                    if std::rc::Rc::ptr_eq(&obj, &proto) {
+                        // Identifier: update nearest binding on the prototype chain.
+                        if let Some((found_proto, _)) = Prototype::opt_find(obj.clone(), &key_val)
+                        {
+                            (found_proto, key_clone)
+                        } else {
+                            (obj, key_clone)
+                        }
+                    } else {
+                        // Member access: write to the object itself (create/overwrite own property).
+                        (obj, key_clone)
+                    }
+                }
                 _ => panic!("asign not a member"),
             };
             logln(
@@ -39,6 +70,7 @@ impl Expr for Assign {
     }
 }
 
+#[derive(Debug)]
 pub struct VarDecl {
     pub name: String,
     pub initializer: Option<Box<dyn Expr>>,

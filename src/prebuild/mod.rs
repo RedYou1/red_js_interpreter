@@ -4,6 +4,7 @@ use crate::{ARGUMENTS, CodeResult, JsValue, Prototype, Runnable, inline_borrow};
 
 pub mod array;
 pub mod console;
+pub mod error;
 pub mod iterator;
 pub mod math;
 pub mod number;
@@ -18,7 +19,7 @@ pub fn prebuild_runnable<const WANTED_PARAM: usize>(
             Rc<RefCell<Prototype>>,
             Rc<RefCell<JsValue>>,
             [Rc<RefCell<JsValue>>; WANTED_PARAM],
-        ) -> Rc<RefCell<JsValue>>,
+        ) -> CodeResult,
     >,
 ) -> Runnable {
     Runnable {
@@ -39,11 +40,11 @@ pub fn prebuild_runnable<const WANTED_PARAM: usize>(
                 t.write(Prototype::find(array.clone(), &i.into()).1);
             }
 
-            CodeResult::Return(fun(
+            fun(
                 mem.clone(),
                 Prototype::find(proto, &"this".into()).1,
                 unsafe { params.assume_init() },
-            ))
+            )
         })],
     }
 }
@@ -55,7 +56,7 @@ pub fn prebuild_runnable_direct(
             Rc<RefCell<Prototype>>,
             Rc<RefCell<JsValue>>,
             Vec<Rc<RefCell<JsValue>>>,
-        ) -> Rc<RefCell<JsValue>>,
+        ) -> CodeResult,
     >,
 ) -> Runnable {
     Runnable {
@@ -80,11 +81,11 @@ pub fn prebuild_runnable_direct(
                 params.push(Prototype::find(array.clone(), &i.into()).1);
             }
 
-            CodeResult::Return(fun(
+            fun(
                 proto.clone(),
                 Prototype::find(proto, &"this".into()).1,
                 params,
-            ))
+            )
         })],
     }
 }
@@ -117,6 +118,30 @@ macro_rules! new_class {
                 ]),
                 formating: false,
             })));
+            if stringify!(Symbol).ne(stringify!($name)) {
+                let mem2 = Rc::new(RefCell::new(JsValue::Prototype(mem.clone())));
+                let symbol = Prototype::find(mem2.clone().borrow().unwrap_proto("new_class! Symbol"), &stringify!(Symbol).into()).1;
+                let has_instance = Prototype::find(symbol.clone().borrow().unwrap_proto("new_class! hasInstance"), &"hasInstance".into()).1;
+                let name = stringify!($name);
+                class.unwrap_proto("new_class!").borrow_mut().properties.insert(inline_borrow!(has_instance),
+                    new_runnable(
+                        function.clone(),
+                        format!("{}.[hasInstance]", stringify!($name)).leak(),
+                        prebuild_runnable(mem.clone(), Box::new(|_, _, [instance]| {
+                            CodeResult::Return(Rc::new(RefCell::new(JsValue::Boolean({
+                                if let JsValue::Prototype(proto) = inline_borrow!(instance.clone()) {
+                                    if let JsValue::Prototype(proto) = inline_borrow!(proto.borrow().properties[&"__proto__".into()].clone()) {
+                                        proto.borrow().name.eq(&Some(name))
+                                    } else {
+                                        false
+                                    }
+                                } else {
+                                    false
+                                }
+                            }))))
+                        })),
+                    ));
+            }
             mem.borrow_mut().properties.insert(stringify!($name).into(), Rc::new(RefCell::new(class)));
         }
     };

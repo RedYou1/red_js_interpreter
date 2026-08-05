@@ -12,41 +12,41 @@ new_class! {
         };
         match &arg {
             JsValue::Prototype(proto) => run_function_object(Prototype::find(proto.clone(), &"toString".into()).1.borrow().unwrap_proto("String.constructor for toString"), Rc::new(RefCell::new(arg.clone())), vec![]),
-            JsValue::String(s) => Rc::new(RefCell::new(JsValue::String(s.clone()))),
-            JsValue::Null | JsValue::Undefined => Rc::new(RefCell::new(JsValue::String("".to_owned()))),
-            JsValue::BigInt(o) => Rc::new(RefCell::new(JsValue::String(format!("{}", *o)))),
-            JsValue::Number(o) => Rc::new(RefCell::new(JsValue::String(format!("{}", *o)))),
-            JsValue::Boolean(o) => Rc::new(RefCell::new(JsValue::String(format!("{}", *o)))),
+            JsValue::String(s) => CodeResult::Return(Rc::new(RefCell::new(JsValue::String(s.clone())))),
+            JsValue::Null | JsValue::Undefined => CodeResult::Return(Rc::new(RefCell::new(JsValue::String("".to_owned())))),
+            JsValue::BigInt(o) => CodeResult::Return(Rc::new(RefCell::new(JsValue::String(format!("{}", *o))))),
+            JsValue::Number(o) => CodeResult::Return(Rc::new(RefCell::new(JsValue::String(format!("{}", *o))))),
+            JsValue::Boolean(o) => CodeResult::Return(Rc::new(RefCell::new(JsValue::String(format!("{}", *o))))),
             JsValue::Symbol(_, _) | JsValue::Function(_) | JsValue::Generator(_) => panic!("not implemented"),
         }
     },
     length, fn,
     |_, this, []| {
-        Rc::new(RefCell::new(if let JsValue::String(s) = inline_borrow!(this) {
+        CodeResult::Return(Rc::new(RefCell::new(if let JsValue::String(s) = inline_borrow!(this) {
             JsValue::BigInt(s.len() as i64)
         } else {
             JsValue::BigInt(0)
-        }))
+        })))
     },
     charAt, fn,
     |_, this, [index]| {
-        Rc::new(RefCell::new(if let JsValue::String(s) = inline_borrow!(this) && let JsValue::BigInt(idx) = inline_borrow!(index) && idx >= 0 && (idx as usize) < s.len() {
+        CodeResult::Return(Rc::new(RefCell::new(if let JsValue::String(s) = inline_borrow!(this) && let JsValue::BigInt(idx) = inline_borrow!(index) && idx >= 0 && (idx as usize) < s.len() {
             JsValue::String(s.chars().nth(idx as usize).unwrap().to_string())
         } else {
             JsValue::String("".to_owned())
-        }))
+        })))
     },
     charCodeAt, fn,
     |_, this, [index]| {
-        Rc::new(RefCell::new(if let JsValue::String(s) = inline_borrow!(this) && let JsValue::BigInt(idx) = inline_borrow!(index) && idx >= 0 && (idx as usize) < s.len() {
+        CodeResult::Return(Rc::new(RefCell::new(if let JsValue::String(s) = inline_borrow!(this) && let JsValue::BigInt(idx) = inline_borrow!(index) && idx >= 0 && (idx as usize) < s.len() {
             JsValue::BigInt(s.chars().nth(idx as usize).unwrap() as i64)
         } else {
             JsValue::BigInt(-1)
-        }))
+        })))
     },
     substring, fn,
     |_, this, [start, end]| {
-        Rc::new(RefCell::new(if let JsValue::String(s) = inline_borrow!(this) {
+        CodeResult::Return(Rc::new(RefCell::new(if let JsValue::String(s) = inline_borrow!(this) {
             let len = s.len() as i64;
             let mut start_idx = 0usize;
             let mut end_idx = len as usize;
@@ -65,11 +65,11 @@ new_class! {
             JsValue::String(s.chars().skip(start_idx).take(end_idx - start_idx).collect())
         } else {
             JsValue::String("".to_owned())
-        }))
+        })))
     },
     slice, fn,
     |_, this, [start, end]| {
-        Rc::new(RefCell::new(if let JsValue::String(s) = inline_borrow!(this) {
+        CodeResult::Return(Rc::new(RefCell::new(if let JsValue::String(s) = inline_borrow!(this) {
             let len = s.len() as i64;
             let mut start_idx = 0i64;
             let mut end_idx = len;
@@ -89,7 +89,7 @@ new_class! {
             }
         } else {
             JsValue::String("".to_owned())
-        }))
+        })))
     },
     indexOf, fn,
     |_, this, [search, from_index]| {
@@ -100,61 +100,62 @@ new_class! {
                 start = from.max(0) as usize;
             }
             if let Some(pos) = s[start..].find(search_str.as_str()) {
-                return Rc::new(RefCell::new(JsValue::BigInt((start + pos) as i64)));
+                return CodeResult::Return(Rc::new(RefCell::new(JsValue::BigInt((start + pos) as i64))));
             }
         }
-        Rc::new(RefCell::new(JsValue::BigInt(-1)))
+        CodeResult::Return(Rc::new(RefCell::new(JsValue::BigInt(-1))))
     },
     includes, fn,
     |_, this, [search]| {
-        Rc::new(RefCell::new(if let JsValue::String(s) = inline_borrow!(this) &&
+        CodeResult::Return(Rc::new(RefCell::new(if let JsValue::String(s) = inline_borrow!(this) &&
             let JsValue::String(search_str) = inline_borrow!(search) {
                 JsValue::Boolean(s.contains(search_str.as_str()))
         }else{
-            JsValue::Boolean(false)}))
+            JsValue::Boolean(false)
+        })))
     },
     startsWith, fn,
     |_, this, [search]| {
-        Rc::new(RefCell::new(if let JsValue::String(s) = inline_borrow!(this) &&
+        CodeResult::Return(Rc::new(RefCell::new(if let JsValue::String(s) = inline_borrow!(this) &&
             let JsValue::String(search_str) = inline_borrow!(search) {
                 JsValue::Boolean(s.starts_with(search_str.as_str()))
 
         } else {
             JsValue::Boolean(false)
-        }))
+        })))
     },
     endsWith, fn,
     |_, this, [search]| {
-        Rc::new(RefCell::new(if let JsValue::String(s) = inline_borrow!(this) &&
+        CodeResult::Return(Rc::new(RefCell::new(if let JsValue::String(s) = inline_borrow!(this) &&
             let JsValue::String(search_str) = inline_borrow!(search) {
              JsValue::Boolean(s.ends_with(search_str.as_str()))
         } else {
             JsValue::Boolean(false)
-        }))
+        })))
     },
     toUpperCase, fn,
     |_, this, []| {
-        Rc::new(RefCell::new(if let JsValue::String(s) = inline_borrow!(this) {
+        CodeResult::Return(Rc::new(RefCell::new(if let JsValue::String(s) = inline_borrow!(this) {
             JsValue::String(s.to_uppercase())
         } else {
             JsValue::String("".to_owned())
-        }))
+        })))
     },
     toLowerCase, fn,
     |_, this, []| {
-        Rc::new(RefCell::new(if let JsValue::String(s) = inline_borrow!(this) {
+        CodeResult::Return(Rc::new(RefCell::new(if let JsValue::String(s) = inline_borrow!(this) {
             JsValue::String(s.to_lowercase())
         } else {
             JsValue::String("".to_owned())
-        }))
+        })))
     },
     trim, fn,
     |_, this, []| {
-        Rc::new(RefCell::new(if let JsValue::String(s) = inline_borrow!(this) {
+        CodeResult::Return(Rc::new(RefCell::new(if let JsValue::String(s) = inline_borrow!(this) {
             JsValue::String(s.trim().to_owned())
         } else {
             JsValue::String("".to_owned())
-        }))
+        })))
     },
     split, fn,
     |mem, this, [separator]| {
@@ -171,22 +172,22 @@ new_class! {
                 JsValue::Undefined => vec![Rc::new(RefCell::new(JsValue::String(s.clone())))],
                 _ => vec![Rc::new(RefCell::new(JsValue::String(s.clone())))],
             };
-            new_array(array, parts)
+            CodeResult::Return(new_array(array, parts))
         } else {
-            new_array(array, vec![])
+            CodeResult::Return(new_array(array, vec![]))
         }
     },
     repeat, fn,
     |_, this, [count]| {
-        Rc::new(RefCell::new(if let JsValue::String(s) = inline_borrow!(this) && let JsValue::BigInt(n) = inline_borrow!(count) && n > 0 {
+        CodeResult::Return(Rc::new(RefCell::new(if let JsValue::String(s) = inline_borrow!(this) && let JsValue::BigInt(n) = inline_borrow!(count) && n > 0 {
             JsValue::String(s.repeat(n as usize))
         } else {
             JsValue::String("".to_owned())
-        }))
+        })))
     },
     replace, fn,
     |_, this, [search, replacement]| {
-        Rc::new(RefCell::new(if let JsValue::String(s) = inline_borrow!(this) {
+        CodeResult::Return(Rc::new(RefCell::new(if let JsValue::String(s) = inline_borrow!(this) {
             if let (JsValue::String(search_str), JsValue::String(replace_str)) = (inline_borrow!(search), inline_borrow!(replacement)) {
                 JsValue::String(s.replacen(search_str.as_str(), replace_str.as_str(), 1))
             } else {
@@ -194,6 +195,6 @@ new_class! {
             }
         } else {
             JsValue::String("".to_owned())
-        }))
+        })))
     };
 }

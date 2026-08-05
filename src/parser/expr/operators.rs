@@ -15,6 +15,7 @@ pub enum BinaryOp {
     Sub,
     Mul,
     Div,
+    Mod,
     Eq,
     NotEq,
     Lt,
@@ -25,8 +26,12 @@ pub enum BinaryOp {
     LogAnd,
     BinOr,
     LogOr,
+    XOr,
+    ShiftL,
+    ShiftR,
 }
 
+#[derive(Debug)]
 pub struct Operator {
     pub left: Box<dyn Expr>,
     pub op: BinaryOp,
@@ -41,7 +46,10 @@ impl Operator {
     fn parse_binary(parser: &mut Parser, min_bp: u8) -> Box<dyn Expr> {
         let mut lhs = parser.parse_call_or_primary(min_bp == 0);
         // advance tokens for loop
-        while let Some((l_bp, r_bp)) = Self::precedence(&parser.tokens()[parser.index()]) {
+        while let Some((l_bp, r_bp)) = Self::precedence(
+            &parser.tokens()[parser.index()],
+            parser.tokens().get(parser.index() + 1),
+        ) {
             if l_bp < min_bp {
                 break;
             }
@@ -50,6 +58,7 @@ impl Operator {
                 Token::Minus => expr::BinaryOp::Sub,
                 Token::Star => expr::BinaryOp::Mul,
                 Token::Slash => expr::BinaryOp::Div,
+                Token::Mod => expr::BinaryOp::Mod,
                 Token::Eq => expr::BinaryOp::Eq,
                 Token::NotEq => expr::BinaryOp::NotEq,
                 Token::Lt => expr::BinaryOp::Lt,
@@ -66,6 +75,9 @@ impl Operator {
                     expr::BinaryOp::LogOr
                 }
                 Token::Or => expr::BinaryOp::BinOr,
+                Token::XOr => expr::BinaryOp::XOr,
+                Token::ShiftL => expr::BinaryOp::ShiftL,
+                Token::ShiftR => expr::BinaryOp::ShiftR,
                 Token::QMark if min_bp == 0 => {
                     parser.bump();
                     let t = parser.parse_expression();
@@ -90,19 +102,20 @@ impl Operator {
         lhs
     }
 
-    const fn precedence(tok: &Token) -> Option<(u8, u8)> {
-        match tok {
-            Token::QMark | Token::Colon => Some((6, 7)),
-            Token::Eq
-            | Token::NotEq
-            | Token::Lt
-            | Token::Gt
-            | Token::LtEq
-            | Token::GtEq
-            | Token::And
-            | Token::Or => Some((8, 9)),
-            Token::Plus | Token::Minus => Some((10, 11)),
-            Token::Star | Token::Slash => Some((12, 13)),
+    const fn precedence(tok: &Token, next: Option<&Token>) -> Option<(u8, u8)> {
+        match (tok, next) {
+            // (Token::Comma, _) => Some((2, 3)),
+            (Token::QMark | Token::Colon, _) => Some((4, 5)),
+            (Token::Or, Some(Token::Or)) => Some((6, 7)),
+            (Token::And, Some(Token::And)) => Some((8, 9)),
+            (Token::Or, _) => Some((10, 11)),
+            (Token::XOr, _) => Some((12, 13)),
+            (Token::And, _) => Some((14, 15)),
+            (Token::Eq | Token::NotEq, _) => Some((16, 17)),
+            (Token::Lt | Token::Gt | Token::LtEq | Token::GtEq, _) => Some((18, 19)),
+            (Token::ShiftL | Token::ShiftR, _) => Some((20, 21)),
+            (Token::Plus | Token::Minus, _) => Some((22, 23)),
+            (Token::Star | Token::Slash | Token::Mod, _) => Some((24, 25)),
             _ => None,
         }
     }
@@ -157,6 +170,13 @@ impl Expr for Operator {
                     (JsValue::Number(a), JsValue::Number(b)) => JsValue::Number(a / b),
                     _ => JsValue::Undefined,
                 },
+                BinaryOp::Mod => match (l, r) {
+                    (JsValue::BigInt(a), JsValue::BigInt(b)) => JsValue::BigInt(a % b),
+                    (JsValue::BigInt(a), JsValue::Number(b)) => JsValue::Number(a as f64 % b),
+                    (JsValue::Number(a), JsValue::BigInt(b)) => JsValue::Number(a % b as f64),
+                    (JsValue::Number(a), JsValue::Number(b)) => JsValue::Number(a % b),
+                    _ => JsValue::Undefined,
+                },
                 BinaryOp::Eq => JsValue::Boolean(l.eq(&r)),
                 BinaryOp::NotEq => JsValue::Boolean(l.ne(&r)),
                 BinaryOp::Lt => match (l, r) {
@@ -191,6 +211,9 @@ impl Expr for Operator {
                 BinaryOp::BinOr => todo!(),
                 BinaryOp::LogAnd => JsValue::Boolean(l.is_truthy() && r.is_truthy()),
                 BinaryOp::LogOr => JsValue::Boolean(l.is_truthy() || r.is_truthy()),
+                BinaryOp::XOr => todo!(),
+                BinaryOp::ShiftL => todo!(),
+                BinaryOp::ShiftR => todo!(),
             };
             let out = Rc::new(RefCell::new(value));
             logln(
@@ -209,6 +232,7 @@ impl Expr for Operator {
     }
 }
 
+#[derive(Debug)]
 pub struct ConditionalOp {
     pub cond: Box<dyn Expr>,
     pub t: Box<dyn Expr>,

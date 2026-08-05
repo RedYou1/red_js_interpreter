@@ -18,7 +18,7 @@ impl Parser {
         let mut lexer = Lexer::new(input);
         let mut tokens = Vec::with_capacity(input.len());
         loop {
-            let value = lexer.next_token();
+            let value = lexer.next_token(tokens.as_slice());
             if value == Token::Eof {
                 tokens.push(value);
                 break;
@@ -150,7 +150,35 @@ impl Parser {
             LogLevel::Trace,
             &format!("parse_statement cur={:?}", self.tokens[self.index]),
         );
-        match &self.tokens[self.index] {
+        let s: Option<Box<dyn Stmt>> = match &self.tokens[self.index] {
+            Token::Try => {
+                self.bump();
+                let block = self.parse_block_body();
+                let catch = if let Token::Catch = &self.tokens[self.index] {
+                    self.bump();
+                    Some((
+                        if let Token::LParen = &self.tokens[self.index] {
+                            Some(self.parse_param_list())
+                        } else {
+                            None
+                        },
+                        self.parse_block_body(),
+                    ))
+                } else {
+                    None
+                };
+                let finally = if let Token::Finally = &self.tokens[self.index] {
+                    self.bump();
+                    Some(self.parse_block_body())
+                } else {
+                    None
+                };
+                Some(Box::new(stmt::Try {
+                    block,
+                    catch,
+                    finally,
+                }))
+            }
             Token::Function => {
                 self.bump();
                 Some(Box::new(expr::FunctionDecl::parse(self, true)))
@@ -201,7 +229,7 @@ impl Parser {
                     do_first: true,
                 }))
             }
-            Token::Break | Token::Continue | Token::Return | Token::Yield => {
+            Token::Break | Token::Continue | Token::Return | Token::Yield | Token::Throw => {
                 Some(Box::new(expr::Return::parse(self)))
             }
             Token::Semicolon => {
@@ -209,7 +237,25 @@ impl Parser {
                 None
             }
             Token::Eof => None,
+            Token::Ident(name) if let Token::Colon = self.tokens[self.index + 1] => {
+                let name = name.clone();
+                self.bump();
+                self.bump();
+                Some(Box::new(expr::Label {
+                    name,
+                    code: self.parse_block_body(),
+                }))
+            }
             _ => Some(self.parse_expression()),
+        };
+        if let Token::Semicolon = self.tokens[self.index] {
+            self.bump();
+            s
+        } else if let Token::Comma = self.tokens[self.index] {
+            self.bump();
+            Some(Box::new([s?, self.parse_statement()?]))
+        } else {
+            s
         }
     }
 
@@ -253,7 +299,24 @@ impl Parser {
             });
         }
         let expr = expr::Operator::parse(self);
-        if let Token::Assign(t) = &self.tokens[self.index] {
+        if let Token::InstanceOf = self.tokens[self.index] {
+            self.bump();
+            let class = self.parse_primary();
+            Box::new(expr::Call {
+                args: vec![expr],
+                func: Box::new(expr::Member {
+                    object: class,
+                    property: Box::new(expr::Member {
+                        object: Box::new(expr::Identifier {
+                            name: stringify!(Symbol).to_owned(),
+                        }),
+                        property: Box::new(expr::ConstString {
+                            s: "hasInstance".to_owned(),
+                        }),
+                    }),
+                }),
+            })
+        } else if let Token::Assign(t) = &self.tokens[self.index] {
             let t = t.clone();
             self.bump();
             let rhs = if let Some(op) = t {
@@ -330,18 +393,8 @@ impl Parser {
                 self.bump();
                 Box::new(expr::ConstNumber { num: -value })
             }
-            Token::Slash
-                if let Token::Ident(s) = &self.tokens[self.index + 1]
-                    && let Token::Slash = self.tokens[self.index + 2] =>
-            {
+            Token::Regex(s) => {
                 let value = s.clone();
-                self.bump();
-                self.bump();
-                assert_eq!(
-                    self.tokens[self.index],
-                    Token::Slash,
-                    "regex not correctly predicted"
-                );
                 self.bump();
                 //TODO do Regex
                 Box::new(expr::ConstObj {
@@ -371,7 +424,7 @@ impl Parser {
                 logln(
                     LogLevel::Error,
                     &format!(
-                        "Englobe paren in parse_primary {:?} {:?} {:?}",
+                        "Typeof Englobe paren in parse_primary {:?} {:?} {:?}",
                         self.tokens[self.index],
                         self.tokens[self.index + 1],
                         self.tokens[self.index + 2]
@@ -390,7 +443,7 @@ impl Parser {
                         self.bump();
                     } else {
                         panic!(
-                            "Englobe paren in parse_primary {:?} {:?} {:?}",
+                            "Typeof Englobe paren in parse_primary 2 {:?} {:?} {:?}",
                             self.tokens[self.index],
                             self.tokens[self.index + 1],
                             self.tokens[self.index + 2]
@@ -398,6 +451,10 @@ impl Parser {
                     }
                 }
                 Box::new(expr::Typeof { obj: expr })
+            }
+            Token::Void => {
+                self.bump();
+                Box::new([self.parse_expression()])
             }
             Token::LBrace => {
                 self.bump();
@@ -445,22 +502,29 @@ impl Parser {
                 self.bump();
                 Box::new(expr::Object { properties })
             }
-            Token::LBracket => {
+            Token::LBracket | Token::LParen => {
+                let end = if let Token::LBracket = self.tokens[self.index] {
+                    Token::RBracket
+                } else {
+                    Token::RParen
+                };
                 self.bump();
                 let mut elements = Vec::new();
-                while self.tokens[self.index] != Token::RBracket
-                    && self.tokens[self.index] != Token::Eof
-                {
+                while self.tokens[self.index] != end && self.tokens[self.index] != Token::Eof {
                     elements.push(self.parse_expression());
                     if self.tokens[self.index] == Token::Comma {
                         self.bump();
                     }
                 }
-                if self.tokens[self.index] != Token::RBracket {
+                if self.tokens[self.index] != end {
                     panic!("expected ']' at end of array literal");
                 }
                 self.bump();
-                Box::new(expr::Array { elems: elements })
+                if end == Token::RParen && elements.len() == 1 {
+                    elements.pop().unwrap()
+                } else {
+                    Box::new(expr::Array { elems: elements })
+                }
             }
             Token::New => {
                 self.bump();
@@ -519,20 +583,6 @@ impl Parser {
                 // simple function expression: function name? (params) { ... }
                 self.bump();
                 Box::new(expr::FunctionDecl::parse(self, false))
-            }
-            Token::LParen => {
-                // grouping or call
-                self.bump();
-                let expr = self.parse_expression();
-                while self.tokens[self.index] != Token::RParen
-                    && self.tokens[self.index] != Token::Eof
-                {
-                    self.bump();
-                }
-                if self.tokens[self.index] == Token::RParen {
-                    self.bump();
-                }
-                expr
             }
             _ => self.parse_const(),
         }

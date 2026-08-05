@@ -1,8 +1,8 @@
-use std::{cell::RefCell, rc::Rc};
+use std::{cell::RefCell, fmt::Debug, rc::Rc};
 
 use crate::{Code, Prototype};
 
-pub trait Stmt {
+pub trait Stmt: Debug {
     fn compile_stmt(&self, mem: Rc<RefCell<Prototype>>) -> Vec<Code>;
     fn duplicate_stmt(&self) -> Box<dyn Stmt>;
 }
@@ -25,5 +25,6 @@ impl Stmt for Vec<Box<dyn Stmt>> {
 
 mod if_decl;
 mod loop_decl;
+mod try_catch;
 
-pub use {if_decl::IfStmt, loop_decl::LoopStmt};
+pub use {if_decl::IfStmt, loop_decl::LoopStmt, try_catch::Try};

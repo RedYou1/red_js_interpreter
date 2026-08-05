@@ -29,6 +29,8 @@ pub enum Token {
     Else,
     Of,
     Typeof,
+    Void,
+    InstanceOf,
 
     LParen,
     RParen,
@@ -49,6 +51,7 @@ pub enum Token {
     MinusMinus,
     Star,
     Slash,
+    Mod,
     Eq,
     NotEq,
     Lt,
@@ -59,11 +62,21 @@ pub enum Token {
 
     And,
     Or,
+    XOr,
+    ShiftL,
+    ShiftR,
+
+    Try,
+    Catch,
+    Finally,
+    Throw,
+
+    Regex(String),
 
     Eof,
 }
 
-use crate::{LogLevel, logln, parser::expr::BinaryOp};
+use crate::parser::expr::BinaryOp;
 
 pub struct Lexer<'a> {
     chars: std::str::Chars<'a>,
@@ -128,17 +141,17 @@ impl<'a> Lexer<'a> {
         })
     }
 
-    pub fn next_token(&mut self) -> Token {
-        logln(
-            LogLevel::Trace,
-            &format!(
-                "Lexer::next_token start peek={:?} template_mode={} in_template_expr={} template_expr_depth={}",
-                self.peek(),
-                self.template_mode,
-                self.in_template_expr,
-                self.template_expr_depth
-            ),
-        );
+    pub fn next_token(&mut self, prev: &[Token]) -> Token {
+        // logln(
+        //     LogLevel::Trace,
+        //     &format!(
+        //         "Lexer::next_token start peek={:?} template_mode={} in_template_expr={} template_expr_depth={}",
+        //         self.peek(),
+        //         self.template_mode,
+        //         self.in_template_expr,
+        //         self.template_expr_depth
+        //     ),
+        // );
         if let Some(token) = self.pending.take() {
             return token;
         }
@@ -214,12 +227,61 @@ impl<'a> Lexer<'a> {
                         self.eat_while(|ch| ch != '\n');
                         continue;
                     }
+                    if self.peek() == Some('*') {
+                        self.bump();
+                        loop {
+                            let a = self.peek() == Some('*');
+                            self.bump();
+                            if a {
+                                let a = self.peek() == Some('/');
+                                self.bump();
+                                if a {
+                                    break;
+                                }
+                            }
+                        }
+                        continue;
+                    }
                     if self.peek() == Some('=') {
                         self.bump();
                         return Token::Assign(Some(BinaryOp::Div));
-                    } else {
-                        return Token::Slash;
                     }
+
+                    if let Some(last) = prev.last() {
+                        if matches!(
+                            last,
+                            Token::Ident(_)
+                                | Token::Number(_)
+                                | Token::BigInt(_)
+                                | Token::Str(_)
+                                | Token::RParen
+                                | Token::RBrace
+                                | Token::RBracket
+                        ) {
+                            return Token::Slash;
+                        } else {
+                            let mut s = String::new();
+                            while let Some(ch) = self.peek() {
+                                if ch == '\\' {
+                                    if let Some(escaped) = self.read_escaped_char() {
+                                        s.push(escaped);
+                                    }
+                                    continue;
+                                }
+                                self.bump();
+                                if ch == '/' {
+                                    break;
+                                }
+                                s.push(ch);
+                            }
+                            if let Some('g') = self.peek() {
+                                self.bump();
+                            }
+                            return Token::Regex(s);
+                        }
+                    }
+
+                    return Token::Slash;
                 }
                 '&' => {
                     self.bump();
@@ -229,7 +291,10 @@ impl<'a> Lexer<'a> {
                     self.bump();
                     return Token::Or;
                 }
-                '^'|'%' => todo!(),
+                '^' => {
+                    self.bump();
+                    return Token::XOr;
+                }
                 '(' => {
                     self.bump();
                     return Token::LParen;
@@ -305,6 +370,9 @@ impl<'a> Lexer<'a> {
                     if self.peek() == Some('=') {
                         self.bump();
                         return Token::LtEq;
+                    } else if self.peek() == Some('<') {
+                        self.bump();
+                        return Token::ShiftL;
                     } else {
                         return Token::Lt;
                     }
@@ -314,9 +382,16 @@ impl<'a> Lexer<'a> {
                     if self.peek() == Some('=') {
                         self.bump();
                         return Token::GtEq;
+                    } else if self.peek() == Some('>') {
+                        self.bump();
+                        return Token::ShiftR;
                     } else {
                         return Token::Gt;
                     }
+                }
+                '%' => {
+                    self.bump();
+                    return Token::Mod;
                 }
                 '+' => {
                     self.bump();
@@ -412,6 +487,12 @@ impl<'a> Lexer<'a> {
                         "else" => Token::Else,
                         "of" => Token::Of,
                         "typeof" => Token::Typeof,
+                        "void" => Token::Void,
+                        "instanceof" => Token::InstanceOf,
+                        "try" => Token::Try,
+                        "catch" => Token::Catch,
+                        "finally" => Token::Finally,
+                        "throw" => Token::Throw,
                         _ => Token::Ident(s),
                     };
                 }

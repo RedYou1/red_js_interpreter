@@ -1,10 +1,11 @@
 use std::{cell::RefCell, rc::Rc};
 
 use crate::{
-    Code, CodeResult, JsValue, LogLevel, PROTOTYPE_NAME, Prototype, RUNNABLE, handle_return,
-    inline_borrow, logln, parser::expr::Expr, run_function_object,
+    Code, CodeResult, JsValue, LogLevel, PROTOTYPE_NAME, Prototype, RUNNABLE, handle_error,
+    handle_return, inline_borrow, logln, parser::expr::Expr, run_function_object,
 };
 
+#[derive(Debug)]
 pub struct New {
     pub constructor: Box<dyn Expr>,
     pub args: Vec<Box<dyn Expr>>,
@@ -36,17 +37,24 @@ impl Expr for New {
                 .unwrap_proto("expr::New get constructor in class")
             };
             let new_obj = Prototype::new_child(class.clone(), None, []);
+            let mut args_evaluated: Vec<Rc<RefCell<JsValue>>> = Vec::new();
+            for arg in args.iter() {
+                match arg(proto.clone(), i) {
+                    CodeResult::Normal(res) => args_evaluated.push(res),
+                    CodeResult::NormalMember(res, _, _) => args_evaluated.push(res),
+                    e => return e,
+                }
+            }
             let out = run_function_object(
                 constructor,
                 Rc::new(RefCell::new(JsValue::Prototype(new_obj.clone()))),
-                args.iter()
-                    .map(|arg| arg(proto.clone(), i).unwrap_normal())
-                    .collect(),
+                args_evaluated,
             );
             logln(
                 LogLevel::Trace,
                 &format!("Exiting Expr::New new_obj={new_obj:?} out={out:?}"),
             );
+            let out = handle_error!(out);
             // In JavaScript, if the constructor returns an object, that object is used
             // Otherwise, the newly created object is used
             let result = match inline_borrow!(out.clone()) {

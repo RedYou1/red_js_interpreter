@@ -2,7 +2,7 @@ use std::{cell::RefCell, rc::Rc};
 
 use crate::{Code, CodeResult, JsValue, LogLevel, Prototype, logln, parser::expr::Expr};
 
-#[derive(Clone)]
+#[derive(Debug, Clone)]
 pub struct ConstBigInt {
     pub num: i64,
 }
@@ -23,7 +23,7 @@ impl Expr for ConstBigInt {
     }
 }
 
-#[derive(Clone)]
+#[derive(Debug, Clone)]
 pub struct ConstNumber {
     pub num: f64,
 }
@@ -44,7 +44,7 @@ impl Expr for ConstNumber {
     }
 }
 
-#[derive(Clone)]
+#[derive(Debug, Clone)]
 pub struct ConstString {
     pub s: String,
 }
@@ -65,7 +65,7 @@ impl Expr for ConstString {
     }
 }
 
-#[derive(Clone)]
+#[derive(Debug, Clone)]
 pub struct ConstBoolean {
     pub b: bool,
 }
@@ -86,7 +86,7 @@ impl Expr for ConstBoolean {
     }
 }
 
-#[derive(Clone)]
+#[derive(Debug, Clone)]
 pub struct ConstObj {
     pub obj: JsValue,
 }

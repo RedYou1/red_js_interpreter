@@ -4,6 +4,7 @@ use crate::{
     Code, CodeResult, JsValue, LogLevel, Prototype, handle_return, logln, parser::expr::Expr,
 };
 
+#[derive(Debug)]
 pub struct Postfix {
     pub expr: Box<dyn Expr>,
     pub inc: bool,

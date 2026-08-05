@@ -31,7 +31,7 @@ pub enum LogLevel {
 #[cfg(test)]
 pub const LOGLEVEL: LogLevel = LogLevel::Trace;
 #[cfg(not(test))]
-pub const LOGLEVEL: LogLevel = LogLevel::Error;
+pub const LOGLEVEL: LogLevel = LogLevel::Trace;
 
 pub fn logln(level: LogLevel, message: &str) {
     if level >= LOGLEVEL {
@@ -45,6 +45,7 @@ mod tests;
 use crate::prebuild::{
     array::prebuild_array,
     console::prebuild_console,
+    error::{prebuild_error, prebuild_type_error},
     iterator::{prebuild_iterator, prebuild_itergen},
     math::prebuild_math,
     number::prebuild_number,
@@ -109,16 +110,18 @@ pub fn prebuild_prototypes(
                 prototypes.clone(),
                 Box::new(move |_mem, _this, [value]| {
                     if let JsValue::Undefined | JsValue::Null = inline_borrow!(value.clone()) {
-                        Rc::new(RefCell::new(JsValue::Prototype(Prototype::new_child(
-                            obj.clone(),
-                            None,
-                            [(
-                                PROTOTYPE_NAME.into(),
-                                Rc::new(RefCell::new(JsValue::Prototype(obj.clone()))),
-                            )],
+                        CodeResult::Return(Rc::new(RefCell::new(JsValue::Prototype(
+                            Prototype::new_child(
+                                obj.clone(),
+                                None,
+                                [(
+                                    PROTOTYPE_NAME.into(),
+                                    Rc::new(RefCell::new(JsValue::Prototype(obj.clone()))),
+                                )],
+                            ),
                         ))))
                     } else if let JsValue::Prototype(_) = inline_borrow!(value.clone()) {
-                        value.clone()
+                        CodeResult::Return(value.clone())
                     } else {
                         todo!() // return as an object of primitive wrapper
                     }
@@ -136,15 +139,21 @@ pub fn prebuild_prototypes(
             prebuild_runnable_direct(
                 prototypes.clone(),
                 Box::new(|_mem, _this, arguments| {
-                    Rc::new(RefCell::new(if let Some(proto) = arguments.first() {
-                        if let JsValue::Prototype(ref proto_obj) = inline_borrow!(proto) {
-                            JsValue::Prototype(Prototype::new_child(proto_obj.clone(), None, []))
+                    CodeResult::Return(Rc::new(RefCell::new(
+                        if let Some(proto) = arguments.first() {
+                            if let JsValue::Prototype(ref proto_obj) = inline_borrow!(proto) {
+                                JsValue::Prototype(Prototype::new_child(
+                                    proto_obj.clone(),
+                                    None,
+                                    [],
+                                ))
+                            } else {
+                                JsValue::Undefined
+                            }
                         } else {
                             JsValue::Undefined
-                        }
-                    } else {
-                        JsValue::Undefined
-                    }))
+                        },
+                    )))
                 }),
             ),
         ),
@@ -168,7 +177,7 @@ pub fn prebuild_prototypes(
                             arguments.iter().skip(1).cloned().collect();
                         crate::run_function_object(func_proto.clone(), this_arg, params)
                     } else {
-                        Rc::new(RefCell::new(JsValue::Undefined))
+                        CodeResult::Return(Rc::new(RefCell::new(JsValue::Undefined)))
                     }
                 }),
             ),
@@ -182,6 +191,8 @@ pub fn prebuild_prototypes(
     prebuild_number(prototypes.clone());
     prebuild_math(prototypes.clone());
     prebuild_console(prototypes.clone());
+    prebuild_error(prototypes.clone());
+    prebuild_type_error(prototypes.clone());
     prototypes.borrow().properties[&JsValue::String("console".to_owned())]
         .borrow()
         .unwrap_proto("prebuild_prototypes adding config to console")
@@ -194,8 +205,14 @@ pub fn prebuild_prototypes(
             )))),
         );
     prebuild_itergen(prototypes.clone());
-    prototypes.borrow_mut().properties.insert("NaN".into(), Rc::new(RefCell::new(JsValue::Number(f64::NAN))));
-    prototypes.borrow_mut().properties.insert("Infinity".into(), Rc::new(RefCell::new(JsValue::Number(f64::INFINITY))));
+    prototypes.borrow_mut().properties.insert(
+        "NaN".into(),
+        Rc::new(RefCell::new(JsValue::Number(f64::NAN))),
+    );
+    prototypes.borrow_mut().properties.insert(
+        "Infinity".into(),
+        Rc::new(RefCell::new(JsValue::Number(f64::INFINITY))),
+    );
     prototypes
 }
 

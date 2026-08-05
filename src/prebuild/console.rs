@@ -1,5 +1,5 @@
 use crate::prebuild::prelude::*;
-use crate::{LogLevel, logln};
+use crate::{LogLevel, handle_error, handle_return, logln};
 
 #[cfg(test)]
 pub const CONSOLE_LOGS: &str = "__$G%RH^&$%E$WG#ESOVBT__";
@@ -19,7 +19,9 @@ pub fn default_console_config(mem: Rc<RefCell<Prototype>>) -> Rc<RefCell<Prototy
         prebuild_runnable(
             mem.clone(),
             Box::new(|_, _, [value]| {
-                Rc::new(RefCell::new(JsValue::String(value.borrow().print())))
+                CodeResult::Return(Rc::new(RefCell::new(JsValue::String(
+                    value.borrow().print(),
+                ))))
             }),
         ),
     );
@@ -29,18 +31,20 @@ pub fn default_console_config(mem: Rc<RefCell<Prototype>>) -> Rc<RefCell<Prototy
         prebuild_runnable(
             mem.clone(),
             Box::new(|_, _, [value]| {
-                Rc::new(RefCell::new(JsValue::String(match inline_borrow!(value) {
-                    JsValue::BigInt(d) => d.to_string(),
-                    JsValue::Number(n) => format!("{:.0}", n.floor()),
-                    JsValue::Boolean(b) => {
-                        if b {
-                            "1".to_owned()
-                        } else {
-                            "0".to_owned()
+                CodeResult::Return(Rc::new(RefCell::new(JsValue::String(
+                    match inline_borrow!(value) {
+                        JsValue::BigInt(d) => d.to_string(),
+                        JsValue::Number(n) => format!("{:.0}", n.floor()),
+                        JsValue::Boolean(b) => {
+                            if b {
+                                "1".to_owned()
+                            } else {
+                                "0".to_owned()
+                            }
                         }
-                    }
-                    value => panic!("to_string format not an integer: {}", value.print()),
-                })))
+                        value => panic!("to_string format not an integer: {}", value.print()),
+                    },
+                ))))
             }),
         ),
     );
@@ -59,20 +63,22 @@ pub fn default_console_config(mem: Rc<RefCell<Prototype>>) -> Rc<RefCell<Prototy
                     prebuild_runnable(
                         mem.clone(),
                         Box::new(|_, _, [value]| {
-                            Rc::new(RefCell::new(JsValue::String(match inline_borrow!(value) {
-                                JsValue::BigInt(d) => (d as f64).to_string(),
-                                JsValue::Number(n) => n.to_string(),
-                                JsValue::Boolean(b) => {
-                                    if b {
-                                        "1.0".to_owned()
-                                    } else {
-                                        "0.0".to_owned()
+                            CodeResult::Return(Rc::new(RefCell::new(JsValue::String(
+                                match inline_borrow!(value) {
+                                    JsValue::BigInt(d) => (d as f64).to_string(),
+                                    JsValue::Number(n) => n.to_string(),
+                                    JsValue::Boolean(b) => {
+                                        if b {
+                                            "1.0".to_owned()
+                                        } else {
+                                            "0.0".to_owned()
+                                        }
                                     }
-                                }
-                                value => {
-                                    panic!("to_string format not an integer: {}", value.print())
-                                }
-                            })))
+                                    value => {
+                                        panic!("to_string format not an integer: {}", value.print())
+                                    }
+                                },
+                            ))))
                         }),
                     ),
                 ),
@@ -146,7 +152,7 @@ new_class!(
                 }
 
                 let JsValue::Prototype(ref formater) = inline_borrow!(Prototype::find(config.clone(), &JsValue::String(formater.clone())).1) else {panic!("console formater {formater} not found")};
-                let JsValue::String(ref res) = inline_borrow!(run_function_object(formater.clone(), Rc::new(RefCell::new(JsValue::Undefined)), vec![arguments[argi].clone()])) else {panic!("console formater didnt returned a string")};
+                let JsValue::String(ref res) = inline_borrow!(handle_error!(run_function_object(formater.clone(), Rc::new(RefCell::new(JsValue::Undefined)), vec![arguments[argi].clone()]))) else {panic!("console formater didnt returned a string")};
                 argi += 1;
                 text += res;
             }
@@ -165,6 +171,6 @@ new_class!(
             #[cfg(test)]
             push_to_logs(this.borrow().unwrap_proto("Console.log for this"), text);
         };
-        Rc::new(RefCell::new(JsValue::Undefined))
+        CodeResult::Return(Rc::new(RefCell::new(JsValue::Undefined)))
     };
 );

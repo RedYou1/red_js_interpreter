@@ -11,6 +11,7 @@ use crate::{
     run_sub,
 };
 
+#[derive(Debug)]
 pub struct LoopStmt {
     pub init: Option<Box<dyn Expr>>,
     pub condition: Option<Box<dyn Expr>>,
@@ -142,10 +143,11 @@ impl LoopStmt {
         }
         parser.bump();
 
-        if !matches!(parser.tokens()[parser.index()], Token::LBrace) {
-            panic!("expected '{{' for for body");
-        }
-        let body = parser.parse_block_body();
+        let body = if parser.tokens()[parser.index()] == Token::LBrace {
+            parser.parse_block_body()
+        } else {
+            vec![parser.parse_statement().unwrap()]
+        };
 
         Self {
             init,
@@ -197,11 +199,12 @@ impl Stmt for LoopStmt {
                 let mut i = CodeIndex::load_from(sub.clone(), "forloop_i");
                 if i.current < body.len() {
                     let res = run_sub(&body, sub.clone(), &mut i);
+                    //TODO handle correctly his label
                     match &res {
                         CodeResult::Normal(_)
                         | CodeResult::NormalMember(_, _, _)
-                        | CodeResult::Continue => {}
-                        CodeResult::Break | CodeResult::YieldBreak => {
+                        | CodeResult::Continue(_) => {}
+                        CodeResult::Break(_) | CodeResult::YieldBreak => {
                             _i.move_iamount(1);
                             _i.reset_retry();
                             i.reset();
@@ -216,6 +219,7 @@ impl Stmt for LoopStmt {
                             _i.set_retry();
                             return CodeResult::Yield(res.clone());
                         }
+                        CodeResult::Error(_) => return res,
                     }
                 }
 

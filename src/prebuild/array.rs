@@ -1,4 +1,4 @@
-use crate::{CodeResult, LogLevel, logln, prebuild::prelude::*};
+use crate::{CodeResult, LogLevel, handle_error, logln, prebuild::prelude::*};
 
 pub fn new_array(
     array: Rc<RefCell<Prototype>>,
@@ -30,12 +30,12 @@ new_class! {
         let array = Prototype::find(mem.clone(), &stringify!(Array).into()).1.borrow().unwrap_proto("Array.constructor for Array");
         if let [nlength] = &arguments[..] && let JsValue::BigInt(nlength) = inline_borrow!(nlength) && (0..=(u32::MAX as i64)).contains(&nlength)
         {
-            new_array(
+            CodeResult::Return(new_array(
                 array,
                 (0..nlength).map(|_| Rc::new(RefCell::new(JsValue::Undefined))).collect(),
-            )
+            ))
         } else {
-            new_array(array, arguments)
+            CodeResult::Return(new_array(array, arguments))
         }
     },
     from, fn,
@@ -48,30 +48,38 @@ new_class! {
         };
         let iterator = items.borrow().find(&iterator, "Array.from get iterator of items").1.borrow().unwrap_proto("Array.from for items's iterator");
         if let JsValue::Undefined = inline_borrow!(map_fn.clone()) {
-            new_array(
-                array,
-                run_generator_object(iterator, Rc::new(RefCell::new(JsValue::Undefined)), vec![])
-                    .collect(),
-            )
+            let content = run_generator_object(iterator, Rc::new(RefCell::new(JsValue::Undefined)), vec![])
+                    .map(|f| if let CodeResult::Error(err) = f {Err(err)} else {Ok(f.unwrap_normal())})
+                    .collect::<Result<Vec<Rc<_>>, Rc<_>>>();
+            match content {
+                Ok(content) => CodeResult::Return(new_array(array,content)),
+                Err(content) => CodeResult::Error(content)
+            }
         } else {
-            new_array(
-                array,
-                run_generator_object(iterator, Rc::new(RefCell::new(JsValue::Undefined)), vec![])
+            let content = run_generator_object(iterator, Rc::new(RefCell::new(JsValue::Undefined)), vec![])
                     .map(|value| {
-                        run_function_object(
-                            map_fn.clone().borrow().unwrap_proto("Array.from for map_fn"),
-                            this_arg.clone(),
-                            vec![value.clone()],
-                        )
+                        match value {
+                            CodeResult::Return(value) => run_function_object(
+                                map_fn.clone().borrow().unwrap_proto("Array.from for map_fn"),
+                                this_arg.clone(),
+                                vec![value.clone()],
+                            ),
+                            CodeResult::Error(_) => value,
+                            _ => panic!("array.from coderesult not handled"),
+                        }
                     })
-                    .collect(),
-            )
+                    .map(|f| if let CodeResult::Error(err) = f {Err(err)} else {Ok(f.unwrap_normal())})
+                    .collect::<Result<Vec<Rc<_>>, Rc<_>>>();
+            match content {
+                Ok(content) => CodeResult::Return(new_array(array,content)),
+                Err(content) => CodeResult::Error(content)
+            }
         }
     },
     of, fn_direct,
     |mem, _, arguments| {
         let array = Prototype::find(mem, &stringify!(Array).into()).1.borrow().unwrap_proto("Array.of for Array");
-        new_array(array, arguments)
+        CodeResult::Return(new_array(array, arguments))
     },
     at, fn,
     |_, this, [at]| {
@@ -84,7 +92,7 @@ new_class! {
         if !(0..length).contains(&at) {
             panic!("index {at} not in array of length {length}");
         }
-        Prototype::find(this.clone(), &JsValue::BigInt(at)).1
+        CodeResult::Return(Prototype::find(this.clone(), &JsValue::BigInt(at)).1)
     },
     push, fn_direct,
     |_, this, arguments| {
@@ -96,19 +104,19 @@ new_class! {
             len += 1;
         }
         this.borrow_mut().properties.insert("length".into(), Rc::new(RefCell::new(JsValue::BigInt(len))));
-        Rc::new(RefCell::new(JsValue::BigInt(len)))
+        CodeResult::Return(Rc::new(RefCell::new(JsValue::BigInt(len))))
     },
     pop, fn_direct,
     |_, this, _arguments| {
         let this = this.borrow().unwrap_proto("Array.pop for this");
         let JsValue::BigInt(length) = inline_borrow!(Prototype::find(this.clone(), &"length".into()).1) else { panic!("Array.length not BigInt") };
         if length == 0 {
-            return Rc::new(RefCell::new(JsValue::Undefined));
+            return CodeResult::Return(Rc::new(RefCell::new(JsValue::Undefined)));
         }
         let idx = JsValue::BigInt(length - 1);
         let value = this.borrow_mut().properties.remove(&idx).unwrap_or(Rc::new(RefCell::new(JsValue::Undefined)));
         this.borrow_mut().properties.insert("length".into(), Rc::new(RefCell::new(JsValue::BigInt(length - 1))));
-        value
+        CodeResult::Return(value)
     },
     map, fn,
     |mem, this, [callback, this_arg, _]| {
@@ -122,9 +130,9 @@ new_class! {
                 this_arg.clone(),
                 vec![value, Rc::new(RefCell::new(JsValue::BigInt(i))), Rc::new(RefCell::new(JsValue::Prototype(this.clone())))],
             );
-            result.push(mapped);
+            result.push(handle_error!(mapped));
         }
-        new_array(mem, result)
+        CodeResult::Return(new_array(mem, result))
     },
     forEach, fn,
     |_, this, [callback, this_arg]| {
@@ -138,7 +146,7 @@ new_class! {
                 vec![value, Rc::new(RefCell::new(JsValue::BigInt(i))), Rc::new(RefCell::new(JsValue::Prototype(this.clone())))],
             );
         }
-        Rc::new(RefCell::new(JsValue::Undefined))
+        CodeResult::Return(Rc::new(RefCell::new(JsValue::Undefined)))
     },
     filter, fn,
     |mem, this, [callback, this_arg]| {
@@ -152,11 +160,11 @@ new_class! {
                 this_arg.clone(),
                 vec![value.clone(), Rc::new(RefCell::new(JsValue::BigInt(i))), Rc::new(RefCell::new(JsValue::Prototype(this.clone())))],
             );
-            if keep.borrow().is_truthy() {
+            if handle_error!(keep).borrow().is_truthy() {
                 result.push(value);
             }
         }
-        new_array(mem, result)
+        CodeResult::Return(new_array(mem, result))
     },
     reduce, fn,
     |_, this, [callback, initial_value, _]| {
@@ -172,13 +180,13 @@ new_class! {
 
         for i in start_idx..length {
             let value = Prototype::find(this.clone(), &JsValue::BigInt(i)).1;
-            accumulator = run_function_object(
+            accumulator = handle_error!(run_function_object(
                 callback.borrow().unwrap_proto("Array.reduce for callback"),
                 Rc::new(RefCell::new(JsValue::Undefined)),
                 vec![accumulator, value, Rc::new(RefCell::new(JsValue::BigInt(i))), Rc::new(RefCell::new(JsValue::Prototype(this.clone())))],
-            );
+            ));
         }
-        accumulator
+        CodeResult::Return(accumulator)
     },
     find, fn,
     |_, this, [callback, this_arg]| {
@@ -191,11 +199,11 @@ new_class! {
                 this_arg.clone(),
                 vec![value.clone(), Rc::new(RefCell::new(JsValue::BigInt(i))), Rc::new(RefCell::new(JsValue::Prototype(this.clone())))],
             );
-            if found.borrow().is_truthy() {
-                return value;
+            if handle_error!(found).borrow().is_truthy() {
+                return CodeResult::Return(value);
             }
         }
-        Rc::new(RefCell::new(JsValue::Undefined))
+        CodeResult::Return(Rc::new(RefCell::new(JsValue::Undefined)))
     },
     includes, fn,
     |_, this, [search_element, from_index]| {
@@ -207,10 +215,10 @@ new_class! {
         }
         for i in start..length {
             if Prototype::find(this.clone(), &JsValue::BigInt(i)).1 == search_element {
-                return Rc::new(RefCell::new(JsValue::Boolean(true)));
+                return CodeResult::Return(Rc::new(RefCell::new(JsValue::Boolean(true))));
             }
         }
-        Rc::new(RefCell::new(JsValue::Boolean(false)))
+        CodeResult::Return(Rc::new(RefCell::new(JsValue::Boolean(false))))
     },
     indexOf, fn,
     |_, this, [search_element, from_index]| {
@@ -222,10 +230,10 @@ new_class! {
         }
         for i in start..length {
             if Prototype::find(this.clone(), &JsValue::BigInt(i)).1 == search_element {
-                return Rc::new(RefCell::new(JsValue::BigInt(i)));
+                return CodeResult::Return(Rc::new(RefCell::new(JsValue::BigInt(i))));
             }
         }
-        Rc::new(RefCell::new(JsValue::BigInt(-1)))
+        CodeResult::Return(Rc::new(RefCell::new(JsValue::BigInt(-1))))
     },
     slice, fn,
     |mem, this, [start, end]| {
@@ -245,7 +253,7 @@ new_class! {
         for i in start_idx..end_idx {
             result.push(Prototype::find(this.clone(), &JsValue::BigInt(i)).1);
         }
-        new_array(mem, result)
+        CodeResult::Return(new_array(mem, result))
     },
     join, fn,
     |_, this, [separator]| {
@@ -267,7 +275,7 @@ new_class! {
                 }
             })
             .collect();
-        Rc::new(RefCell::new(JsValue::String(strings.join(&sep))))
+        CodeResult::Return(Rc::new(RefCell::new(JsValue::String(strings.join(&sep)))))
     };
     Symbol.iterator, fn_gen,
     |proto, _| {

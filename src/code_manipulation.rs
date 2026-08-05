@@ -2,7 +2,7 @@ use std::{cell::RefCell, collections::HashMap, rc::Rc};
 
 use crate::{JsValue, LogLevel, Prototype, inline_borrow};
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum CodeResult {
     Normal(Rc<RefCell<JsValue>>),
     NormalMember(
@@ -10,11 +10,12 @@ pub enum CodeResult {
         Rc<RefCell<Prototype>>,
         Rc<RefCell<JsValue>>,
     ),
-    Break,
-    Continue,
+    Break(Option<String>),
+    Continue(Option<String>),
     Yield(Rc<RefCell<JsValue>>),
     YieldBreak,
     Return(Rc<RefCell<JsValue>>),
+    Error(Rc<RefCell<JsValue>>),
 }
 
 impl CodeResult {
@@ -135,6 +136,20 @@ macro_rules! handle_return {
             res
         } else {
             return __res__;
+        }
+    }};
+}
+
+#[macro_export]
+macro_rules! handle_error {
+    ($code:expr) => {{
+        let __res__ = $code;
+        match __res__ {
+            CodeResult::Normal(res) => res,
+            CodeResult::NormalMember(res, _, _) => res,
+            CodeResult::Return(res) => res,
+            CodeResult::Error(_) => return __res__,
+            _ => panic!("unhandled code result in handle_error"),
         }
     }};
 }

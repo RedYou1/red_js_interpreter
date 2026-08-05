@@ -5,6 +5,7 @@ use crate::{
     parser::expr::Expr,
 };
 
+#[derive(Debug)]
 pub struct Object {
     pub properties: Vec<(Box<dyn Expr>, Box<dyn Expr>)>,
 }
@@ -27,15 +28,20 @@ impl Expr for Object {
                 .1
                 .borrow()
                 .unwrap_proto("expr::Object for Object");
-            let props: Vec<(JsValue, Rc<RefCell<JsValue>>)> = elems
-                .iter()
-                .map(|(key, value)| {
-                    (
-                        inline_borrow!(key(proto.clone(), &mut CodeIndex::new()).unwrap_normal()),
-                        value(proto.clone(), &mut CodeIndex::new()).unwrap_normal(),
-                    )
-                })
-                .collect();
+            let mut props: Vec<(JsValue, Rc<RefCell<JsValue>>)> = Vec::new();
+            for (key, value) in elems.iter() {
+                let key_val = match key(proto.clone(), &mut CodeIndex::new()) {
+                    CodeResult::Normal(res) => inline_borrow!(res),
+                    CodeResult::NormalMember(res, _, _) => inline_borrow!(res),
+                    e => return e,
+                };
+                let value_val = match value(proto.clone(), &mut CodeIndex::new()) {
+                    CodeResult::Normal(res) => res,
+                    CodeResult::NormalMember(res, _, _) => res,
+                    e => return e,
+                };
+                props.push((key_val, value_val));
+            }
             let out = Rc::new(RefCell::new(JsValue::Prototype(Prototype::new_child(
                 object_proto,
                 None,
@@ -59,6 +65,7 @@ impl Expr for Object {
     }
 }
 
+#[derive(Debug)]
 pub struct Array {
     pub elems: Vec<Box<dyn Expr>>,
 }
@@ -76,10 +83,14 @@ impl Expr for Array {
                 .1
                 .borrow()
                 .unwrap_proto("expr::Array for Array");
-            let values = elems
-                .iter()
-                .map(|elem| elem(proto.clone(), &mut CodeIndex::new()).unwrap_normal())
-                .collect();
+            let mut values: Vec<Rc<RefCell<JsValue>>> = Vec::new();
+            for elem in elems.iter() {
+                match elem(proto.clone(), &mut CodeIndex::new()) {
+                    CodeResult::Normal(res) => values.push(res),
+                    CodeResult::NormalMember(res, _, _) => values.push(res),
+                    e => return e,
+                }
+            }
             let out = new_array(array_proto, values);
             logln(
                 LogLevel::Trace,
