@@ -1,7 +1,8 @@
 use std::{cell::RefCell, rc::Rc};
 
 use crate::{
-    Code, CodeResult, JsValue, LogLevel, Prototype, handle_return, logln, parser::expr::Expr,
+    Code, CodeIndex, CodeResult, JsValue, LogLevel, Prototype, handle_return, logln,
+    parser::expr::Expr, run_sub,
 };
 
 #[derive(Debug)]
@@ -11,12 +12,12 @@ pub struct Postfix {
 }
 
 impl Expr for Postfix {
-    fn compile_expr(&self, mem: Rc<RefCell<Prototype>>) -> Code {
+    fn compile(&self, mem: Rc<RefCell<Prototype>>) -> Vec<Code> {
         let inc = self.inc;
-        let target = self.expr.compile_expr(mem.clone());
-        Box::new(move |proto, i| {
+        let target = self.expr.compile(mem.clone());
+        vec![Box::new(move |proto, i| {
             logln(LogLevel::Trace, &format!("Entering Expr::Postfix op:{inc}"));
-            let target_ref = handle_return!(target(proto.clone(), i));
+            let target_ref = handle_return!(run_sub(&target, proto.clone(), &mut CodeIndex::new()));
             let old_value = target_ref.borrow().clone();
             let new_value = match &old_value {
                 JsValue::Number(n) => JsValue::Number(*n + if inc { 1.0 } else { -1.0 }),
@@ -30,11 +31,11 @@ impl Expr for Postfix {
                 &format!("Exiting Expr::Postfix result={:?}", out),
             );
             CodeResult::Normal(out)
-        })
+        })]
     }
-    fn duplicate_expr(&self) -> Box<dyn Expr> {
+    fn duplicate(&self) -> Box<dyn Expr> {
         Box::new(Self {
-            expr: self.expr.duplicate_expr(),
+            expr: self.expr.duplicate(),
             inc: self.inc,
         })
     }

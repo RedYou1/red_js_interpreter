@@ -1,8 +1,8 @@
 use std::{cell::RefCell, rc::Rc};
 
 use crate::{
-    Code, CodeResult, JsValue, LogLevel, Prototype, RUNNABLE, handle_error, inline_borrow, logln,
-    parser::expr::Expr, run_function_object, run_generator_object,
+    Code, CodeIndex, CodeResult, JsValue, LogLevel, Prototype, RUNNABLE, handle_error,
+    inline_borrow, logln, parser::expr::Expr, run_function_object, run_generator_object, run_sub,
 };
 
 #[derive(Debug)]
@@ -12,16 +12,16 @@ pub struct Call {
 }
 
 impl Expr for Call {
-    fn compile_expr(&self, mem: Rc<RefCell<Prototype>>) -> Code {
-        let func = self.func.compile_expr(mem.clone());
-        let args: Vec<Code> = self
+    fn compile(&self, mem: Rc<RefCell<Prototype>>) -> Vec<Code> {
+        let func = self.func.compile(mem.clone());
+        let args: Vec<Vec<Code>> = self
             .args
             .iter()
-            .map(|arg| arg.compile_expr(mem.clone()))
+            .map(|arg| arg.compile(mem.clone()))
             .collect();
-        Box::new(move |proto, i| {
+        vec![Box::new(move |proto, _| {
             logln(LogLevel::Trace, "Entering Expr::Call");
-            let (func, this) = match func(proto.clone(), i) {
+            let (func, this) = match run_sub(&func, proto.clone(), &mut CodeIndex::new()) {
                 CodeResult::Normal(res) => (res, Rc::new(RefCell::new(JsValue::Undefined))),
                 CodeResult::NormalMember(res, of, _) => {
                     (res, Rc::new(RefCell::new(JsValue::Prototype(of))))
@@ -31,7 +31,7 @@ impl Expr for Call {
             let func_proto = func.borrow().unwrap_proto("expr::Call func_proto");
             let mut args_evaluated: Vec<Rc<RefCell<JsValue>>> = Vec::new();
             for arg in args.iter() {
-                match arg(proto.clone(), i) {
+                match run_sub(arg, proto.clone(), &mut CodeIndex::new()) {
                     CodeResult::Normal(res) => args_evaluated.push(res),
                     CodeResult::NormalMember(res, _, _) => args_evaluated.push(res),
                     e => return e,
@@ -87,16 +87,12 @@ impl Expr for Call {
                 &format!("Exiting Expr::Call result={:?}", out),
             );
             CodeResult::Normal(out)
-        })
+        })]
     }
-    fn duplicate_expr(&self) -> Box<dyn Expr> {
+    fn duplicate(&self) -> Box<dyn Expr> {
         Box::new(Self {
-            func: self.func.as_ref().duplicate_expr(),
-            args: self
-                .args
-                .iter()
-                .map(|t| t.as_ref().duplicate_expr())
-                .collect(),
+            func: self.func.as_ref().duplicate(),
+            args: self.args.iter().map(|t| t.as_ref().duplicate()).collect(),
         })
     }
 }

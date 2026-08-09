@@ -2,14 +2,14 @@ use std::{cell::RefCell, rc::Rc};
 
 use crate::{
     Code, CodeResult, LogLevel, Prototype, logln, new_generator, new_runnable,
-    parser::{expr::Expr, lexer::Token, parser::Parser, stmt::Stmt},
+    parser::{expr::Expr, lexer::Token, parser::Parser},
 };
 
 #[derive(Debug)]
 pub struct FunctionDecl {
     pub name: &'static str,
     pub params: Vec<String>,
-    pub body: Rc<[Box<dyn Stmt>]>,
+    pub body: Rc<[Box<dyn Expr>]>,
     pub generator: bool,
     pub insert: bool,
 }
@@ -53,7 +53,7 @@ impl FunctionDecl {
 }
 
 impl Expr for FunctionDecl {
-    fn compile_expr(&self, mem: Rc<RefCell<Prototype>>) -> Code {
+    fn compile(&self, mem: Rc<RefCell<Prototype>>) -> Vec<Code> {
         let function_proto = Prototype::find(mem.clone(), &stringify!(Function).into())
             .1
             .borrow()
@@ -72,7 +72,7 @@ impl Expr for FunctionDecl {
             ),
         );
         let name = self.name;
-        Box::new(move |proto, _| {
+        vec![Box::new(move |proto, _| {
             logln(
                 LogLevel::Trace,
                 &format!(
@@ -84,7 +84,7 @@ impl Expr for FunctionDecl {
             let my_mem = Prototype::new_child(proto.clone(), None, []);
             let code: Vec<Code> = body
                 .iter()
-                .flat_map(|stmt| stmt.compile_stmt(my_mem.clone()))
+                .flat_map(|stmt| stmt.compile(my_mem.clone()))
                 .collect();
 
             let js_func = if generator {
@@ -118,13 +118,13 @@ impl Expr for FunctionDecl {
                     .insert(name.into(), js_func.clone());
             }
             CodeResult::Normal(js_func.clone())
-        })
+        })]
     }
-    fn duplicate_expr(&self) -> Box<dyn Expr> {
+    fn duplicate(&self) -> Box<dyn Expr> {
         Box::new(Self {
             name: self.name,
             params: self.params.clone(),
-            body: self.body.iter().map(|t| t.duplicate_stmt()).collect(),
+            body: self.body.iter().map(|t| t.duplicate()).collect(),
             generator: self.generator,
             insert: self.insert,
         })

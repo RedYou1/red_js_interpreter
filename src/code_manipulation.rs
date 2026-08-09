@@ -164,9 +164,16 @@ pub fn run_sub(codes: &[Code], mem: Rc<RefCell<Prototype>>, i: &mut CodeIndex) -
             mem
         ),
     );
+    let mut result = CodeResult::Normal(Rc::new(RefCell::new(JsValue::Undefined)));
     while i.current() < codes.len() {
-        handle_return!(codes[i.current()](mem.clone(), i));
+        result = codes[i.current()](mem.clone(), i);
+        match result {
+            CodeResult::Normal(_) | CodeResult::NormalMember(_, _, _) => {}
+            _ => {
+                return result;
+            }
+        }
         i.next();
     }
-    CodeResult::Normal(Rc::new(RefCell::new(JsValue::Undefined)))
+    result
 }

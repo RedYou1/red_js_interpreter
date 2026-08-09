@@ -3,24 +3,24 @@ use std::{cell::RefCell, rc::Rc};
 use crate::{
     Code, CodeIndex, CodeResult, JsValue, LogLevel, Prototype, handle_return, inline_borrow, logln,
     parser::{
-        expr::{self, BinaryOp, Expr},
+        expr::Expr,
+        expr::{self, BinaryOp},
         lexer::Token,
         parser::Parser,
-        stmt::Stmt,
     },
     run_sub,
 };
 
 #[derive(Debug)]
-pub struct LoopStmt {
+pub struct LoopExpr {
     pub init: Option<Box<dyn Expr>>,
     pub condition: Option<Box<dyn Expr>>,
     pub update: Option<Box<dyn Expr>>,
-    pub body: Vec<Box<dyn Stmt>>,
+    pub body: Vec<Box<dyn Expr>>,
     pub do_first: bool,
 }
 
-impl LoopStmt {
+impl LoopExpr {
     pub fn parse(parser: &mut Parser) -> Self {
         let t = parser.tokens()[parser.index()].clone();
         parser.bump();
@@ -159,26 +159,26 @@ impl LoopStmt {
     }
 }
 
-impl Stmt for LoopStmt {
-    fn compile_stmt(&self, mem: Rc<RefCell<Prototype>>) -> Vec<Code> {
+impl Expr for LoopExpr {
+    fn compile(&self, mem: Rc<RefCell<Prototype>>) -> Vec<Code> {
         logln(
             LogLevel::Info,
             &format!(
-                "LoopStmt::compile_stmt do_first={} body_len={}",
+                "LoopExpr::compile do_first={} body_len={}",
                 self.do_first,
                 self.body.len()
             ),
         );
         assert!(self.init.is_some() || self.condition.is_some() || self.update.is_some());
         let do_first = self.do_first;
-        let init: Code = self.init.compile_expr(mem.clone());
-        let condition: Code = self.condition.compile_expr(mem.clone());
-        let update: Code = self.update.compile_expr(mem.clone());
-        let body: Vec<Code> = self.body.compile_stmt(mem.clone());
+        let init: Vec<Code> = self.init.compile(mem.clone());
+        let condition: Vec<Code> = self.condition.compile(mem.clone());
+        let update: Vec<Code> = self.update.compile(mem.clone());
+        let body: Vec<Code> = self.body.compile(mem.clone());
 
         vec![
             Box::new(move |proto, _i| {
-                handle_return!(init(proto.clone(), &mut CodeIndex::new()));
+                handle_return!(run_sub(&init, proto.clone(), &mut CodeIndex::new()));
 
                 let sub = Prototype::new_child(proto.clone(), None, []);
                 proto.borrow_mut().properties.insert(
@@ -223,12 +223,12 @@ impl Stmt for LoopStmt {
                     }
                 }
 
-                handle_return!(update(proto.clone(), &mut CodeIndex::new()));
+                handle_return!(run_sub(&update, proto.clone(), &mut CodeIndex::new()));
 
                 CodeResult::Normal(Rc::new(RefCell::new(JsValue::Undefined)))
             }),
             Box::new(move |proto, _i| {
-                let cond = handle_return!(condition(proto.clone(), _i));
+                let cond = handle_return!(run_sub(&condition, proto.clone(), &mut CodeIndex::new()));
                 if cond.borrow().is_truthy() {
                     let sub = Prototype::new_child(proto.clone(), None, []);
                     proto.borrow_mut().properties.insert(
@@ -244,12 +244,12 @@ impl Stmt for LoopStmt {
             }),
         ]
     }
-    fn duplicate_stmt(&self) -> Box<dyn Stmt> {
+    fn duplicate(&self) -> Box<dyn Expr> {
         Box::new(Self {
-            init: self.init.as_ref().map(|a| a.as_ref().duplicate_expr()),
-            condition: self.condition.as_ref().map(|a| a.duplicate_expr()),
-            update: self.update.as_ref().map(|a| a.duplicate_expr()),
-            body: self.body.iter().map(|a| a.duplicate_stmt()).collect(),
+            init: self.init.as_ref().map(|a| a.as_ref().duplicate()),
+            condition: self.condition.as_ref().map(|a| a.duplicate()),
+            update: self.update.as_ref().map(|a| a.duplicate()),
+            body: self.body.iter().map(|a| a.duplicate()).collect(),
             do_first: self.do_first,
         })
     }

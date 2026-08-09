@@ -1,8 +1,9 @@
 use std::{cell::RefCell, rc::Rc};
 
 use crate::{
-    Code, CodeResult, LogLevel, Prototype, handle_return, logln,
+    Code, CodeIndex, CodeResult, LogLevel, Prototype, handle_return, logln,
     parser::{expr::Expr, lexer::Token, parser::Parser},
+    run_sub,
 };
 
 #[derive(Debug, Clone)]
@@ -60,17 +61,17 @@ impl Return {
 }
 
 impl Expr for Return {
-    fn compile_expr(&self, mem: Rc<RefCell<Prototype>>) -> Code {
+    fn compile(&self, mem: Rc<RefCell<Prototype>>) -> Vec<Code> {
         let rtype = self.rtype.clone();
-        let code: Code = self.expr.compile_expr(mem);
-        Box::new(move |_proto, _i| {
+        let codes = self.expr.compile(mem);
+        vec![Box::new(move |_proto, _i| {
             logln(
                 LogLevel::Trace,
                 &format!("Entering Expr::Return rtype={:?}", rtype),
             );
             match rtype.clone() {
                 ReturnType::Return => {
-                    let v = handle_return!(code(_proto, _i));
+                    let v = handle_return!(run_sub(&codes, _proto, &mut CodeIndex::new()));
                     logln(
                         LogLevel::Trace,
                         &format!("Exiting Expr::Return Return value={:?}", v),
@@ -78,7 +79,7 @@ impl Expr for Return {
                     CodeResult::Return(v)
                 }
                 ReturnType::Yield => {
-                    let v = handle_return!(code(_proto, _i));
+                    let v = handle_return!(run_sub(&codes, _proto, &mut CodeIndex::new()));
                     logln(
                         LogLevel::Trace,
                         &format!("Exiting Expr::Return Yield value={:?}", v),
@@ -98,7 +99,7 @@ impl Expr for Return {
                     CodeResult::Continue(name)
                 }
                 ReturnType::Error => {
-                    let v = handle_return!(code(_proto, _i));
+                    let v = handle_return!(run_sub(&codes, _proto, &mut CodeIndex::new()));
                     logln(
                         LogLevel::Trace,
                         &format!("Exiting Expr::Return Error value={:?}", v),
@@ -106,12 +107,12 @@ impl Expr for Return {
                     CodeResult::Error(v)
                 }
             }
-        })
+        })]
     }
-    fn duplicate_expr(&self) -> Box<dyn Expr> {
+    fn duplicate(&self) -> Box<dyn Expr> {
         Box::new(Self {
             rtype: self.rtype.clone(),
-            expr: self.expr.as_ref().map(|a| a.duplicate_expr()),
+            expr: self.expr.as_ref().map(|a| a.duplicate()),
         })
     }
 }

@@ -1,8 +1,9 @@
 use std::{cell::RefCell, rc::Rc};
 
 use crate::{
-    Code, CodeResult, JsValue, LogLevel, PROTOTYPE_NAME, Prototype, RUNNABLE, handle_error,
-    handle_return, inline_borrow, logln, parser::expr::Expr, run_function_object,
+    Code, CodeIndex, CodeResult, JsValue, LogLevel, PROTOTYPE_NAME, Prototype, RUNNABLE,
+    handle_error, handle_return, inline_borrow, logln, parser::expr::Expr, run_function_object,
+    run_sub,
 };
 
 #[derive(Debug)]
@@ -12,18 +13,19 @@ pub struct New {
 }
 
 impl Expr for New {
-    fn compile_expr(&self, mem: Rc<RefCell<Prototype>>) -> Code {
-        let constructor = self.constructor.compile_expr(mem.clone());
-        let args: Vec<Code> = self
+    fn compile(&self, mem: Rc<RefCell<Prototype>>) -> Vec<Code> {
+        let constructor = self.constructor.compile(mem.clone());
+        let args: Vec<Vec<Code>> = self
             .args
             .iter()
-            .map(|arg| arg.compile_expr(mem.clone()))
+            .map(|arg| arg.compile(mem.clone()))
             .collect();
-        Box::new(move |proto, i| {
+        vec![Box::new(move |proto, _| {
             logln(LogLevel::Trace, "Entering Expr::New");
-            let mut class = handle_return!(constructor(proto.clone(), i))
-                .borrow()
-                .unwrap_proto("expr::New for constructor");
+            let mut class =
+                handle_return!(run_sub(&constructor, proto.clone(), &mut CodeIndex::new()))
+                    .borrow()
+                    .unwrap_proto("expr::New for constructor");
             let constructor = if Prototype::opt_find(class.clone(), &RUNNABLE.into()).is_some() {
                 class = inline_borrow!(Prototype::find(class.clone(), &PROTOTYPE_NAME.into()).1)
                     .unwrap_proto("expr::New get prototype");
@@ -39,7 +41,7 @@ impl Expr for New {
             let new_obj = Prototype::new_child(class.clone(), None, []);
             let mut args_evaluated: Vec<Rc<RefCell<JsValue>>> = Vec::new();
             for arg in args.iter() {
-                match arg(proto.clone(), i) {
+                match run_sub(arg, proto.clone(), &mut CodeIndex::new()) {
                     CodeResult::Normal(res) => args_evaluated.push(res),
                     CodeResult::NormalMember(res, _, _) => args_evaluated.push(res),
                     e => return e,
@@ -62,12 +64,12 @@ impl Expr for New {
                 _ => Rc::new(RefCell::new(JsValue::Prototype(new_obj))),
             };
             CodeResult::Normal(result)
-        })
+        })]
     }
-    fn duplicate_expr(&self) -> Box<dyn Expr> {
+    fn duplicate(&self) -> Box<dyn Expr> {
         Box::new(Self {
-            constructor: self.constructor.duplicate_expr(),
-            args: self.args.iter().map(|t| t.duplicate_expr()).collect(),
+            constructor: self.constructor.duplicate(),
+            args: self.args.iter().map(|t| t.duplicate()).collect(),
         })
     }
 }

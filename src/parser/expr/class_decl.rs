@@ -7,6 +7,7 @@ use crate::{
         lexer::Token,
         parser::Parser,
     },
+    run_sub,
 };
 
 #[derive(Debug)]
@@ -62,17 +63,19 @@ impl ClassDecl {
 }
 
 impl Expr for ClassDecl {
-    fn compile_expr(&self, mem: Rc<RefCell<Prototype>>) -> Code {
-        let super_constructor: Code = if let Some(ref expr) = self.super_class {
-            expr.compile_expr(mem.clone())
+    fn compile(&self, mem: Rc<RefCell<Prototype>>) -> Vec<Code> {
+        let super_constructor: Vec<Code> = if let Some(ref expr) = self.super_class {
+            expr.compile(mem.clone())
         } else {
-            Box::new(|_, _| CodeResult::Normal(Rc::new(RefCell::new(JsValue::Undefined))))
+            vec![Box::new(|_, _| {
+                CodeResult::Normal(Rc::new(RefCell::new(JsValue::Undefined)))
+            })]
         };
 
         let constructor_method = self.methods.iter().find(|m| m.name == "constructor");
 
         let constructor_runnable = if let Some(constructor) = constructor_method {
-            constructor.compile_expr(mem.clone())
+            constructor.compile(mem.clone())
         } else {
             FunctionDecl {
                 name: "constructor",
@@ -81,17 +84,17 @@ impl Expr for ClassDecl {
                 generator: false,
                 insert: false,
             }
-            .compile_expr(mem.clone())
+            .compile(mem.clone())
         };
 
         let name = self.name;
-        let methodes: Vec<(&'static str, Code)> = self
+        let methodes: Vec<(&'static str, Vec<Code>)> = self
             .methods
             .iter()
-            .map(|methode| (methode.name, methode.compile_expr(mem.clone())))
+            .map(|methode| (methode.name, methode.compile(mem.clone())))
             .collect();
         let mem = mem.clone();
-        Box::new(move |proto, i| {
+        vec![Box::new(move |proto, i| {
             logln(
                 LogLevel::Trace,
                 &format!("Expr::ClassDecl executing name={}", name),
@@ -99,11 +102,10 @@ impl Expr for ClassDecl {
             let outer_proto = proto.clone();
 
             let class_proto = Prototype::new_child(
-                if let JsValue::Prototype(super_func_proto) =
-                    inline_borrow!(handle_return!(super_constructor(proto.clone(), i)))
-                    && let JsValue::Prototype(super_proto_obj) = inline_borrow!(
-                        Prototype::find(super_func_proto.clone(), &"prototype".into()).1
-                    )
+                if let JsValue::Prototype(super_func_proto) = inline_borrow!(handle_return!(
+                    run_sub(&super_constructor, proto.clone(), &mut CodeIndex::new())
+                )) && let JsValue::Prototype(super_proto_obj) =
+                    inline_borrow!(Prototype::find(super_func_proto.clone(), &"prototype".into()).1)
                 {
                     super_proto_obj
                 } else {
@@ -117,7 +119,8 @@ impl Expr for ClassDecl {
             );
             class_proto.borrow_mut().properties.insert(
                 "constructor".into(),
-                handle_return!(constructor_runnable(
+                handle_return!(run_sub(
+                    &constructor_runnable,
                     outer_proto.clone(),
                     &mut CodeIndex::new()
                 )),
@@ -130,7 +133,11 @@ impl Expr for ClassDecl {
             for (methode_name, methode_code) in methodes.iter() {
                 class_proto.borrow_mut().properties.insert(
                     (*methode_name).into(),
-                    handle_return!(methode_code(outer_proto.clone(), &mut CodeIndex::new())),
+                    handle_return!(run_sub(
+                        methode_code,
+                        outer_proto.clone(),
+                        &mut CodeIndex::new()
+                    )),
                 );
             }
 
@@ -141,15 +148,12 @@ impl Expr for ClassDecl {
             let res = Rc::new(RefCell::new(JsValue::Prototype(class_proto)));
             mem.borrow_mut().properties.insert(name.into(), res.clone());
             CodeResult::Normal(res)
-        })
+        })]
     }
-    fn duplicate_expr(&self) -> Box<dyn Expr> {
+    fn duplicate(&self) -> Box<dyn Expr> {
         Box::new(Self {
             name: self.name,
-            super_class: self
-                .super_class
-                .as_ref()
-                .map(|t| t.as_ref().duplicate_expr()),
+            super_class: self.super_class.as_ref().map(|t| t.as_ref().duplicate()),
             methods: self.methods.clone(),
         })
     }

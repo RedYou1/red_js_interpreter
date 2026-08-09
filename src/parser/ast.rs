@@ -1,9 +1,9 @@
 use std::{cell::RefCell, rc::Rc};
 
-use crate::{LogLevel, Prototype, Runnable, logln, parser::stmt::Stmt};
+use crate::{LogLevel, Prototype, Runnable, logln, parser::expr::Expr};
 
 pub struct Program {
-    pub body: Vec<Box<dyn Stmt>>,
+    pub body: Vec<Box<dyn Expr>>,
 }
 
 impl Program {
@@ -15,7 +15,7 @@ impl Program {
         Runnable {
             params: Vec::new(),
             excess: None,
-            code: self.body.compile_stmt(prebuild.clone()),
+            code: self.body.compile(prebuild.clone()),
             mem: prebuild,
         }
     }

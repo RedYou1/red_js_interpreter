@@ -7,6 +7,7 @@ use crate::{
         lexer::Token,
         parser::Parser,
     },
+    run_sub,
 };
 
 #[derive(Clone, Debug, PartialEq)]
@@ -122,17 +123,25 @@ impl Operator {
 }
 
 impl Expr for Operator {
-    fn compile_expr(&self, mem: Rc<RefCell<Prototype>>) -> Code {
-        let left = self.left.compile_expr(mem.clone());
-        let right = self.right.compile_expr(mem.clone());
+    fn compile(&self, mem: Rc<RefCell<Prototype>>) -> Vec<Code> {
+        let left = self.left.compile(mem.clone());
+        let right = self.right.compile(mem.clone());
         let op = self.op.clone();
-        Box::new(move |proto, i| {
+        vec![Box::new(move |proto, _| {
             logln(
                 LogLevel::Trace,
                 &format!("Entering Expr::Operator op={:?}", op),
             );
-            let l = inline_borrow!(handle_return!(left(proto.clone(), i)));
-            let r = inline_borrow!(handle_return!(right(proto.clone(), i)));
+            let l = inline_borrow!(handle_return!(run_sub(
+                &left,
+                proto.clone(),
+                &mut CodeIndex::new()
+            )));
+            let r = inline_borrow!(handle_return!(run_sub(
+                &right,
+                proto.clone(),
+                &mut CodeIndex::new()
+            )));
             let value = match op {
                 BinaryOp::Add => match (l, r) {
                     (JsValue::BigInt(a), JsValue::BigInt(b)) => JsValue::BigInt(a + b),
@@ -221,13 +230,13 @@ impl Expr for Operator {
                 &format!("Exiting Expr::Operator result={:?}", out),
             );
             CodeResult::Normal(out)
-        })
+        })]
     }
-    fn duplicate_expr(&self) -> Box<dyn Expr> {
+    fn duplicate(&self) -> Box<dyn Expr> {
         Box::new(Self {
-            left: self.left.duplicate_expr(),
+            left: self.left.duplicate(),
             op: self.op.clone(),
-            right: self.right.duplicate_expr(),
+            right: self.right.duplicate(),
         })
     }
 }
@@ -240,13 +249,13 @@ pub struct ConditionalOp {
 }
 
 impl Expr for ConditionalOp {
-    fn compile_expr(&self, mem: Rc<RefCell<Prototype>>) -> Code {
-        let cond = self.cond.compile_expr(mem.clone());
-        let t = self.t.compile_expr(mem.clone());
-        let f = self.f.compile_expr(mem);
-        Box::new(move |prop, _| {
+    fn compile(&self, mem: Rc<RefCell<Prototype>>) -> Vec<Code> {
+        let cond = self.cond.compile(mem.clone());
+        let t = self.t.compile(mem.clone());
+        let f = self.f.compile(mem);
+        vec![Box::new(move |prop, _| {
             logln(LogLevel::Trace, "Entering Expr::ConditionalOp");
-            let expr = if handle_return!(cond(prop.clone(), &mut CodeIndex::new()))
+            let expr = if handle_return!(run_sub(&cond, prop.clone(), &mut CodeIndex::new()))
                 .borrow()
                 .is_truthy()
             {
@@ -254,19 +263,19 @@ impl Expr for ConditionalOp {
             } else {
                 &f
             };
-            let res = expr(prop, &mut CodeIndex::new());
+            let res = run_sub(expr, prop, &mut CodeIndex::new());
             logln(
                 LogLevel::Trace,
                 &format!("Exiting Expr::ConditionalOp res={:?}", res),
             );
             res
-        })
+        })]
     }
-    fn duplicate_expr(&self) -> Box<dyn Expr> {
+    fn duplicate(&self) -> Box<dyn Expr> {
         Box::new(Self {
-            cond: self.cond.duplicate_expr(),
-            t: self.t.duplicate_expr(),
-            f: self.f.duplicate_expr(),
+            cond: self.cond.duplicate(),
+            t: self.t.duplicate(),
+            f: self.f.duplicate(),
         })
     }
 }

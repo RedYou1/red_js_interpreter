@@ -1,21 +1,19 @@
 use std::{cell::RefCell, rc::Rc};
 
 use crate::{
-    Code, CodeResult, JsValue, LogLevel, Prototype, handle_return, logln,
-    parser::{
+    Code, CodeIndex, CodeResult, JsValue, LogLevel, Prototype, handle_return, logln, parser::{
         expr::{self, Expr},
         lexer::Token,
         parser::Parser,
-        stmt::Stmt,
-    },
+    }, run_sub,
 };
 
 #[derive(Debug)]
-pub struct IfStmt {
-    pub blocks: Vec<(Box<dyn Expr>, Vec<Box<dyn Stmt>>)>,
+pub struct IfExpr {
+    pub blocks: Vec<(Box<dyn Expr>, Vec<Box<dyn Expr>>)>,
 }
 
-impl IfStmt {
+impl IfExpr {
     pub fn parse(parser: &mut Parser) -> Self {
         logln(LogLevel::Info, "parse_statement if statement");
         if !matches!(parser.tokens()[parser.index()], Token::LParen) {
@@ -69,16 +67,16 @@ impl IfStmt {
     }
 }
 
-impl Stmt for IfStmt {
-    fn compile_stmt(&self, mem: Rc<RefCell<Prototype>>) -> Vec<Code> {
+impl Expr for IfExpr {
+    fn compile(&self, mem: Rc<RefCell<Prototype>>) -> Vec<Code> {
         logln(
             LogLevel::Info,
-            &format!("IfStmt::compile_stmt blocks={}", self.blocks.len()),
+            &format!("IfExpr::compile blocks={}", self.blocks.len()),
         );
-        let blocks: Vec<(Code, Vec<Code>)> = self
+        let blocks: Vec<(Vec<Code>, Vec<Code>)> = self
             .blocks
             .iter()
-            .map(|(k, v)| (k.compile_expr(mem.clone()), v.compile_stmt(mem.clone())))
+            .map(|(k, v)| (k.compile(mem.clone()), v.compile(mem.clone())))
             .collect();
         let total: usize = blocks.iter().map(|(_, v)| v.len() + 2).sum();
         let mut current: usize = 0;
@@ -91,7 +89,7 @@ impl Stmt for IfStmt {
                 v.insert(
                     0,
                     Box::new(move |proto, i| {
-                        let cond = handle_return!(k(proto, i));
+                        let cond = handle_return!(run_sub(&k, proto, &mut CodeIndex::new()));
                         if cond.borrow().is_fasly() {
                             i.move_amount(true, len + 1);
                             i.reset_retry();
@@ -108,17 +106,12 @@ impl Stmt for IfStmt {
             })
             .collect()
     }
-    fn duplicate_stmt(&self) -> Box<dyn Stmt> {
+    fn duplicate(&self) -> Box<dyn Expr> {
         Box::new(Self {
             blocks: self
                 .blocks
                 .iter()
-                .map(|(a, b)| {
-                    (
-                        a.duplicate_expr(),
-                        b.iter().map(|a| a.duplicate_stmt()).collect(),
-                    )
-                })
+                .map(|(a, b)| (a.duplicate(), b.iter().map(|a| a.duplicate()).collect()))
                 .collect(),
         })
     }

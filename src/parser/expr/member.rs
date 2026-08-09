@@ -1,7 +1,8 @@
 use std::{cell::RefCell, rc::Rc};
 
 use crate::{
-    Code, CodeResult, LogLevel, Prototype, handle_return, inline_borrow, logln, parser::expr::Expr,
+    Code, CodeIndex, CodeResult, LogLevel, Prototype, handle_return, inline_borrow, logln,
+    parser::expr::Expr, run_sub,
 };
 
 #[derive(Debug)]
@@ -11,27 +12,27 @@ pub struct Member {
 }
 
 impl Expr for Member {
-    fn compile_expr(&self, mem: Rc<RefCell<Prototype>>) -> Code {
-        let obj = self.object.compile_expr(mem.clone());
-        let prop = self.property.compile_expr(mem);
-        Box::new(move |proto, i| {
+    fn compile(&self, mem: Rc<RefCell<Prototype>>) -> Vec<Code> {
+        let obj = self.object.compile(mem.clone());
+        let prop = self.property.compile(mem);
+        vec![Box::new(move |proto, _| {
             logln(LogLevel::Trace, "Entering Expr::Member");
-            let obj = handle_return!(obj(proto.clone(), i))
+            let obj = handle_return!(run_sub(&obj, proto.clone(), &mut CodeIndex::new()))
                 .borrow()
                 .unwrap_proto("expr::Member for obj");
-            let key = handle_return!(prop(proto, i));
+            let key = handle_return!(run_sub(&prop, proto, &mut CodeIndex::new()));
             let out = Prototype::find(obj.clone(), &inline_borrow!(key.clone())).1;
             logln(
                 LogLevel::Trace,
                 &format!("Exiting Expr::Member {obj:?}[{key:?}] == {out:?}"),
             );
             CodeResult::NormalMember(out, obj, key)
-        })
+        })]
     }
-    fn duplicate_expr(&self) -> Box<dyn Expr> {
+    fn duplicate(&self) -> Box<dyn Expr> {
         Box::new(Self {
-            object: self.object.duplicate_expr(),
-            property: self.property.duplicate_expr(),
+            object: self.object.duplicate(),
+            property: self.property.duplicate(),
         })
     }
 }

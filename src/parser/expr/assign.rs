@@ -7,6 +7,7 @@ use crate::{
         lexer::Token,
         parser::Parser,
     },
+    run_sub,
 };
 
 #[derive(Debug)]
@@ -16,18 +17,17 @@ pub struct Assign {
 }
 
 impl Expr for Assign {
-    fn compile_expr(&self, mem: Rc<RefCell<Prototype>>) -> Code {
-        let target = self.target.compile_expr(mem.clone());
-        let value = self.value.compile_expr(mem.clone());
-        Box::new(move |proto, i| {
+    fn compile(&self, mem: Rc<RefCell<Prototype>>) -> Vec<Code> {
+        let target = self.target.compile(mem.clone());
+        let value = self.value.compile(mem.clone());
+        vec![Box::new(move |proto, _| {
             logln(LogLevel::Trace, "Entering Expr::Assign");
-            let value = handle_return!(value(proto.clone(), i));
-            let (obj, key) = match target(proto.clone(), i) {
+            let value = handle_return!(run_sub(&value, proto.clone(), &mut CodeIndex::new()));
+            let (obj, key) = match run_sub(&target, proto.clone(), &mut CodeIndex::new()) {
                 CodeResult::Normal(key) => {
                     let key_clone = key.clone();
                     let key_val = inline_borrow!(key_clone.clone());
-                    if let Some((found_proto, _)) = Prototype::opt_find(proto.clone(), &key_val)
-                    {
+                    if let Some((found_proto, _)) = Prototype::opt_find(proto.clone(), &key_val) {
                         (found_proto, key_clone)
                     } else {
                         (proto, key_clone)
@@ -39,8 +39,7 @@ impl Expr for Assign {
                     let key_val = inline_borrow!(key_clone.clone());
                     if std::rc::Rc::ptr_eq(&obj, &proto) {
                         // Identifier: update nearest binding on the prototype chain.
-                        if let Some((found_proto, _)) = Prototype::opt_find(obj.clone(), &key_val)
-                        {
+                        if let Some((found_proto, _)) = Prototype::opt_find(obj.clone(), &key_val) {
                             (found_proto, key_clone)
                         } else {
                             (obj, key_clone)
@@ -60,12 +59,12 @@ impl Expr for Assign {
                 .properties
                 .insert(inline_borrow!(key), value.clone());
             CodeResult::Normal(value)
-        })
+        })]
     }
-    fn duplicate_expr(&self) -> Box<dyn Expr> {
+    fn duplicate(&self) -> Box<dyn Expr> {
         Box::new(Self {
-            target: self.target.as_ref().duplicate_expr(),
-            value: self.value.as_ref().duplicate_expr(),
+            target: self.target.as_ref().duplicate(),
+            value: self.value.as_ref().duplicate(),
         })
     }
 }
@@ -98,15 +97,15 @@ impl VarDecl {
 }
 
 impl Expr for VarDecl {
-    fn compile_expr(&self, mem: Rc<RefCell<Prototype>>) -> Code {
+    fn compile(&self, mem: Rc<RefCell<Prototype>>) -> Vec<Code> {
         let name = self.name.clone();
-        let code = self.initializer.compile_expr(mem);
-        Box::new(move |proto, _| {
+        let code = self.initializer.compile(mem);
+        vec![Box::new(move |proto, _| {
             logln(
                 LogLevel::Trace,
                 &format!("Entering Expr::VarDecl name={}", name),
             );
-            let value = handle_return!(code(proto.clone(), &mut CodeIndex::new()));
+            let value = handle_return!(run_sub(&code, proto.clone(), &mut CodeIndex::new()));
             proto
                 .borrow_mut()
                 .properties
@@ -116,15 +115,12 @@ impl Expr for VarDecl {
                 &format!("Exiting Expr::VarDecl name={} value={:?}", name, value),
             );
             CodeResult::Normal(Rc::new(RefCell::new(JsValue::Undefined)))
-        })
+        })]
     }
-    fn duplicate_expr(&self) -> Box<dyn Expr> {
+    fn duplicate(&self) -> Box<dyn Expr> {
         Box::new(Self {
             name: self.name.clone(),
-            initializer: self
-                .initializer
-                .as_ref()
-                .map(|a| a.as_ref().duplicate_expr()),
+            initializer: self.initializer.as_ref().map(|a| a.as_ref().duplicate()),
         })
     }
 }

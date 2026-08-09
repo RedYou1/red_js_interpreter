@@ -2,69 +2,57 @@ use std::{cell::RefCell, fmt::Debug, mem::MaybeUninit, rc::Rc};
 
 use crate::{
     Code, CodeIndex, CodeResult, JsValue, LogLevel, Prototype, handle_return, inline_borrow, logln,
-    parser::stmt::Stmt, run_sub,
+    run_sub,
 };
 
-pub trait Expr: Stmt + Debug {
-    fn compile_expr(&self, mem: Rc<RefCell<Prototype>>) -> Code;
-    fn duplicate_expr(&self) -> Box<dyn Expr>;
-}
-
-impl<E: Expr> Stmt for E {
-    fn compile_stmt(&self, mem: Rc<RefCell<Prototype>>) -> Vec<Code> {
-        vec![self.compile_expr(mem)]
-    }
-    fn duplicate_stmt(&self) -> Box<dyn Stmt> {
-        self.duplicate_expr()
-    }
+pub trait Expr: Debug {
+    fn compile(&self, mem: Rc<RefCell<Prototype>>) -> Vec<Code>;
+    fn duplicate(&self) -> Box<dyn Expr>;
 }
 
 impl Expr for Option<Box<dyn Expr>> {
-    fn compile_expr(&self, mem: Rc<RefCell<Prototype>>) -> Code {
+    fn compile(&self, mem: Rc<RefCell<Prototype>>) -> Vec<Code> {
         if let Some(e) = self {
-            e.compile_expr(mem)
+            e.compile(mem)
         } else {
-            Box::new(|_, _| CodeResult::Normal(Rc::new(RefCell::new(JsValue::Undefined))))
+            vec![Box::new(|_, _| {
+                CodeResult::Normal(Rc::new(RefCell::new(JsValue::Undefined)))
+            })]
         }
     }
-    fn duplicate_expr(&self) -> Box<dyn Expr> {
-        Box::new(self.as_ref().map(|a| Expr::duplicate_expr(a.as_ref())))
+    fn duplicate(&self) -> Box<dyn Expr> {
+        Box::new(self.as_ref().map(|a| Expr::duplicate(a.as_ref())))
     }
 }
 
 impl<const LEN: usize> Expr for [Box<dyn Expr>; LEN] {
-    fn compile_expr(&self, mem: Rc<RefCell<Prototype>>) -> Code {
-        let codes: Vec<Code> = self
-            .iter()
-            .map(|code| code.compile_expr(mem.clone()))
-            .collect();
-        Box::new(move |proto, _| run_sub(codes.as_ref(), proto, &mut CodeIndex::new()))
+    fn compile(&self, mem: Rc<RefCell<Prototype>>) -> Vec<Code> {
+        self.iter()
+            .flat_map(|code| code.compile(mem.clone()))
+            .collect()
     }
-    fn duplicate_expr(&self) -> Box<dyn Expr> {
+    fn duplicate(&self) -> Box<dyn Expr> {
         let mut t = [const { MaybeUninit::<Box<dyn Expr>>::uninit() }; LEN];
         for (v, t) in self.iter().zip(t.iter_mut()) {
-            t.write(v.as_ref().duplicate_expr());
+            t.write(v.as_ref().duplicate());
         }
         Box::new(unsafe { MaybeUninit::array_assume_init(t) })
     }
 }
 
-impl<const LEN: usize> Stmt for [Box<dyn Stmt>; LEN] {
-    fn compile_stmt(&self, mem: Rc<RefCell<Prototype>>) -> Vec<Code> {
-        let codes: Vec<Code> = self
-            .iter()
-            .flat_map(|code| code.compile_stmt(mem.clone()))
-            .collect();
-        vec![Box::new(move |proto, _| {
-            run_sub(codes.as_ref(), proto, &mut CodeIndex::new())
-        })]
+impl Expr for Vec<Box<dyn Expr>> {
+    fn compile(&self, mem: Rc<RefCell<Prototype>>) -> Vec<Code> {
+        self.iter()
+            .flat_map(|stmt| stmt.compile(mem.clone()))
+            .collect()
     }
-    fn duplicate_stmt(&self) -> Box<dyn Stmt> {
-        let mut t = [const { MaybeUninit::<Box<dyn Stmt>>::uninit() }; LEN];
-        for (v, t) in self.iter().zip(t.iter_mut()) {
-            t.write(v.as_ref().duplicate_stmt());
-        }
-        Box::new(unsafe { MaybeUninit::array_assume_init(t) })
+
+    fn duplicate(&self) -> Box<dyn Expr> {
+        Box::new(
+            self.iter()
+                .map(|a| a.as_ref().duplicate())
+                .collect::<Self>(),
+        )
     }
 }
 
@@ -73,6 +61,8 @@ mod call;
 mod class_decl;
 mod consts;
 mod function_decl;
+mod if_decl;
+mod loop_decl;
 mod member;
 mod new;
 mod object;
@@ -80,10 +70,12 @@ mod operators;
 mod postfix;
 mod returns;
 mod template_str;
+mod try_catch;
 
 pub use {
-    assign::*, call::*, class_decl::*, consts::*, function_decl::*, member::*, new::*, object::*,
-    operators::*, postfix::*, returns::*, template_str::*,
+    assign::*, call::*, class_decl::*, consts::*, function_decl::*, if_decl::*, loop_decl::*,
+    member::*, new::*, object::*, operators::*, postfix::*, returns::*, template_str::*,
+    try_catch::*,
 };
 
 #[derive(Debug, Clone, PartialEq)]
@@ -92,9 +84,9 @@ pub struct Identifier {
 }
 
 impl Expr for Identifier {
-    fn compile_expr(&self, _: Rc<RefCell<Prototype>>) -> Code {
+    fn compile(&self, _: Rc<RefCell<Prototype>>) -> Vec<Code> {
         let name = self.name.clone();
-        Box::new(move |proto, _| {
+        vec![Box::new(move |proto, _| {
             logln(
                 LogLevel::Trace,
                 &format!("Entering Expr::Identifier name={}", name),
@@ -119,22 +111,22 @@ impl Expr for Identifier {
                 );
                 CodeResult::NormalMember(res, proto, Rc::new(RefCell::new(name.as_str().into())))
             }
-        })
+        })]
     }
-    fn duplicate_expr(&self) -> Box<dyn Expr> {
+    fn duplicate(&self) -> Box<dyn Expr> {
         Box::new(self.clone())
     }
 }
 
 #[derive(Debug)]
 pub struct Typeof {
-    pub obj: Box<dyn Stmt>,
+    pub obj: Box<dyn Expr>,
 }
 
 impl Expr for Typeof {
-    fn compile_expr(&self, mem: Rc<RefCell<Prototype>>) -> Code {
-        let obj = self.obj.compile_stmt(mem);
-        Box::new(move |prop, _| {
+    fn compile(&self, mem: Rc<RefCell<Prototype>>) -> Vec<Code> {
+        let obj = self.obj.compile(mem);
+        vec![Box::new(move |prop, _| {
             if obj.len() > 1 {
                 handle_return!(run_sub(
                     &obj[..(obj.len() - 1)],
@@ -163,11 +155,11 @@ impl Expr for Typeof {
                 }
                 .to_owned(),
             ))))
-        })
+        })]
     }
-    fn duplicate_expr(&self) -> Box<dyn Expr> {
+    fn duplicate(&self) -> Box<dyn Expr> {
         Box::new(Self {
-            obj: self.obj.duplicate_stmt(),
+            obj: self.obj.duplicate(),
         })
     }
 }
@@ -175,15 +167,15 @@ impl Expr for Typeof {
 #[derive(Debug)]
 pub struct Label {
     pub name: String,
-    pub code: Vec<Box<dyn Stmt>>,
+    pub code: Vec<Box<dyn Expr>>,
 }
 
 impl Expr for Label {
-    fn compile_expr(&self, mem: Rc<RefCell<Prototype>>) -> Code {
-        let codes = self.code.compile_stmt(mem);
+    fn compile(&self, mem: Rc<RefCell<Prototype>>) -> Vec<Code> {
+        let codes = self.code.compile(mem);
         let wanted_name = self.name.clone();
-        Box::new(
-            move |proto, _| match run_sub(&codes, proto, &mut CodeIndex::new()) {
+        vec![Box::new(move |proto, _| {
+            match run_sub(&codes, proto, &mut CodeIndex::new()) {
                 CodeResult::Break(None) => {
                     CodeResult::Normal(Rc::new(RefCell::new(JsValue::Undefined)))
                 }
@@ -197,14 +189,14 @@ impl Expr for Label {
                     CodeResult::Normal(Rc::new(RefCell::new(JsValue::Undefined)))
                 }
                 a => a,
-            },
-        )
+            }
+        })]
     }
 
-    fn duplicate_expr(&self) -> Box<dyn Expr> {
+    fn duplicate(&self) -> Box<dyn Expr> {
         Box::new(Self {
             name: self.name.clone(),
-            code: self.code.iter().map(|a| a.duplicate_stmt()).collect(),
+            code: self.code.iter().map(|a| a.duplicate()).collect(),
         })
     }
 }

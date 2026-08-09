@@ -8,17 +8,17 @@ pub struct ConstBigInt {
 }
 
 impl Expr for ConstBigInt {
-    fn compile_expr(&self, _: Rc<RefCell<Prototype>>) -> Code {
+    fn compile(&self, _: Rc<RefCell<Prototype>>) -> Vec<Code> {
         let num = self.num;
-        Box::new(move |_, _| {
+        vec![Box::new(move |_, _| {
             logln(
                 LogLevel::Trace,
                 &format!("Entering Expr::ConstBigInt num={:?}", num),
             );
             CodeResult::Normal(Rc::new(RefCell::new(JsValue::BigInt(num))))
-        })
+        })]
     }
-    fn duplicate_expr(&self) -> Box<dyn Expr> {
+    fn duplicate(&self) -> Box<dyn Expr> {
         Box::new(self.clone())
     }
 }
@@ -29,17 +29,17 @@ pub struct ConstNumber {
 }
 
 impl Expr for ConstNumber {
-    fn compile_expr(&self, _: Rc<RefCell<Prototype>>) -> Code {
+    fn compile(&self, _: Rc<RefCell<Prototype>>) -> Vec<Code> {
         let num = self.num;
-        Box::new(move |_, _| {
+        vec![Box::new(move |_, _| {
             logln(
                 LogLevel::Trace,
                 &format!("Entering Expr::ConstNumber num={:?}", num),
             );
             CodeResult::Normal(Rc::new(RefCell::new(JsValue::Number(num))))
-        })
+        })]
     }
-    fn duplicate_expr(&self) -> Box<dyn Expr> {
+    fn duplicate(&self) -> Box<dyn Expr> {
         Box::new(self.clone())
     }
 }
@@ -50,17 +50,17 @@ pub struct ConstString {
 }
 
 impl Expr for ConstString {
-    fn compile_expr(&self, _: Rc<RefCell<Prototype>>) -> Code {
+    fn compile(&self, _: Rc<RefCell<Prototype>>) -> Vec<Code> {
         let s = self.s.clone();
-        Box::new(move |_, _| {
+        vec![Box::new(move |_, _| {
             logln(
                 LogLevel::Trace,
                 &format!("Entering Expr::ConstString s={:?}", s),
             );
             CodeResult::Normal(Rc::new(RefCell::new(JsValue::String(s.clone()))))
-        })
+        })]
     }
-    fn duplicate_expr(&self) -> Box<dyn Expr> {
+    fn duplicate(&self) -> Box<dyn Expr> {
         Box::new(self.clone())
     }
 }
@@ -71,17 +71,17 @@ pub struct ConstBoolean {
 }
 
 impl Expr for ConstBoolean {
-    fn compile_expr(&self, _: Rc<RefCell<Prototype>>) -> Code {
+    fn compile(&self, _: Rc<RefCell<Prototype>>) -> Vec<Code> {
         let b = self.b;
-        Box::new(move |_, _| {
+        vec![Box::new(move |_, _| {
             logln(
                 LogLevel::Trace,
                 &format!("Entering Expr::ConstBoolean b={:?}", b),
             );
             CodeResult::Normal(Rc::new(RefCell::new(JsValue::Boolean(b))))
-        })
+        })]
     }
-    fn duplicate_expr(&self) -> Box<dyn Expr> {
+    fn duplicate(&self) -> Box<dyn Expr> {
         Box::new(self.clone())
     }
 }
@@ -92,17 +92,17 @@ pub struct ConstObj {
 }
 
 impl Expr for ConstObj {
-    fn compile_expr(&self, _: Rc<RefCell<Prototype>>) -> Code {
+    fn compile(&self, _: Rc<RefCell<Prototype>>) -> Vec<Code> {
         let obj = self.obj.clone();
-        Box::new(move |_, _| {
+        vec![Box::new(move |_, _| {
             logln(
                 LogLevel::Trace,
                 &format!("Entering Expr::ConstObj obj={:?}", obj),
             );
             CodeResult::Normal(Rc::new(RefCell::new(obj.clone())))
-        })
+        })]
     }
-    fn duplicate_expr(&self) -> Box<dyn Expr> {
+    fn duplicate(&self) -> Box<dyn Expr> {
         Box::new(self.clone())
     }
 }

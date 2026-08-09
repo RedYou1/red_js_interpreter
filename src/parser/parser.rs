@@ -2,10 +2,9 @@ use std::cell::RefCell;
 use std::collections::HashMap;
 use std::rc::Rc;
 
+use crate::parser::ast::*;
 use crate::parser::expr::{self, Expr};
 use crate::parser::lexer::{Lexer, Token};
-use crate::parser::stmt::Stmt;
-use crate::parser::{ast::*, stmt};
 use crate::{JsValue, LogLevel, Prototype, logln};
 
 pub struct Parser {
@@ -101,12 +100,12 @@ impl Parser {
         params
     }
 
-    pub fn parse_block_body(&mut self) -> Vec<Box<dyn Stmt>> {
+    pub fn parse_block_body(&mut self) -> Vec<Box<dyn Expr>> {
         if self.tokens[self.index] != Token::LBrace {
             panic!("expected '{{'");
         }
         self.bump();
-        let mut body: Vec<Box<dyn Stmt>> = Vec::new();
+        let mut body: Vec<Box<dyn Expr>> = Vec::new();
         while self.tokens[self.index] != Token::RBrace && self.tokens[self.index] != Token::Eof {
             if let Token::Semicolon = self.tokens[self.index] {
                 self.bump();
@@ -145,12 +144,12 @@ impl Parser {
         Program { body }
     }
 
-    pub fn parse_statement(&mut self) -> Option<Box<dyn Stmt>> {
+    pub fn parse_statement(&mut self) -> Option<Box<dyn Expr>> {
         logln(
             LogLevel::Trace,
             &format!("parse_statement cur={:?}", self.tokens[self.index]),
         );
-        let s: Option<Box<dyn Stmt>> = match &self.tokens[self.index] {
+        let s: Option<Box<dyn Expr>> = match &self.tokens[self.index] {
             Token::Try => {
                 self.bump();
                 let block = self.parse_block_body();
@@ -173,7 +172,7 @@ impl Parser {
                 } else {
                     None
                 };
-                Some(Box::new(stmt::Try {
+                Some(Box::new(expr::Try {
                     block,
                     catch,
                     finally,
@@ -193,10 +192,10 @@ impl Parser {
             }
             Token::If => {
                 self.bump();
-                Some(Box::new(stmt::IfStmt::parse(self)))
+                Some(Box::new(expr::IfExpr::parse(self)))
             }
-            Token::While => Some(Box::new(stmt::LoopStmt::parse(self))),
-            Token::For => Some(Box::new(stmt::LoopStmt::parse(self))),
+            Token::While => Some(Box::new(expr::LoopExpr::parse(self))),
+            Token::For => Some(Box::new(expr::LoopExpr::parse(self))),
             Token::Do => {
                 self.bump();
                 if self.tokens[self.index] != Token::LBrace {
@@ -221,7 +220,7 @@ impl Parser {
                     self.bump();
                 }
 
-                Some(Box::new(stmt::LoopStmt {
+                Some(Box::new(expr::LoopExpr {
                     init: None,
                     body,
                     condition,
@@ -281,7 +280,7 @@ impl Parser {
             let params = self.parse_param_list();
             assert_eq!(self.tokens[self.index], Token::Arrow);
             self.bump();
-            let body: Rc<[Box<dyn Stmt>]> = if self.tokens[self.index] == Token::LBrace {
+            let body: Rc<[Box<dyn Expr>]> = if self.tokens[self.index] == Token::LBrace {
                 Rc::from(self.parse_block_body())
             } else {
                 let expr = self.parse_expression();
@@ -321,7 +320,7 @@ impl Parser {
             self.bump();
             let rhs = if let Some(op) = t {
                 Box::new(expr::Operator {
-                    left: expr.duplicate_expr(),
+                    left: expr.duplicate(),
                     op,
                     right: self.parse_expression(),
                 })
