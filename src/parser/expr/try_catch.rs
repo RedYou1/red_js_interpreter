@@ -1,10 +1,44 @@
-use crate::{CodeIndex, CodeResult, Prototype, parser::expr::Expr, run_sub};
+use crate::{
+    CodeIndex, CodeResult, Prototype,
+    parser::{expr::Expr, lexer::Token, parser::Parser},
+    run_sub,
+};
 
 #[derive(Debug)]
 pub struct Try {
     pub block: Vec<Box<dyn Expr>>,
     pub catch: Option<(Option<Vec<String>>, Vec<Box<dyn Expr>>)>,
     pub finally: Option<Vec<Box<dyn Expr>>>,
+}
+
+impl Try {
+    pub fn parse(parser: &mut Parser) -> Self {
+        let block = parser.parse_block_body();
+        let catch = if let Token::Catch = &parser.tokens()[parser.index()] {
+            parser.bump();
+            Some((
+                if let Token::LParen = &parser.tokens()[parser.index()] {
+                    Some(parser.parse_param_list())
+                } else {
+                    None
+                },
+                parser.parse_block_body(),
+            ))
+        } else {
+            None
+        };
+        let finally = if let Token::Finally = &parser.tokens()[parser.index()] {
+            parser.bump();
+            Some(parser.parse_block_body())
+        } else {
+            None
+        };
+        Self {
+            block,
+            catch,
+            finally,
+        }
+    }
 }
 
 impl Expr for Try {

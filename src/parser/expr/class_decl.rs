@@ -94,7 +94,7 @@ impl Expr for ClassDecl {
             .map(|methode| (methode.name, methode.compile(mem.clone())))
             .collect();
         let mem = mem.clone();
-        vec![Box::new(move |proto, i| {
+        vec![Box::new(move |proto, _| {
             logln(
                 LogLevel::Trace,
                 &format!("Expr::ClassDecl executing name={}", name),

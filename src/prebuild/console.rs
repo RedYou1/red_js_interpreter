@@ -1,5 +1,5 @@
 use crate::prebuild::prelude::*;
-use crate::{LogLevel, handle_error, handle_return, logln};
+use crate::{LogLevel, handle_error, logln};
 
 #[cfg(test)]
 pub const CONSOLE_LOGS: &str = "__$G%RH^&$%E$WG#ESOVBT__";

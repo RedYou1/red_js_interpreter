@@ -152,31 +152,7 @@ impl Parser {
         let s: Option<Box<dyn Expr>> = match &self.tokens[self.index] {
             Token::Try => {
                 self.bump();
-                let block = self.parse_block_body();
-                let catch = if let Token::Catch = &self.tokens[self.index] {
-                    self.bump();
-                    Some((
-                        if let Token::LParen = &self.tokens[self.index] {
-                            Some(self.parse_param_list())
-                        } else {
-                            None
-                        },
-                        self.parse_block_body(),
-                    ))
-                } else {
-                    None
-                };
-                let finally = if let Token::Finally = &self.tokens[self.index] {
-                    self.bump();
-                    Some(self.parse_block_body())
-                } else {
-                    None
-                };
-                Some(Box::new(expr::Try {
-                    block,
-                    catch,
-                    finally,
-                }))
+                Some(Box::new(expr::Try::parse(self)))
             }
             Token::Function => {
                 self.bump();
@@ -298,46 +274,99 @@ impl Parser {
             });
         }
         let expr = expr::Operator::parse(self);
-        if let Token::InstanceOf = self.tokens[self.index] {
-            self.bump();
-            let class = self.parse_primary();
-            Box::new(expr::Call {
-                args: vec![expr],
-                func: Box::new(expr::Member {
-                    object: class,
-                    property: Box::new(expr::Member {
-                        object: Box::new(expr::Identifier {
-                            name: stringify!(Symbol).to_owned(),
-                        }),
-                        property: Box::new(expr::ConstString {
-                            s: "hasInstance".to_owned(),
+        match &self.tokens[self.index] {
+            Token::InstanceOf => {
+                self.bump();
+                let class = self.parse_primary();
+                Box::new(expr::Call {
+                    args: vec![expr],
+                    func: Box::new(expr::Member {
+                        object: class,
+                        property: Box::new(expr::Member {
+                            object: Box::new(expr::Identifier {
+                                name: stringify!(Symbol).to_owned(),
+                            }),
+                            property: Box::new(expr::ConstString {
+                                s: "hasInstance".to_owned(),
+                            }),
                         }),
                     }),
-                }),
-            })
-        } else if let Token::Assign(t) = &self.tokens[self.index] {
-            let t = t.clone();
-            self.bump();
-            let rhs = if let Some(op) = t {
-                Box::new(expr::Operator {
-                    left: expr.duplicate(),
-                    op,
-                    right: self.parse_expression(),
                 })
-            } else {
-                self.parse_expression()
-            };
-            Box::new(expr::Assign {
-                target: expr,
-                value: rhs,
-            })
-        } else {
-            expr
+            }
+            Token::Assign(t) => {
+                let t = t.clone();
+                self.bump();
+                let rhs = if let Some(op) = t {
+                    Box::new(expr::Operator {
+                        left: expr.duplicate(),
+                        op,
+                        right: self.parse_expression(),
+                    })
+                } else {
+                    self.parse_expression()
+                };
+                Box::new(expr::Assign {
+                    target: expr,
+                    value: rhs,
+                })
+            }
+            _ => expr,
         }
     }
 
-    pub fn parse_const(&mut self) -> Box<dyn Expr> {
+    pub fn parse_primary(&mut self) -> Box<dyn Expr> {
+        logln(
+            LogLevel::Trace,
+            &format!("parse_primary cur={:?}", self.tokens[self.index]),
+        );
         match &self.tokens[self.index] {
+            Token::Typeof => {
+                self.bump();
+                Box::new(expr::Typeof::parse(self))
+            }
+            Token::Void => {
+                self.bump();
+                Box::new([
+                    self.parse_expression(),
+                    Box::new(expr::ConstObj {
+                        obj: JsValue::Undefined,
+                    }),
+                ])
+            }
+            Token::LBrace => Box::new(expr::Object::parse(self)),
+            Token::LBracket | Token::LParen => {
+                let end = if let Token::LBracket = self.tokens[self.index] {
+                    Token::RBracket
+                } else {
+                    Token::RParen
+                };
+                self.bump();
+                let mut elements = Vec::new();
+                while self.tokens[self.index] != end && self.tokens[self.index] != Token::Eof {
+                    elements.push(self.parse_expression());
+                    if self.tokens[self.index] == Token::Comma {
+                        self.bump();
+                    }
+                }
+                if self.tokens[self.index] != end {
+                    panic!("expected ']' at end of array literal");
+                }
+                self.bump();
+                if end == Token::RParen && elements.len() == 1 {
+                    elements.pop().unwrap()
+                } else {
+                    Box::new(expr::Array { elems: elements })
+                }
+            }
+            Token::New => {
+                self.bump();
+                Box::new(expr::New::parse(self))
+            }
+            Token::Function => {
+                // simple function expression: function name? (params) { ... }
+                self.bump();
+                Box::new(expr::FunctionDecl::parse(self, false))
+            }
             Token::Ident(s) => {
                 let name = s.clone();
                 self.bump();
@@ -408,182 +437,8 @@ impl Parser {
                 })
             }
             e => {
-                panic!("unexpected token in parse_const: {:?}", e);
+                panic!("unexpected token in parse_primary: {:?}", e);
             }
-        }
-    }
-
-    pub fn parse_primary(&mut self) -> Box<dyn Expr> {
-        logln(
-            LogLevel::Trace,
-            &format!("parse_primary cur={:?}", self.tokens[self.index]),
-        );
-        match &self.tokens[self.index] {
-            Token::Typeof => {
-                logln(
-                    LogLevel::Error,
-                    &format!(
-                        "Typeof Englobe paren in parse_primary {:?} {:?} {:?}",
-                        self.tokens[self.index],
-                        self.tokens[self.index + 1],
-                        self.tokens[self.index + 2]
-                    ),
-                );
-                self.bump();
-                let t = if let Token::LParen = self.tokens[self.index] {
-                    self.bump();
-                    true
-                } else {
-                    false
-                };
-                let expr = self.parse_statement().unwrap();
-                if t {
-                    if let Token::RParen = self.tokens[self.index] {
-                        self.bump();
-                    } else {
-                        panic!(
-                            "Typeof Englobe paren in parse_primary 2 {:?} {:?} {:?}",
-                            self.tokens[self.index],
-                            self.tokens[self.index + 1],
-                            self.tokens[self.index + 2]
-                        );
-                    }
-                }
-                Box::new(expr::Typeof { obj: expr })
-            }
-            Token::Void => {
-                self.bump();
-                Box::new([self.parse_expression()])
-            }
-            Token::LBrace => {
-                self.bump();
-                let mut properties = Vec::new();
-                while self.tokens[self.index] != Token::RBrace
-                    && self.tokens[self.index] != Token::Eof
-                {
-                    let start = if let Token::Star = self.tokens[self.index] {
-                        self.bump();
-                        true
-                    } else {
-                        false
-                    };
-                    let key: Box<dyn Expr> = if let Token::Ident(value) = &self.tokens[self.index] {
-                        let key = Box::new(expr::ConstString { s: value.clone() });
-                        self.bump();
-                        key
-                    } else {
-                        self.parse_const()
-                    };
-                    match &self.tokens[self.index] {
-                        Token::Colon => {
-                            self.bump();
-                            let value = self.parse_expression();
-                            properties.push((key, value));
-                        }
-                        Token::LParen => {
-                            let mut func = expr::FunctionDecl::parse(self, false);
-                            func.generator = start;
-                            properties.push((key, Box::new(func)));
-                        }
-                        _ => panic!(
-                            "expected ':' or '(' in object literal, got {:?}",
-                            self.tokens[self.index]
-                        ),
-                    }
-                    if self.tokens[self.index] == Token::Comma {
-                        self.bump();
-                    }
-                }
-                if self.tokens[self.index] != Token::RBrace {
-                    panic!("expected '}}' at end of object literal");
-                }
-                // consume '}' so callers see the token after the object literal
-                self.bump();
-                Box::new(expr::Object { properties })
-            }
-            Token::LBracket | Token::LParen => {
-                let end = if let Token::LBracket = self.tokens[self.index] {
-                    Token::RBracket
-                } else {
-                    Token::RParen
-                };
-                self.bump();
-                let mut elements = Vec::new();
-                while self.tokens[self.index] != end && self.tokens[self.index] != Token::Eof {
-                    elements.push(self.parse_expression());
-                    if self.tokens[self.index] == Token::Comma {
-                        self.bump();
-                    }
-                }
-                if self.tokens[self.index] != end {
-                    panic!("expected ']' at end of array literal");
-                }
-                self.bump();
-                if end == Token::RParen && elements.len() == 1 {
-                    elements.pop().unwrap()
-                } else {
-                    Box::new(expr::Array { elems: elements })
-                }
-            }
-            Token::New => {
-                self.bump();
-                let mut constructor = self.parse_primary();
-                loop {
-                    if self.tokens[self.index] == Token::Dot {
-                        self.bump();
-                        if let Token::Ident(name) = &self.tokens[self.index] {
-                            let prop = name.clone();
-                            self.bump();
-                            constructor = Box::new(expr::Member {
-                                object: constructor,
-                                property: Box::new(expr::ConstString { s: prop }),
-                            });
-                            continue;
-                        } else {
-                            panic!(
-                                "expected property name after '.', got {:?}",
-                                self.tokens[self.index]
-                            );
-                        }
-                    }
-                    if self.tokens[self.index] == Token::LBracket {
-                        self.bump();
-                        let index = self.parse_expression();
-                        if self.tokens[self.index] != Token::RBracket {
-                            panic!("expected ']'");
-                        }
-                        self.bump();
-                        constructor = Box::new(expr::Member {
-                            object: constructor,
-                            property: index,
-                        });
-                        continue;
-                    }
-                    break;
-                }
-                let mut args = Vec::new();
-                if self.tokens[self.index] == Token::LParen {
-                    self.bump();
-                    while self.tokens[self.index] != Token::RParen
-                        && self.tokens[self.index] != Token::Eof
-                    {
-                        args.push(self.parse_expression());
-                        if self.tokens[self.index] == Token::Comma {
-                            self.bump();
-                        }
-                    }
-                    if self.tokens[self.index] == Token::RParen {
-                        self.bump();
-                    }
-                }
-                Box::new(expr::New { constructor, args })
-            }
-            Token::Function => {
-                // simple function expression: function name? (params) { ... }
-                self.bump();
-                Box::new(expr::FunctionDecl::parse(self, false))
-            }
-            _ => self.parse_const(),
         }
     }
 

@@ -1,17 +1,15 @@
-use std::f64;
-
 use crate::prebuild::prelude::*;
 
 new_class! {
     prebuild_math,
     Math,
     Object,
-    PI, JsValue::Number(f64::consts::PI),
-    E, JsValue::Number(f64::consts::E),
-    LN2, JsValue::Number(f64::consts::LN_2),
-    LN10, JsValue::Number(f64::consts::LN_10),
-    LOG2E, JsValue::Number(f64::consts::LOG2_E),
-    LOG10E, JsValue::Number(f64::consts::LOG10_E);
+    PI, JsValue::Number(std::f64::consts::PI),
+    E, JsValue::Number(std::f64::consts::E),
+    LN2, JsValue::Number(std::f64::consts::LN_2),
+    LN10, JsValue::Number(std::f64::consts::LN_10),
+    LOG2E, JsValue::Number(std::f64::consts::LOG2_E),
+    LOG10E, JsValue::Number(std::f64::consts::LOG10_E);
     abs, fn,
     |_, _, [num]| {
         CodeResult::Return(Rc::new(RefCell::new(match inline_borrow!(num) {

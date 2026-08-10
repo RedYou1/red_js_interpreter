@@ -1,12 +1,64 @@
 use std::{cell::RefCell, rc::Rc};
 
 use crate::{
-    Code, CodeIndex, CodeResult, JsValue, LogLevel, Prototype, inline_borrow, logln, new_array, parser::expr::Expr, run_sub,
+    Code, CodeIndex, CodeResult, JsValue, LogLevel, Prototype, inline_borrow, logln, new_array,
+    parser::{
+        expr::{self, Expr},
+        lexer::Token,
+        parser::Parser,
+    },
+    run_sub,
 };
 
 #[derive(Debug)]
 pub struct Object {
     pub properties: Vec<(Box<dyn Expr>, Box<dyn Expr>)>,
+}
+
+impl Object {
+    pub fn parse(parser: &mut Parser) -> Self {
+        parser.bump();
+        let mut properties = Vec::new();
+        while !matches!(parser.tokens()[parser.index()], Token::RBrace | Token::Eof) {
+            let start = if let Token::Star = parser.tokens()[parser.index()] {
+                parser.bump();
+                true
+            } else {
+                false
+            };
+            let key: Box<dyn Expr> = if let Token::Ident(value) = &parser.tokens()[parser.index()] {
+                let key = Box::new(expr::ConstString { s: value.clone() });
+                parser.bump();
+                key
+            } else {
+                parser.parse_primary()
+            };
+            match parser.tokens()[parser.index()] {
+                Token::Colon => {
+                    parser.bump();
+                    let value = parser.parse_expression();
+                    properties.push((key, value));
+                }
+                Token::LParen => {
+                    let mut func = expr::FunctionDecl::parse(parser, false);
+                    func.generator = start;
+                    properties.push((key, Box::new(func)));
+                }
+                _ => panic!(
+                    "expected ':' or '(' in object literal, got {:?}",
+                    parser.tokens()[parser.index()]
+                ),
+            }
+            if let Token::Comma = parser.tokens()[parser.index()] {
+                parser.bump();
+            }
+        }
+        if parser.tokens()[parser.index()] != Token::RBrace {
+            panic!("expected '}}' at end of object literal");
+        }
+        parser.bump();
+        Self { properties }
+    }
 }
 
 impl Expr for Object {

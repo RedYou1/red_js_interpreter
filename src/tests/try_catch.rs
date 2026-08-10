@@ -145,7 +145,6 @@ assert_result!(
 );
 
 // 8. Asynchronous Try/Catch (with async/await)
-#[ignore]
 assert_result!(
     test_catch_an_awaited_error,
     r#"

@@ -15,7 +15,7 @@ impl Expr for Postfix {
     fn compile(&self, mem: Rc<RefCell<Prototype>>) -> Vec<Code> {
         let inc = self.inc;
         let target = self.expr.compile(mem.clone());
-        vec![Box::new(move |proto, i| {
+        vec![Box::new(move |proto, _| {
             logln(LogLevel::Trace, &format!("Entering Expr::Postfix op:{inc}"));
             let target_ref = handle_return!(run_sub(&target, proto.clone(), &mut CodeIndex::new()));
             let old_value = target_ref.borrow().clone();

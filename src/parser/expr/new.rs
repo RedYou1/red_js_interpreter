@@ -2,14 +2,72 @@ use std::{cell::RefCell, rc::Rc};
 
 use crate::{
     Code, CodeIndex, CodeResult, JsValue, LogLevel, PROTOTYPE_NAME, Prototype, RUNNABLE,
-    handle_error, handle_return, inline_borrow, logln, parser::expr::Expr, run_function_object,
-    run_sub,
+    handle_error, handle_return, inline_borrow, logln,
+    parser::{
+        expr::{self, Expr},
+        lexer::Token,
+        parser::Parser,
+    },
+    run_function_object, run_sub,
 };
 
 #[derive(Debug)]
 pub struct New {
     pub constructor: Box<dyn Expr>,
     pub args: Vec<Box<dyn Expr>>,
+}
+
+impl New {
+    pub fn parse(parser: &mut Parser) -> Self {
+        let mut constructor = parser.parse_primary();
+        loop {
+            if parser.tokens()[parser.index()] == Token::Dot {
+                parser.bump();
+                if let Token::Ident(name) = &parser.tokens()[parser.index()] {
+                    let prop = name.clone();
+                    parser.bump();
+                    constructor = Box::new(expr::Member {
+                        object: constructor,
+                        property: Box::new(expr::ConstString { s: prop }),
+                    });
+                    continue;
+                } else {
+                    panic!(
+                        "expected property name after '.', got {:?}",
+                        parser.tokens()[parser.index()]
+                    );
+                }
+            }
+            if parser.tokens()[parser.index()] == Token::LBracket {
+                parser.bump();
+                let index = parser.parse_expression();
+                if parser.tokens()[parser.index()] != Token::RBracket {
+                    panic!("expected ']'");
+                }
+                parser.bump();
+                constructor = Box::new(expr::Member {
+                    object: constructor,
+                    property: index,
+                });
+                continue;
+            }
+            break;
+        }
+        let mut args = Vec::new();
+        if parser.tokens()[parser.index()] == Token::LParen {
+            parser.bump();
+            while !matches!(parser.tokens()[parser.index()], Token::RParen | Token::Eof) {
+                args.push(parser.parse_expression());
+                if parser.tokens()[parser.index()] == Token::Comma {
+                    parser.bump();
+                }
+            }
+            if parser.tokens()[parser.index()] == Token::RParen {
+                parser.bump();
+            }
+        }
+        Self { constructor, args }
+    }
 }
 
 impl Expr for New {
