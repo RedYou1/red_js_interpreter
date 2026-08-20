@@ -70,13 +70,14 @@ mod object;
 mod operators;
 mod postfix;
 mod returns;
+mod switch_decl;
 mod template_str;
 mod try_catch;
 
 pub use {
     assign::*, call::*, class_decl::*, consts::*, function_decl::*, if_decl::*, loop_decl::*,
-    member::*, new::*, object::*, operators::*, postfix::*, returns::*, template_str::*,
-    try_catch::*,
+    member::*, new::*, object::*, operators::*, postfix::*, returns::*, switch_decl::*,
+    template_str::*, try_catch::*,
 };
 
 #[derive(Debug, Clone, PartialEq)]

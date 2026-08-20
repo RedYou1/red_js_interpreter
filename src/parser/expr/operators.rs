@@ -45,15 +45,30 @@ impl Operator {
     }
 
     fn parse_binary(parser: &mut Parser, min_bp: u8) -> Box<dyn Expr> {
-        let mut lhs = if matches!(parser.tokens()[parser.index()], Token::Minus) {
-            parser.bump();
-            Box::new(expr::Operator {
-                left: Box::new(expr::ConstNumber { num: 0.0 }),
-                op: expr::BinaryOp::Sub,
-                right: Self::parse_binary(parser, 26),
-            }) as Box<dyn Expr>
-        } else {
-            parser.parse_call_or_primary(min_bp == 0)
+        let mut lhs = match parser.tokens()[parser.index()] {
+            Token::Minus => {
+                parser.bump();
+                Box::new(expr::Operator {
+                    left: Box::new(expr::ConstNumber { num: 0.0 }),
+                    op: expr::BinaryOp::Sub,
+                    right: Self::parse_binary(parser, 26),
+                }) as Box<dyn Expr>
+            }
+            Token::PlusPlus => {
+                parser.bump();
+                Box::new(expr::Prefix {
+                    expr: Self::parse_binary(parser, 26),
+                    inc: true,
+                }) as Box<dyn Expr>
+            }
+            Token::MinusMinus => {
+                parser.bump();
+                Box::new(expr::Prefix {
+                    expr: Self::parse_binary(parser, 26),
+                    inc: false,
+                }) as Box<dyn Expr>
+            }
+            _ => parser.parse_call_or_primary(min_bp == 0),
         };
         // advance tokens for loop
         while let Some((l_bp, r_bp)) = Self::precedence(
@@ -150,17 +165,78 @@ impl Expr for Operator {
                 BinaryOp::Add => match (l, r) {
                     (JsValue::BigInt(a), JsValue::BigInt(b)) => JsValue::BigInt(a + b),
                     (JsValue::BigInt(a), JsValue::Number(b)) => JsValue::Number(a as f64 + b),
+                    (JsValue::BigInt(a), JsValue::Boolean(b)) => {
+                        JsValue::BigInt(a + if b { 1 } else { 0 })
+                    }
                     (JsValue::Number(a), JsValue::BigInt(b)) => JsValue::Number(a + b as f64),
                     (JsValue::Number(a), JsValue::Number(b)) => JsValue::Number(a + b),
+                    (JsValue::Number(a), JsValue::Boolean(b)) => {
+                        JsValue::Number(a + if b { 1.0 } else { 0.0 })
+                    }
+                    (JsValue::Boolean(a), JsValue::BigInt(b)) => {
+                        JsValue::BigInt(if a { 1 } else { 0 } + b)
+                    }
+                    (JsValue::Boolean(a), JsValue::Number(b)) => {
+                        JsValue::Number(if a { 1.0 } else { 0.0 } + b)
+                    }
+                    (JsValue::Boolean(a), JsValue::Boolean(b)) => {
+                        JsValue::BigInt(if a { 1 } else { 0 } + if b { 1 } else { 0 })
+                    }
                     (JsValue::String(a), b) => JsValue::String(a + &b.print()),
                     (a, JsValue::String(b)) => JsValue::String(a.print() + &b),
                     _ => JsValue::Undefined,
                 },
-                BinaryOp::Sub => match (l, r) {
+                BinaryOp::Sub => match (
+                    if let JsValue::String(s) = l {
+                        if let Ok(n) = s.parse::<i64>() {
+                            JsValue::BigInt(n)
+                        } else if let Ok(n) = s.parse::<f64>() {
+                            JsValue::Number(n)
+                        } else if s.trim().to_lowercase().eq("true") {
+                            JsValue::Boolean(true)
+                        } else if s.trim().to_lowercase().eq("false") {
+                            JsValue::Boolean(false)
+                        } else {
+                            JsValue::String(s)
+                        }
+                    } else {
+                        l
+                    },
+                    if let JsValue::String(s) = r {
+                        if let Ok(n) = s.parse::<i64>() {
+                            JsValue::BigInt(n)
+                        } else if let Ok(n) = s.parse::<f64>() {
+                            JsValue::Number(n)
+                        } else if s.trim().to_lowercase().eq("true") {
+                            JsValue::Boolean(true)
+                        } else if s.trim().to_lowercase().eq("false") {
+                            JsValue::Boolean(false)
+                        } else {
+                            JsValue::String(s)
+                        }
+                    } else {
+                        r
+                    },
+                ) {
                     (JsValue::BigInt(a), JsValue::BigInt(b)) => JsValue::BigInt(a - b),
                     (JsValue::BigInt(a), JsValue::Number(b)) => JsValue::Number(a as f64 - b),
+                    (JsValue::BigInt(a), JsValue::Boolean(b)) => {
+                        JsValue::BigInt(a - if b { 1 } else { 0 })
+                    }
                     (JsValue::Number(a), JsValue::BigInt(b)) => JsValue::Number(a - b as f64),
                     (JsValue::Number(a), JsValue::Number(b)) => JsValue::Number(a - b),
+                    (JsValue::Number(a), JsValue::Boolean(b)) => {
+                        JsValue::Number(a - if b { 1.0 } else { 0.0 })
+                    }
+                    (JsValue::Boolean(a), JsValue::BigInt(b)) => {
+                        JsValue::BigInt(if a { 1 } else { 0 } - b)
+                    }
+                    (JsValue::Boolean(a), JsValue::Number(b)) => {
+                        JsValue::Number(if a { 1.0 } else { 0.0 } - b)
+                    }
+                    (JsValue::Boolean(a), JsValue::Boolean(b)) => {
+                        JsValue::BigInt(if a { 1 } else { 0 } - if b { 1 } else { 0 })
+                    }
                     _ => JsValue::Undefined,
                 },
                 BinaryOp::Mul => match (l, r) {
@@ -171,6 +247,10 @@ impl Expr for Operator {
                     _ => JsValue::Undefined,
                 },
                 BinaryOp::Div => match (l, r) {
+                    (JsValue::BigInt(0), JsValue::BigInt(0)) => JsValue::Number(f64::NAN),
+                    (JsValue::BigInt(a), JsValue::BigInt(0)) => {
+                        JsValue::BigInt(if a > 0 { i64::MAX } else { i64::MIN })
+                    }
                     (JsValue::BigInt(a), JsValue::BigInt(b)) => {
                         if a % b == 0 {
                             JsValue::BigInt(a / b)
@@ -178,7 +258,19 @@ impl Expr for Operator {
                             JsValue::Number(a as f64 / b as f64)
                         }
                     }
+                    (JsValue::BigInt(0), JsValue::Number(0.0)) => JsValue::Number(f64::NAN),
+                    (JsValue::BigInt(a), JsValue::Number(0.0)) => {
+                        JsValue::BigInt(if a > 0 { i64::MAX } else { i64::MIN })
+                    }
                     (JsValue::BigInt(a), JsValue::Number(b)) => JsValue::Number(a as f64 / b),
+                    (JsValue::Number(a), JsValue::BigInt(0))
+                    | (JsValue::Number(a), JsValue::Number(0.0)) => JsValue::Number(if a == 0.0 {
+                        f64::NAN
+                    } else if a > 0.0 {
+                        f64::INFINITY
+                    } else {
+                        f64::NEG_INFINITY
+                    }),
                     (JsValue::Number(a), JsValue::BigInt(b)) => JsValue::Number(a / b as f64),
                     (JsValue::Number(a), JsValue::Number(b)) => JsValue::Number(a / b),
                     _ => JsValue::Undefined,

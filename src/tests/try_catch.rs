@@ -16,7 +16,7 @@ assert_result!(
 
     console.log(errorCaught);
     console.log(errorMessage);
-    "#;
+    "#,
     "true",
     "Standard error message"
 );
@@ -36,7 +36,7 @@ assert_result!(
 
     console.log(caughtData.code);
     console.log(caughtData.reason);
-    "#;
+    "#,
     "404",
     "Not Found"
 );
@@ -58,7 +58,7 @@ assert_result!(
 
     console.log(tryFinished);
     console.log(finallyExecuted);
-    "#;
+    "#,
     "true",
     "true"
 );
@@ -78,7 +78,7 @@ assert_result!(
     }
 
     console.log(finallyExecuted);
-    "#;
+    "#,
     "true"
 );
 
@@ -101,7 +101,7 @@ assert_result!(
     console.log(dangerousFunction());
     // But the finally block still executed
     console.log(finallyExecuted);
-    "#;
+    "#,
     "Uncaught Error: Uncaught by try block\n\tat dangerousFunction (REPL62:3:15)",
     "true"
 );
@@ -122,7 +122,7 @@ assert_result!(
     };
 
     console.log(processData());
-    "#;
+    "#,
     "Uncaught TypeError: Invalid data type\n\tat processData (REPL10:3:15)"
 );
 
@@ -140,7 +140,7 @@ assert_result!(
     }
 
     console.log(fallbackTriggered);
-    "#;
+    "#,
     "true"
 );
 
@@ -161,7 +161,7 @@ assert_result!(
     }
 
     console.log(caughtMessage);
-    "#;
+    "#,
     "Network timeout"
 );
 
@@ -181,6 +181,6 @@ assert_result!(
     };
 
     console.log(testReturn());
-    "#;
+    "#,
     "Returned from finally"
 );

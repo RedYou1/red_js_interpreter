@@ -257,6 +257,9 @@ impl Parser {
                 Token::RBrace | Token::RParen | Token::RBracket => break,
                 Token::Eof => break,
                 Token::Colon => break,
+                Token::Else => break,
+                Token::Case | Token::Default => break,
+                Token::Switch => res.push(Box::new(expr::SwitchExpr::parse(self))),
                 Token::Ident(name) if let Token::Colon = self.tokens[self.index + 1] => {
                     let name = name.clone();
                     self.bump();
@@ -390,10 +393,12 @@ impl Parser {
                     panic!("expected ']' at end of array literal");
                 }
                 self.bump();
-                if end == Token::RParen && elements.len() == 1 {
+                if end == Token::RBracket {
+                    Box::new(expr::Array { elems: elements })
+                } else if elements.len() == 1 {
                     elements.pop().unwrap()
                 } else {
-                    Box::new(expr::Array { elems: elements })
+                    Box::new(elements)
                 }
             }
             Token::New => {

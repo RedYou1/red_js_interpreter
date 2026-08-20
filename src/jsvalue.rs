@@ -192,8 +192,17 @@ impl JsValue {
             }
             JsValue::Symbol(_, js_value) => format!("Symbol({})", js_value.print()),
             JsValue::String(s) => s.clone(),
-            JsValue::Number(n) => format!("{n}"),
-            JsValue::BigInt(n) => n.to_string(),
+            JsValue::Number(n) => match *n {
+                f64::INFINITY => "Infinity".to_owned(),
+                f64::NEG_INFINITY => "-Infinity".to_owned(),
+                _ if n.is_nan() => "NaN".to_owned(),
+                _ => format!("{n}"),
+            },
+            JsValue::BigInt(n) => match *n {
+                i64::MAX => "Infinity".to_owned(),
+                i64::MIN => "-Infinity".to_owned(),
+                _ => n.to_string(),
+            },
             JsValue::Boolean(b) => if *b { "true" } else { "false" }.to_owned(),
             JsValue::Undefined => "undefined".to_owned(),
             JsValue::Null => "null".to_owned(),

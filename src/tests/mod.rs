@@ -14,6 +14,7 @@ pub use crate::{
 
 mod base;
 mod compiler;
+mod switch;
 mod try_catch;
 
 fn prebuild_prototypes_test<T>(logs: &mut Loggable<T>) -> Rc<RefCell<Prototype>> {
@@ -55,7 +56,7 @@ fn append(data_ptr: &mut i64, value: String) {
 const NB_LOGS: usize = 10;
 #[macro_export]
 macro_rules! assert_result {
-    ($name:ident, $src:expr; $($result:expr),*) => {
+    ($name:ident, $src:expr, $($result:expr),*) => {
         #[test]
         fn $name() {
             let wanted = [$($result.to_owned(),)*];

@@ -7,7 +7,7 @@ assert_result!(
         console.log("hello world");
     }
     greet()
-    "#;
+    "#,
     "hello world"
 );
 
@@ -20,7 +20,7 @@ assert_result!(
     }
     a[{v: 6}] = {haha: 'o'}
     console.log(a);
-    "#;
+    "#,
     "{ a: 5, yes: 'wow', { v: 6 }: { haha: 'o' } }"
 );
 
@@ -51,7 +51,7 @@ assert_result!(
     console.log(cat.lives);
     cat.die();
     console.log(cat.lives);
-    "#;
+    "#,
     "Dog makes a noise.",
     "undefined",
     "Cat makes a noise.",
@@ -91,7 +91,7 @@ assert_result!(
     console.log(cat.lives);
     cat.die();
     console.log(cat.lives);
-    "#;
+    "#,
     "Dog makes a noise.",
     "undefined",
     "Cat makes a noise.",
@@ -110,7 +110,7 @@ assert_result!(
         i++
     }
     ['a', 'wow'].forEach(elem => console.log("elem: %s", elem))
-    "#;
+    "#,
     "for 0",
     "for 1",
     "for 2",
@@ -131,7 +131,7 @@ assert_result!(
     for (message of [5, 'allo', {a: true}]) {
         console.log(message);
     }
-    "#;
+    "#,
     "5",
     "allo",
     "{ a: true }"
@@ -148,7 +148,7 @@ assert_result!(
     for (message of t1()) {
         console.log(message);
     }
-    "#;
+    "#,
     "5",
     "allo",
     "{ a: true }"
@@ -173,7 +173,7 @@ assert_result!(
     for (message of t2()) {
         console.log(message);
     }
-    "#;
+    "#,
     "0:a",
     "0:b",
     "1:a",
@@ -190,7 +190,7 @@ assert_result!(
     console.log((5-8)*(7+9));
     console.log(5-(8*7+9));
     console.log((5-8*7)+9);
-    "#;
+    "#,
     "63.625",
     "-42",
     "-48",
@@ -259,7 +259,7 @@ assert_result!(
     console.log("\n===== Résultat =====");
     console.log("Objet final :", objet);
     console.log("État global :", globalState);
-    "#;
+    "#,
     "",
     "===== Itération 1 =====",
     "Entrée profondeur 2, valeur = 1",
@@ -357,7 +357,7 @@ assert_result!(
     console.log("\n===== Résultat =====");
     console.log("Objet final :", objet);
     console.log("État global :", globalState);
-    "#;
+    "#,
     "",
     "===== Itération 1 =====",
     "Entrée profondeur 2, valeur = 1",
@@ -475,7 +475,7 @@ assert_result!(
 
     console.log("=== typeof never throws ===");
     console.log(typeof nonexistentVariable);
-    "#;
+    "#,
     "=== Primitive values ===",
     "undefined",
     "object",
@@ -649,7 +649,7 @@ assert_result!(
 
     console.log(identity(true ? "left" : "right"));   // left
     console.log(identity(false ? "left" : "right"));  // right
-    "#;
+    "#,
     "yes",
     "no",
     "truthy",
@@ -693,7 +693,7 @@ assert_result!(
 
 assert_result!(
     test_commas,
-    "let a=5;while(a>0)console.log(a),a--,console.log(a);if(a>0)console.log('in');else console.log('out');for(let b=0;a++,b<2;b++,a--)console.log(a),console.log(b)";
+    "let a=5;while(a>0)console.log(a),a--,console.log(a);if(a>0)console.log('in');else console.log('out');for(let b=0;a++,b<2;b++,a--)console.log(a),console.log(b)",
     "5",
     "4",
     "4",
@@ -711,4 +711,73 @@ assert_result!(
     "1"
 );
 
-//TODO test recusive for all expr and stmt
+assert_result!(
+    test_comma_operator_basic,
+    r#"
+    let x = (1, 2, 3);
+    console.log(x);
+    "#,
+    "3"
+);
+
+assert_result!(
+    test_comma_operator_in_expressions,
+    r#"
+    let a = 1;
+    let b = (a++, a + 3, a * 10);
+    console.log(a);
+    console.log(b);
+    "#,
+    "2",
+    "20"
+);
+
+assert_result!(
+    test_comma_operator_in_for_loop,
+    r#"
+    for (let i = 0, j = 5; i < 3; i++, j--) {
+        console.log(i + j);
+    }
+    "#,
+    "5",
+    "5",
+    "5"
+);
+
+assert_result!(
+    test_edge_case_automatic_semi_insertion,
+    r#"
+    let x = 
+    5
+    +
+    5
+    console.log(x);
+    "#,
+    "10"
+);
+
+assert_result!(
+    test_edge_case_division_by_zero,
+    r#"
+    console.log(1 / 0);
+    console.log(-1 / 0);
+    console.log(0 / 0);
+    "#,
+    "Infinity",
+    "-Infinity",
+    "NaN"
+);
+
+assert_result!(
+    test_edge_case_type_coercion,
+    r#"
+    console.log("5" + 3);
+    console.log("5" - 3);
+    console.log(true + true);
+    //console.log([] + {});
+    "#,
+    "53",
+    "2",
+    "2" //,"[object Object]"
+);
+//TODO obj casting (remove temp string cast to number when subing)
