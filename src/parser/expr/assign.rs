@@ -80,15 +80,16 @@ impl VarDecl {
         let name = parser.expect_ident();
         logln(
             LogLevel::Info,
-            &format!("parse_statement variable declaration name={}", name),
+            &format!("parse_VarDecl variable declaration name={}", name),
         );
-        let initializer = if let Token::Assign(t) = &parser.tokens()[parser.index()] {
-            assert_eq!(*t, Option::<BinaryOp>::None);
-            parser.bump();
-            Some(parser.parse_expression())
-        } else {
-            None
-        };
+        let initializer: Option<Box<dyn Expr>> =
+            if let Token::Assign(t) = &parser.tokens()[parser.index()] {
+                assert_eq!(*t, Option::<BinaryOp>::None);
+                parser.bump();
+                Some(parser.set_can_multi(false, |parser| Box::new(parser.parse_expression())))
+            } else {
+                None
+            };
         if let Token::Semicolon = parser.tokens()[parser.index()] {
             parser.bump();
         }

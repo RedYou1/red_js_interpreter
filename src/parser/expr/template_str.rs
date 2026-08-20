@@ -40,7 +40,7 @@ impl TemplateLiteral {
                 }
                 Token::TemplateExprStart => {
                     parser.bump();
-                    let expr = parser.parse_expression();
+                    let expr = Box::new(parser.parse_expression());
                     if !matches!(parser.tokens()[parser.index()], Token::RBrace) {
                         panic!("expected '}}' after template expression");
                     }

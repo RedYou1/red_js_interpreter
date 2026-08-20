@@ -18,7 +18,7 @@ pub struct Object {
 impl Object {
     pub fn parse(parser: &mut Parser) -> Self {
         parser.bump();
-        let mut properties = Vec::new();
+        let mut properties: Vec<(Box<dyn Expr>, Box<dyn Expr>)> = Vec::new();
         while !matches!(parser.tokens()[parser.index()], Token::RBrace | Token::Eof) {
             let start = if let Token::Star = parser.tokens()[parser.index()] {
                 parser.bump();
@@ -31,12 +31,13 @@ impl Object {
                 parser.bump();
                 key
             } else {
-                parser.parse_primary()
+                parser.set_can_multi(false, |parser| parser.parse_primary())
             };
             match parser.tokens()[parser.index()] {
                 Token::Colon => {
                     parser.bump();
-                    let value = parser.parse_expression();
+                    let value =
+                        parser.set_can_multi(false, |parser| Box::new(parser.parse_expression()));
                     properties.push((key, value));
                 }
                 Token::LParen => {

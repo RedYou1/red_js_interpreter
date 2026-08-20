@@ -26,7 +26,7 @@ impl ClassDecl {
         };
         logln(
             LogLevel::Info,
-            &format!("parse_statement class name={}", name),
+            &format!("parse_ClassDecl class name={}", name),
         );
         let super_class = if let Token::Ident(ident) = &parser.tokens()[parser.index()] {
             if ident.eq("extends") {

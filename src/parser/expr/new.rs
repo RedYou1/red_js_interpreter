@@ -40,7 +40,7 @@ impl New {
             }
             if parser.tokens()[parser.index()] == Token::LBracket {
                 parser.bump();
-                let index = parser.parse_expression();
+                let index = Box::new(parser.parse_expression());
                 if parser.tokens()[parser.index()] != Token::RBracket {
                     panic!("expected ']'");
                 }
@@ -57,7 +57,7 @@ impl New {
         if parser.tokens()[parser.index()] == Token::LParen {
             parser.bump();
             while !matches!(parser.tokens()[parser.index()], Token::RParen | Token::Eof) {
-                args.push(parser.parse_expression());
+                args.append(&mut parser.parse_expression());
                 if parser.tokens()[parser.index()] == Token::Comma {
                     parser.bump();
                 }

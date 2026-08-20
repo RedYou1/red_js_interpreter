@@ -285,14 +285,26 @@ impl<'a> Lexer<'a> {
                 }
                 '&' => {
                     self.bump();
+                    if self.peek() == Some('=') {
+                        self.bump();
+                        return Token::Assign(Some(BinaryOp::BinAnd));
+                    }
                     return Token::And;
                 }
                 '|' => {
                     self.bump();
+                    if self.peek() == Some('=') {
+                        self.bump();
+                        return Token::Assign(Some(BinaryOp::BinOr));
+                    }
                     return Token::Or;
                 }
                 '^' => {
                     self.bump();
+                    if self.peek() == Some('=') {
+                        self.bump();
+                        return Token::Assign(Some(BinaryOp::XOr));
+                    }
                     return Token::XOr;
                 }
                 '(' => {
@@ -355,6 +367,9 @@ impl<'a> Lexer<'a> {
                     self.bump();
                     if self.peek() == Some('=') {
                         self.bump();
+                        if self.peek() == Some('=') {
+                            self.bump();
+                        }
                         return Token::NotEq;
                     } else {
                         // For now, skip unknown '!'
@@ -372,6 +387,10 @@ impl<'a> Lexer<'a> {
                         return Token::LtEq;
                     } else if self.peek() == Some('<') {
                         self.bump();
+                        if self.peek() == Some('=') {
+                            self.bump();
+                            return Token::Assign(Some(BinaryOp::ShiftL));
+                        }
                         return Token::ShiftL;
                     } else {
                         return Token::Lt;
@@ -384,6 +403,10 @@ impl<'a> Lexer<'a> {
                         return Token::GtEq;
                     } else if self.peek() == Some('>') {
                         self.bump();
+                        if self.peek() == Some('=') {
+                            self.bump();
+                            return Token::Assign(Some(BinaryOp::ShiftR));
+                        }
                         return Token::ShiftR;
                     } else {
                         return Token::Gt;
@@ -391,6 +414,10 @@ impl<'a> Lexer<'a> {
                 }
                 '%' => {
                     self.bump();
+                    if self.peek() == Some('=') {
+                        self.bump();
+                        return Token::Assign(Some(BinaryOp::Mod));
+                    }
                     return Token::Mod;
                 }
                 '+' => {

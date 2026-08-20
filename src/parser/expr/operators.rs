@@ -45,7 +45,16 @@ impl Operator {
     }
 
     fn parse_binary(parser: &mut Parser, min_bp: u8) -> Box<dyn Expr> {
-        let mut lhs = parser.parse_call_or_primary(min_bp == 0);
+        let mut lhs = if matches!(parser.tokens()[parser.index()], Token::Minus) {
+            parser.bump();
+            Box::new(expr::Operator {
+                left: Box::new(expr::ConstNumber { num: 0.0 }),
+                op: expr::BinaryOp::Sub,
+                right: Self::parse_binary(parser, 26),
+            }) as Box<dyn Expr>
+        } else {
+            parser.parse_call_or_primary(min_bp == 0)
+        };
         // advance tokens for loop
         while let Some((l_bp, r_bp)) = Self::precedence(
             &parser.tokens()[parser.index()],
@@ -80,12 +89,7 @@ impl Operator {
                 Token::ShiftL => expr::BinaryOp::ShiftL,
                 Token::ShiftR => expr::BinaryOp::ShiftR,
                 Token::QMark if min_bp == 0 => {
-                    parser.bump();
-                    let t = parser.parse_expression();
-                    assert_eq!(parser.tokens()[parser.index()], Token::Colon);
-                    parser.bump();
-                    let f = parser.parse_expression();
-                    lhs = Box::new(expr::ConditionalOp { cond: lhs, t, f });
+                    lhs = Box::new(expr::ConditionalOp::parse(parser, lhs));
                     continue;
                 }
                 Token::QMark | Token::Colon => break,
@@ -246,6 +250,46 @@ pub struct ConditionalOp {
     pub cond: Box<dyn Expr>,
     pub t: Box<dyn Expr>,
     pub f: Box<dyn Expr>,
+}
+
+impl ConditionalOp {
+    pub fn parse(parser: &mut Parser, cond: Box<dyn Expr>) -> ConditionalOp {
+        let (t, f) = parser.set_can_multi(false, |parser| {
+            parser.bump();
+            let mut t = parser.parse_expression();
+            let t: Box<dyn Expr> = if t.len() == 1 {
+                t.pop().expect("len == 1")
+            } else if t.is_empty() {
+                Box::new(expr::ConstObj {
+                    obj: JsValue::Undefined,
+                })
+            } else {
+                Box::new(t)
+            };
+
+            if parser.tokens()[parser.index()] != Token::Colon {
+                return (
+                    t,
+                    Box::new(expr::ConstObj {
+                        obj: JsValue::Undefined,
+                    }) as Box<dyn Expr>,
+                );
+            }
+            parser.bump();
+            let mut f = parser.parse_expression();
+            let f: Box<dyn Expr> = if f.len() == 1 {
+                f.pop().expect("len == 1")
+            } else if f.is_empty() {
+                Box::new(expr::ConstObj {
+                    obj: JsValue::Undefined,
+                })
+            } else {
+                Box::new(f)
+            };
+            (t, f)
+        });
+        expr::ConditionalOp { cond, t, f }
+    }
 }
 
 impl Expr for ConditionalOp {

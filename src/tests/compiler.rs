@@ -691,4 +691,24 @@ assert_result!(
     "right"
 );
 
+assert_result!(
+    test_commas,
+    "let a=5;while(a>0)console.log(a),a--,console.log(a);if(a>0)console.log('in');else console.log('out');for(let b=0;a++,b<2;b++,a--)console.log(a),console.log(b)";
+    "5",
+    "4",
+    "4",
+    "3",
+    "3",
+    "2",
+    "2",
+    "1",
+    "1",
+    "0",
+    "out",
+    "1",
+    "0",
+    "1",
+    "1"
+);
+
 //TODO test recusive for all expr and stmt

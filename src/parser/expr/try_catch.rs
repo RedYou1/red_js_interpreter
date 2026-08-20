@@ -13,7 +13,7 @@ pub struct Try {
 
 impl Try {
     pub fn parse(parser: &mut Parser) -> Self {
-        let block = parser.parse_block_body();
+        let block = parser.parse_block();
         let catch = if let Token::Catch = &parser.tokens()[parser.index()] {
             parser.bump();
             Some((
@@ -22,14 +22,14 @@ impl Try {
                 } else {
                     None
                 },
-                parser.parse_block_body(),
+                parser.parse_block(),
             ))
         } else {
             None
         };
         let finally = if let Token::Finally = &parser.tokens()[parser.index()] {
             parser.bump();
-            Some(parser.parse_block_body())
+            Some(parser.parse_block())
         } else {
             None
         };

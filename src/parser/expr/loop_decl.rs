@@ -24,7 +24,7 @@ impl LoopExpr {
     pub fn parse(parser: &mut Parser) -> Self {
         let t = parser.tokens()[parser.index()].clone();
         parser.bump();
-        logln(LogLevel::Info, "parse_statement for loop");
+        logln(LogLevel::Info, "parse_LoopDecl");
         if !matches!(parser.tokens()[parser.index()], Token::LParen) {
             panic!("expected '(' after 'for'");
         }
@@ -46,17 +46,18 @@ impl LoopExpr {
                     parser.bump();
                 }
                 let name = parser.expect_ident();
-                let initializer = if let Token::Assign(t) = &parser.tokens()[parser.index()] {
-                    assert_eq!(*t, Option::<BinaryOp>::None);
-                    parser.bump();
-                    Some(parser.parse_expression())
-                } else if let Token::Of = parser.tokens()[parser.index()] {
-                    parser.bump();
-                    of = true;
-                    Some(parser.parse_expression())
-                } else {
-                    None
-                };
+                let initializer: Option<Box<dyn Expr>> =
+                    if let Token::Assign(t) = &parser.tokens()[parser.index()] {
+                        assert_eq!(*t, Option::<BinaryOp>::None);
+                        parser.bump();
+                        Some(Box::new(parser.parse_expression()))
+                    } else if let Token::Of = parser.tokens()[parser.index()] {
+                        parser.bump();
+                        of = true;
+                        Some(Box::new(parser.parse_expression()))
+                    } else {
+                        None
+                    };
                 if let Token::Semicolon = parser.tokens()[parser.index()] {
                     parser.bump();
                 }
@@ -110,7 +111,7 @@ impl LoopExpr {
                     (Some(Box::new(expr::VarDecl { name, initializer })), None)
                 }
             } else {
-                let expr = parser.parse_expression();
+                let expr = Box::new(parser.parse_expression());
                 if let Token::Semicolon = parser.tokens()[parser.index()] {
                     parser.bump();
                 }
@@ -124,7 +125,7 @@ impl LoopExpr {
             Some(if let Token::Semicolon = parser.tokens()[parser.index()] {
                 Box::new(expr::ConstBoolean { b: true })
             } else {
-                parser.parse_expression()
+                Box::new(parser.parse_expression())
             })
         };
         if let Token::Semicolon = parser.tokens()[parser.index()] {
@@ -132,22 +133,19 @@ impl LoopExpr {
         }
 
         // Parse update
-        let update = if of || matches!(parser.tokens()[parser.index()], Token::RParen) {
-            None
-        } else {
-            Some(parser.parse_expression())
-        };
+        let update: Option<Box<dyn Expr>> =
+            if of || matches!(parser.tokens()[parser.index()], Token::RParen) {
+                None
+            } else {
+                Some(Box::new(parser.parse_expression()))
+            };
 
         if !matches!(parser.tokens()[parser.index()], Token::RParen) {
             panic!("expected ')' after for clauses");
         }
         parser.bump();
 
-        let body = if parser.tokens()[parser.index()] == Token::LBrace {
-            parser.parse_block_body()
-        } else {
-            vec![parser.parse_statement().unwrap()]
-        };
+        let body = parser.parse_block();
 
         Self {
             init,
@@ -228,7 +226,8 @@ impl Expr for LoopExpr {
                 CodeResult::Normal(Rc::new(RefCell::new(JsValue::Undefined)))
             }),
             Box::new(move |proto, _i| {
-                let cond = handle_return!(run_sub(&condition, proto.clone(), &mut CodeIndex::new()));
+                let cond =
+                    handle_return!(run_sub(&condition, proto.clone(), &mut CodeIndex::new()));
                 if cond.borrow().is_truthy() {
                     let sub = Prototype::new_child(proto.clone(), None, []);
                     proto.borrow_mut().properties.insert(

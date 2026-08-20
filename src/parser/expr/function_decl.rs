@@ -31,7 +31,7 @@ impl FunctionDecl {
         };
         logln(
             LogLevel::Info,
-            &format!("parse_statement function name={}", name),
+            &format!("parse_FuncDecl function name={}", name),
         );
         // Expect LParen
         parser.skip_to(Token::LParen);
@@ -41,7 +41,7 @@ impl FunctionDecl {
         parser.bump();
         let params = parser.parse_param_list();
         parser.skip_to(Token::LBrace);
-        let body = Rc::from(parser.parse_block_body());
+        let body = Rc::from(parser.parse_block());
         Self {
             name,
             params,

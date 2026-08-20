@@ -1,11 +1,13 @@
 use std::{cell::RefCell, rc::Rc};
 
 use crate::{
-    Code, CodeIndex, CodeResult, JsValue, LogLevel, Prototype, handle_return, logln, parser::{
+    Code, CodeIndex, CodeResult, JsValue, LogLevel, Prototype, handle_return, logln,
+    parser::{
         expr::{self, Expr},
         lexer::Token,
         parser::Parser,
-    }, run_sub,
+    },
+    run_sub,
 };
 
 #[derive(Debug)]
@@ -15,29 +17,23 @@ pub struct IfExpr {
 
 impl IfExpr {
     pub fn parse(parser: &mut Parser) -> Self {
-        logln(LogLevel::Info, "parse_statement if statement");
+        logln(LogLevel::Info, "parse_IfDecl");
         if !matches!(parser.tokens()[parser.index()], Token::LParen) {
             panic!("expected '(' after 'if'");
         }
         parser.bump();
-        let condition = parser.parse_expression();
+        let condition = Box::new(parser.parse_expression());
         if !matches!(parser.tokens()[parser.index()], Token::RParen) {
             panic!("expected ')' after if condition, {condition:?}");
         }
         parser.bump();
 
-        let mut blocks = vec![(
-            condition,
-            if parser.tokens()[parser.index()] == Token::LBrace {
-                parser.parse_block_body()
-            } else {
-                vec![parser.parse_statement().unwrap()]
-            },
-        )];
+        let mut blocks: Vec<(Box<dyn Expr>, Vec<Box<dyn Expr>>)> =
+            vec![(condition, parser.parse_block())];
 
         while let Token::Else = parser.tokens()[parser.index()] {
             parser.bump();
-            let condition = if let Token::If = parser.tokens()[parser.index()] {
+            let condition: Box<dyn Expr> = if let Token::If = parser.tokens()[parser.index()] {
                 parser.bump();
                 if !matches!(parser.tokens()[parser.index()], Token::LParen) {
                     panic!("expected '(' after 'if'");
@@ -49,18 +45,11 @@ impl IfExpr {
                 }
                 parser.bump();
 
-                condition
+                Box::new(condition)
             } else {
                 Box::new(expr::ConstBoolean { b: true })
             };
-            blocks.push((
-                condition,
-                if parser.tokens()[parser.index()] == Token::LBrace {
-                    parser.parse_block_body()
-                } else {
-                    vec![parser.parse_statement().unwrap()]
-                },
-            ));
+            blocks.push((condition, parser.parse_block()));
         }
 
         Self { blocks }
