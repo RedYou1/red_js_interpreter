@@ -25,6 +25,10 @@ impl CodeResult {
         } else if let CodeResult::NormalMember(res, _, _) = self {
             res
         } else {
+            crate::logln(
+                LogLevel::Fatal,
+                "CodeResult::unwrap_normal received a control-flow result",
+            );
             panic!("unwrap_normal")
         }
     }
@@ -98,11 +102,19 @@ impl CodeIndex {
         let JsValue::BigInt(i) =
             inline_borrow!(Prototype::find(proto.clone(), &format!("__{name}_current__").into()).1)
         else {
+            crate::logln(
+                LogLevel::Fatal,
+                &format!("CodeIndex.load_from missing BigInt current value for {name}"),
+            );
             panic!("CodeIndex.load_from parse current not BigInt {proto:?}")
         };
         let JsValue::Boolean(r) =
             inline_borrow!(Prototype::find(proto.clone(), &format!("__{name}_retry__").into()).1)
         else {
+            crate::logln(
+                LogLevel::Fatal,
+                &format!("CodeIndex.load_from missing Boolean retry value for {name}"),
+            );
             panic!("CodeIndex.load_from parse retry not Boolean {proto:?}")
         };
         Self {
@@ -149,8 +161,15 @@ macro_rules! handle_error {
             CodeResult::NormalMember(res, _, _) => res,
             CodeResult::Return(res) => res,
             CodeResult::Error(_) => return __res__,
-            _ => panic!("unhandled code result in handle_error"),
-        }
+            _ => {
+                $crate::logln(
+                    LogLevel::Fatal,
+                    "handle_error received an unsupported control-flow result",
+                );
+                panic!("unhandled code result in handle_error")
+            }
+      
+              }
     }};
 }
 
@@ -170,6 +189,14 @@ pub fn run_sub(codes: &[Code], mem: Rc<RefCell<Prototype>>, i: &mut CodeIndex) -
         match result {
             CodeResult::Normal(_) | CodeResult::NormalMember(_, _, _) => {}
             _ => {
+                crate::logln(
+                    LogLevel::Trace,
+                    &format!(
+                        "run_sub stopped at code index {} with {:?}",
+                        i.current(),
+                        result
+                    ),
+                );
                 return result;
             }
         }

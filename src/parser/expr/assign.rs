@@ -49,7 +49,13 @@ impl Expr for Assign {
                         (obj, key_clone)
                     }
                 }
-                _ => panic!("asign not a member"),
+                _ => {
+                    logln(
+                        LogLevel::Error,
+                        "Expr::Assign target did not resolve to a member",
+                    );
+                    panic!("asign not a member")
+                }
             };
             logln(
                 LogLevel::Trace,
@@ -80,7 +86,7 @@ impl VarDecl {
         let name = parser.expect_ident();
         logln(
             LogLevel::Info,
-            &format!("parse_VarDecl variable declaration name={}", name),
+            &format!("Entering VarDecl::parse name={}", name),
         );
         let initializer: Option<Box<dyn Expr>> =
             if let Token::Assign(t) = &parser.tokens()[parser.index()] {

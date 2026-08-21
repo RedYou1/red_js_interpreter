@@ -30,6 +30,10 @@ pub fn prebuild_runnable<const WANTED_PARAM: usize>(
             let JsValue::Prototype(array) =
                 inline_borrow!(Prototype::find(proto.clone(), &ARGUMENTS.into()).1)
             else {
+                crate::logln(
+                    crate::LogLevel::Fatal,
+                    &format!("prebuild_runnable missing prototype argument array key={ARGUMENTS}"),
+                );
                 panic!("{ARGUMENTS} not found prebuild function")
             };
 
@@ -67,11 +71,21 @@ pub fn prebuild_runnable_direct(
             let JsValue::Prototype(array) =
                 inline_borrow!(Prototype::find(proto.clone(), &ARGUMENTS.into()).1)
             else {
+                crate::logln(
+                    crate::LogLevel::Fatal,
+                    &format!(
+                        "prebuild_runnable_direct missing prototype argument array key={ARGUMENTS}"
+                    ),
+                );
                 panic!("{ARGUMENTS} not found prebuild function")
             };
             let JsValue::BigInt(length) =
                 inline_borrow!(Prototype::find(array.clone(), &"length".into()).1)
             else {
+                crate::logln(
+                    crate::LogLevel::Fatal,
+                    "prebuild_runnable_direct arguments length is not BigInt",
+                );
                 panic!("length in Array")
             };
 

@@ -141,6 +141,10 @@ new_class!(
                     break;
                 }
                 if format.is_empty() {
+                    logln(
+                        LogLevel::Fatal,
+                        "console.log formatter received a trailing '%' specifier",
+                    );
                     panic!("console format end with %");
                 }
                 let formater = format[0..=0].to_owned();
@@ -151,8 +155,14 @@ new_class!(
                     continue;
                 }
 
-                let JsValue::Prototype(ref formater) = inline_borrow!(Prototype::find(config.clone(), &JsValue::String(formater.clone())).1) else {panic!("console formater {formater} not found")};
-                let JsValue::String(ref res) = inline_borrow!(handle_error!(run_function_object(formater.clone(), Rc::new(RefCell::new(JsValue::Undefined)), vec![arguments[argi].clone()]))) else {panic!("console formater didnt returned a string")};
+                let JsValue::Prototype(ref formater) = inline_borrow!(Prototype::find(config.clone(), &JsValue::String(formater.clone())).1) else {
+                    logln(LogLevel::Fatal, &format!("console.log formatter not found specifier={formater}"));
+                    panic!("console formater {formater} not found")
+                };
+                let JsValue::String(ref res) = inline_borrow!(handle_error!(run_function_object(formater.clone(), Rc::new(RefCell::new(JsValue::Undefined)), vec![arguments[argi].clone()]))) else {
+                    logln(LogLevel::Fatal, &format!("console.log formatter returned a non-string specifier={formater:?}"));
+                    panic!("console formater didnt returned a string")
+                };
                 argi += 1;
                 text += res;
             }

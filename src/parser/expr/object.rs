@@ -45,16 +45,34 @@ impl Object {
                     func.generator = start;
                     properties.push((key, Box::new(func)));
                 }
-                _ => panic!(
-                    "expected ':' or '(' in object literal, got {:?}",
-                    parser.tokens()[parser.index()]
-                ),
+                _ => {
+                    logln(
+                        LogLevel::Fatal,
+                        &format!(
+                            "Object::parse expected ':' or '(' at index {} but found {:?}",
+                            parser.index(),
+                            parser.tokens()[parser.index()]
+                        ),
+                    );
+                    panic!(
+                        "expected ':' or '(' in object literal, got {:?}",
+                        parser.tokens()[parser.index()]
+                    )
+                }
             }
             if let Token::Comma = parser.tokens()[parser.index()] {
                 parser.bump();
             }
         }
         if parser.tokens()[parser.index()] != Token::RBrace {
+            logln(
+                LogLevel::Fatal,
+                &format!(
+                    "Object::parse expected '}}' at index {} but found {:?}",
+                    parser.index(),
+                    parser.tokens()[parser.index()]
+                ),
+            );
             panic!("expected '}}' at end of object literal");
         }
         parser.bump();

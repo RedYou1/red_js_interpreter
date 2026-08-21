@@ -10,7 +10,7 @@ impl Program {
     pub fn compile(self, prebuild: Rc<RefCell<Prototype>>) -> Runnable {
         logln(
             LogLevel::Info,
-            &format!("Program::compile body_size={}", self.body.len()),
+            &format!("Entering Program::compile body_size={}", self.body.len()),
         );
         Runnable {
             params: Vec::new(),

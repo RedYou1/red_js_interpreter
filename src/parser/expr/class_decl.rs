@@ -22,11 +22,19 @@ impl ClassDecl {
         let name = if let Token::Ident(_) = parser.tokens()[parser.index()] {
             parser.expect_ident().leak()
         } else {
+            logln(
+                LogLevel::Fatal,
+                &format!(
+                    "ClassDecl::parse expected class name at index {} but found {:?}",
+                    parser.index(),
+                    parser.tokens()[parser.index()]
+                ),
+            );
             panic!("expected class name");
         };
         logln(
             LogLevel::Info,
-            &format!("parse_ClassDecl class name={}", name),
+            &format!("Entering ClassDecl::parse name={}", name),
         );
         let super_class = if let Token::Ident(ident) = &parser.tokens()[parser.index()] {
             if ident.eq("extends") {
@@ -39,6 +47,14 @@ impl ClassDecl {
             None
         };
         if !matches!(parser.tokens()[parser.index()], Token::LBrace) {
+            logln(
+                LogLevel::Fatal,
+                &format!(
+                    "ClassDecl::parse expected '{{' at index {} but found {:?}",
+                    parser.index(),
+                    parser.tokens()[parser.index()]
+                ),
+            );
             panic!("expected '{{' after class name");
         }
         parser.bump();
@@ -97,7 +113,7 @@ impl Expr for ClassDecl {
         vec![Box::new(move |proto, _| {
             logln(
                 LogLevel::Trace,
-                &format!("Expr::ClassDecl executing name={}", name),
+                &format!("Entering Expr::ClassDecl name={}", name),
             );
             let outer_proto = proto.clone();
 

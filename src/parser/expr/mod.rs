@@ -98,7 +98,7 @@ impl Expr for Identifier {
                 let this = Prototype::find(proto, &"this".into()).1;
                 logln(
                     LogLevel::Trace,
-                    &format!("Exiting Expr::Identifier result={:?} of {:?}", res, this),
+                    &format!("Exiting Expr::Identifier {name:?} result={res:?} of {this:?}"),
                 );
                 CodeResult::NormalMember(
                     res,
@@ -109,7 +109,7 @@ impl Expr for Identifier {
             } else {
                 logln(
                     LogLevel::Trace,
-                    &format!("Exiting Expr::Identifier result={:?}", res),
+                    &format!("Exiting Expr::Identifier {name:?} result={res:?}"),
                 );
                 CodeResult::NormalMember(res, proto, Rc::new(RefCell::new(name.as_str().into())))
             }

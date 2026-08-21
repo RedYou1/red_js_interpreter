@@ -18,22 +18,55 @@ pub struct SwitchExpr {
 
 impl SwitchExpr {
     pub fn parse(parser: &mut Parser) -> Self {
+        logln(LogLevel::Info, "Entering SwitchExpr::parse");
         if parser.tokens()[parser.index()] != Token::Switch {
+            logln(
+                LogLevel::Fatal,
+                &format!(
+                    "SwitchExpr::parse expected switch at index {} but found {:?}",
+                    parser.index(),
+                    parser.tokens()[parser.index()]
+                ),
+            );
             panic!("expected 'switch'");
         }
         parser.bump();
 
         if parser.tokens()[parser.index()] != Token::LParen {
+            logln(
+                LogLevel::Fatal,
+                &format!(
+                    "SwitchExpr::parse expected '(' at index {} but found {:?}",
+                    parser.index(),
+                    parser.tokens()[parser.index()]
+                ),
+            );
             panic!("expected '(' after switch");
         }
         parser.bump();
         let value = parser.set_can_multi(true, |parser| Box::new(parser.parse_expression()));
         if parser.tokens()[parser.index()] != Token::RParen {
+            logln(
+                LogLevel::Fatal,
+                &format!(
+                    "SwitchExpr::parse expected ')' at index {} but found {:?}",
+                    parser.index(),
+                    parser.tokens()[parser.index()]
+                ),
+            );
             panic!("expected ')' after switch condition");
         }
         parser.bump();
 
         if parser.tokens()[parser.index()] != Token::LBrace {
+            logln(
+                LogLevel::Fatal,
+                &format!(
+                    "SwitchExpr::parse expected '{{' at index {} but found {:?}",
+                    parser.index(),
+                    parser.tokens()[parser.index()]
+                ),
+            );
             panic!("expected '{{' after switch condition");
         }
         parser.bump();
@@ -45,8 +78,7 @@ impl SwitchExpr {
             match parser.tokens()[parser.index()] {
                 Token::Case => {
                     parser.bump();
-                    let cond = parser
-                        .set_can_multi(false, |parser| expr::Operator::parse(parser));
+                    let cond = parser.set_can_multi(false, |parser| expr::Operator::parse(parser));
                     if parser.tokens()[parser.index()] != Token::Colon {
                         panic!("expected ':' after case condition");
                     }
@@ -86,6 +118,10 @@ impl SwitchExpr {
             parser.bump();
         }
 
+        logln(
+            LogLevel::Trace,
+            &format!("Exiting SwitchExpr::parse case_count={}", cases.len()),
+        );
         Self { value, cases }
     }
 }
@@ -115,10 +151,15 @@ impl Expr for SwitchExpr {
                         Some(cond) => {
                             let v =
                                 handle_return!(run_sub(cond, proto.clone(), &mut CodeIndex::new()));
-                            {
+                            let matched_case = {
                                 let target_ref = target.borrow();
                                 inline_borrow!(v).eq(&target_ref)
-                            }
+                            };
+                            logln(
+                                LogLevel::Trace,
+                                &format!("SwitchExpr case matched={matched_case}"),
+                            );
+                            matched_case
                         }
                         None => true,
                     };

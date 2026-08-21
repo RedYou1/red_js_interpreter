@@ -32,6 +32,14 @@ impl New {
                     });
                     continue;
                 } else {
+                    logln(
+                        LogLevel::Fatal,
+                        &format!(
+                            "New::parse expected property name at index {} but found {:?}",
+                            parser.index(),
+                            parser.tokens()[parser.index()]
+                        ),
+                    );
                     panic!(
                         "expected property name after '.', got {:?}",
                         parser.tokens()[parser.index()]
@@ -42,6 +50,14 @@ impl New {
                 parser.bump();
                 let index = Box::new(parser.parse_expression());
                 if parser.tokens()[parser.index()] != Token::RBracket {
+                    logln(
+                        LogLevel::Fatal,
+                        &format!(
+                            "New::parse expected ']' at index {} but found {:?}",
+                            parser.index(),
+                            parser.tokens()[parser.index()]
+                        ),
+                    );
                     panic!("expected ']'");
                 }
                 parser.bump();

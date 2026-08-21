@@ -66,10 +66,14 @@ pub fn run_function_object(
     let JsValue::Function(ref runnable) =
         inline_borrow!(inline_borrow!(func.clone()).properties[&RUNNABLE.into()].clone())
     else {
+        crate::logln(
+            LogLevel::Fatal,
+            &format!("run_function_object received a non-runnable function object: {func:?}"),
+        );
         panic!("func not runnable")
     };
     crate::logln(
-        LogLevel::Info,
+        LogLevel::Trace,
         &format!(
             "run_function_object: {}({:?})",
             func.borrow().name.unwrap_or("anonymous"),
@@ -95,6 +99,10 @@ pub fn run_function_object(
     let JsValue::Prototype(array) =
         inline_borrow!(Prototype::find(mem.clone(), &stringify!(Array).into()).1)
     else {
+        crate::logln(
+            LogLevel::Fatal,
+            "run_function_object could not locate the Array prototype",
+        );
         panic!("Array not found")
     };
     if let Some(excess) = &runnable.excess {

@@ -56,7 +56,13 @@ impl Expr for Call {
                             .borrow()
                             .properties
                             .get(&"constructor".into())
-                            .expect("call an obj without a constructor")
+                            .unwrap_or_else(|| {
+                                logln(
+                                    LogLevel::Fatal,
+                                    "Expr::Call object has no constructor property",
+                                );
+                                panic!("call an obj without a constructor")
+                            })
                             .clone();
                         let func_proto =
                             inline_borrow!(t).unwrap_proto("call an obj without a constructor");
@@ -75,9 +81,19 @@ impl Expr for Call {
                                     .unwrap_proto("expr::Call Generator not proto 2"),
                                 ),
                             ))),
-                            _ => panic!("call a none function or generator 2 {:?}", func),
+                            _ => {
+                                logln(
+                                    LogLevel::Fatal,
+                                    "Expr::Call constructor is not a function or generator",
+                                );
+                                panic!("call a none function or generator 2 {:?}", func)
+                            }
                         }
                     } else {
+                        logln(
+                            LogLevel::Fatal,
+                            "Expr::Call target is not a function, generator, or constructable object",
+                        );
                         panic!("call a none function or generator {:?}", func);
                     }
                 }

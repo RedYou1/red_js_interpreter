@@ -31,7 +31,7 @@ pub enum LogLevel {
 #[cfg(test)]
 pub const LOGLEVEL: LogLevel = LogLevel::Trace;
 #[cfg(not(test))]
-pub const LOGLEVEL: LogLevel = LogLevel::Trace;
+pub const LOGLEVEL: LogLevel = LogLevel::Info;
 
 pub fn logln(level: LogLevel, message: &str) {
     if level >= LOGLEVEL {

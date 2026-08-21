@@ -24,8 +24,17 @@ impl LoopExpr {
     pub fn parse(parser: &mut Parser) -> Self {
         let t = parser.tokens()[parser.index()].clone();
         parser.bump();
-        logln(LogLevel::Info, "parse_LoopDecl");
+        logln(LogLevel::Info, "Entering LoopExpr::parse");
         if !matches!(parser.tokens()[parser.index()], Token::LParen) {
+            logln(
+                LogLevel::Fatal,
+                &format!(
+                    "LoopExpr::parse expected '(' after {:?} at index {} but found {:?}",
+                    t,
+                    parser.index(),
+                    parser.tokens()[parser.index()]
+                ),
+            );
             panic!("expected '(' after 'for'");
         }
         parser.bump();
@@ -141,6 +150,14 @@ impl LoopExpr {
             };
 
         if !matches!(parser.tokens()[parser.index()], Token::RParen) {
+            logln(
+                LogLevel::Fatal,
+                &format!(
+                    "LoopExpr::parse expected ')' after clauses at index {} but found {:?}",
+                    parser.index(),
+                    parser.tokens()[parser.index()]
+                ),
+            );
             panic!("expected ')' after for clauses");
         }
         parser.bump();
@@ -162,12 +179,18 @@ impl Expr for LoopExpr {
         logln(
             LogLevel::Info,
             &format!(
-                "LoopExpr::compile do_first={} body_len={}",
+                "Entering LoopExpr::compile do_first={} body_len={}",
                 self.do_first,
                 self.body.len()
             ),
         );
-        assert!(self.init.is_some() || self.condition.is_some() || self.update.is_some());
+        if self.init.is_none() && self.condition.is_none() && self.update.is_none() {
+            logln(
+                LogLevel::Fatal,
+                "LoopExpr::compile received a loop with no init, condition, or update",
+            );
+            panic!("loop has no executable clauses");
+        }
         let do_first = self.do_first;
         let init: Vec<Code> = self.init.compile(mem.clone());
         let condition: Vec<Code> = self.condition.compile(mem.clone());
@@ -228,6 +251,14 @@ impl Expr for LoopExpr {
             Box::new(move |proto, _i| {
                 let cond =
                     handle_return!(run_sub(&condition, proto.clone(), &mut CodeIndex::new()));
+                logln(
+                    LogLevel::Trace,
+                    &format!(
+                        "LoopExpr condition index={} truthy={}",
+                        _i.current(),
+                        cond.borrow().is_truthy()
+                    ),
+                );
                 if cond.borrow().is_truthy() {
                     let sub = Prototype::new_child(proto.clone(), None, []);
                     proto.borrow_mut().properties.insert(

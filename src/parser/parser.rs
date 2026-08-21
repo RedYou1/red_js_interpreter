@@ -81,6 +81,13 @@ impl Parser {
                 name
             }
             t => {
+                logln(
+                    LogLevel::Error,
+                    &format!(
+                        "Parser::expect_ident expected identifier at index {} but found {:?}",
+                        self.index, t
+                    ),
+                );
                 panic!("expected identifier, got {:?}", t);
             }
         }
@@ -110,6 +117,13 @@ impl Parser {
             return params;
         }
         if self.tokens[self.index] != Token::RParen {
+            logln(
+                LogLevel::Fatal,
+                &format!(
+                    "Parser::parse_param_list expected ')' at index {} but found {:?}",
+                    self.index, self.tokens[self.index]
+                ),
+            );
             panic!("expected ')'");
         }
         self.bump();
@@ -127,6 +141,13 @@ impl Parser {
             let before = self.index;
             let mut exprs = self.parse_expression();
             if exprs.is_empty() && self.index == before {
+                logln(
+                    LogLevel::Error,
+                    &format!(
+                        "Parser::parse_block made no progress at index {} token {:?}",
+                        self.index, self.tokens[self.index]
+                    ),
+                );
                 panic!(
                     "parser made no progress inside block at token {:?}",
                     self.tokens[self.index]
@@ -141,7 +162,7 @@ impl Parser {
     }
 
     pub fn parse_program(&mut self) -> Program {
-        logln(LogLevel::Info, "parse_program start");
+        logln(LogLevel::Info, "Entering Parser::parse_program");
         let mut body = Vec::new();
         while self.tokens[self.index] != Token::Eof {
             let current = self.tokens[self.index].clone();
@@ -155,7 +176,7 @@ impl Parser {
         }
         logln(
             LogLevel::Info,
-            &format!("parse_program finished body_size={}", body.len()),
+            &format!("Exiting Parser::parse_program body_size={}", body.len()),
         );
         Program { body }
     }
@@ -163,13 +184,28 @@ impl Parser {
     pub fn parse_all_expressions(&mut self) -> Vec<Box<dyn Expr>> {
         let mut res: Vec<Box<dyn Expr>> = Vec::new();
         while !matches!(self.tokens[self.index], Token::Eof) {
-            assert!(self.can_multi);
+            if !self.can_multi {
+                logln(
+                    LogLevel::Fatal,
+                    &format!(
+                        "Parser::parse_all_expressions entered with can_multi=false at index {} token {:?}",
+                        self.index, self.tokens[self.index]
+                    ),
+                );
+                panic!("parse_all_expressions requires can_multi");
+            }
             let mut exprs = self.parse_expression();
             if exprs.is_empty() {
                 break;
             }
             res.append(&mut exprs);
-            stdout().flush().unwrap();
+            if let Err(error) = stdout().flush() {
+                logln(
+                    LogLevel::Fatal,
+                    &format!("Parser::parse_all_expressions failed to flush stdout: {error}"),
+                );
+                panic!("failed to flush stdout: {error}");
+            }
         }
         res
     }
@@ -180,7 +216,7 @@ impl Parser {
             logln(
                 LogLevel::Trace,
                 &format!(
-                    "parse_expression cant_multi={:?} current_token={:?} res={:?}",
+                    "parse_expression can_multi={} current_token={:?} expressions={:?}",
                     self.can_multi, self.tokens[self.index], res
                 ),
             );
@@ -210,20 +246,48 @@ impl Parser {
                 Token::Do => {
                     self.bump();
                     if self.tokens[self.index] != Token::LBrace {
+                        logln(
+                            LogLevel::Error,
+                            &format!(
+                                "Parser::parse_expression expected do body at index {}",
+                                self.index
+                            ),
+                        );
                         panic!("expected '{{' for do body");
                     }
                     let body = self.parse_block();
 
                     if self.tokens[self.index] != Token::While {
+                        logln(
+                            LogLevel::Error,
+                            &format!(
+                                "Parser::parse_expression expected while after do body at index {}",
+                                self.index
+                            ),
+                        );
                         panic!("expected 'while' after do body");
                     }
                     self.bump();
                     if self.tokens[self.index] != Token::LParen {
+                        logln(
+                            LogLevel::Fatal,
+                            &format!(
+                                "Parser::parse_expression expected '(' after while at index {} but found {:?}",
+                                self.index, self.tokens[self.index]
+                            ),
+                        );
                         panic!("expected '(' after while");
                     }
                     self.bump();
                     let condition: Option<Box<dyn Expr>> = Some(Box::new(self.parse_expression()));
                     if self.tokens[self.index] != Token::RParen {
+                        logln(
+                            LogLevel::Error,
+                            &format!(
+                                "Parser::parse_expression expected ')' after do-while at index {}",
+                                self.index
+                            ),
+                        );
                         panic!("expected ')' after while condition");
                     }
                     self.bump();
@@ -354,7 +418,10 @@ impl Parser {
     pub fn parse_primary(&mut self) -> Box<dyn Expr> {
         logln(
             LogLevel::Trace,
-            &format!("parse_primary cur={:?}", self.tokens[self.index]),
+            &format!(
+                "Entering Parser::parse_primary cur={:?}",
+                self.tokens[self.index]
+            ),
         );
         match &self.tokens[self.index] {
             Token::Typeof => {
@@ -382,6 +449,13 @@ impl Parser {
                     let before = self.index;
                     let mut exprs = self.set_can_multi(true, |parser| parser.parse_expression());
                     if exprs.is_empty() && self.index == before {
+                        logln(
+                            LogLevel::Fatal,
+                            &format!(
+                                "Parser::parse_primary grouped expression made no progress at index {} token {:?}",
+                                self.index, self.tokens[self.index]
+                            ),
+                        );
                         panic!(
                             "parser made no progress in grouped expression at token {:?}",
                             self.tokens[self.index]
@@ -390,6 +464,13 @@ impl Parser {
                     elements.append(&mut exprs);
                 }
                 if self.tokens[self.index] != end {
+                    logln(
+                        LogLevel::Fatal,
+                        &format!(
+                            "Parser::parse_primary expected {:?} at index {} but found {:?}",
+                            end, self.index, self.tokens[self.index]
+                        ),
+                    );
                     panic!("expected ']' at end of array literal");
                 }
                 self.bump();
@@ -480,6 +561,13 @@ impl Parser {
                 })
             }
             e => {
+                logln(
+                    LogLevel::Error,
+                    &format!(
+                        "Parser::parse_primary unexpected token at index {}: {:?}",
+                        self.index, e
+                    ),
+                );
                 panic!("unexpected token in parse_primary: {:?}", e);
             }
         }
@@ -489,7 +577,7 @@ impl Parser {
         logln(
             LogLevel::Trace,
             &format!(
-                "parse_call_or_primary cur={:?} root={:?}",
+                "Entering Parser::parse_call_or_primary cur={:?} root={:?}",
                 self.tokens[self.index], root
             ),
         );
@@ -509,6 +597,13 @@ impl Parser {
                             property: Box::new(expr::ConstString { s: prop }),
                         });
                     } else {
+                        logln(
+                            LogLevel::Error,
+                            &format!(
+                                "Parser::parse_call_or_primary expected property name at index {}, but got {:?}",
+                                self.index, self.tokens[self.index]
+                            ),
+                        );
                         panic!(
                             "expected property name after '.', got {:?}",
                             self.tokens[self.index]
@@ -519,6 +614,13 @@ impl Parser {
                     self.bump();
                     let index = Box::new(self.parse_expression());
                     if self.tokens[self.index] != Token::RBracket {
+                        logln(
+                            LogLevel::Fatal,
+                            &format!(
+                                "Parser::parse_call_or_primary expected ']' at index {} but found {:?}",
+                                self.index, self.tokens[self.index]
+                            ),
+                        );
                         panic!("expected ']'");
                     }
                     self.bump();

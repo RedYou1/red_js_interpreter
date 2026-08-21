@@ -31,11 +31,19 @@ impl FunctionDecl {
         };
         logln(
             LogLevel::Info,
-            &format!("parse_FuncDecl function name={}", name),
+            &format!("Entering FunctionDecl::parse name={}", name),
         );
         // Expect LParen
         parser.skip_to(Token::LParen);
         if !matches!(parser.tokens()[parser.index()], Token::LParen) {
+            logln(
+                LogLevel::Fatal,
+                &format!(
+                    "FunctionDecl::parse expected '(' at index {} but found {:?}",
+                    parser.index(),
+                    parser.tokens()[parser.index()]
+                ),
+            );
             panic!("expected '('");
         }
         parser.bump();
@@ -67,7 +75,7 @@ impl Expr for FunctionDecl {
         logln(
             LogLevel::Info,
             &format!(
-                "FunctionDecl::compile_expr name={} generator={}",
+                "Entering FunctionDecl::compile name={} generator={}",
                 self.name, self.generator
             ),
         );
@@ -76,7 +84,7 @@ impl Expr for FunctionDecl {
             logln(
                 LogLevel::Trace,
                 &format!(
-                    "Entering FunctionDecl execution name={} generator={}",
+                    "Entering FunctionDecl::execute name={} generator={}",
                     name, generator
                 ),
             );

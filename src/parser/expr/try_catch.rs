@@ -1,5 +1,5 @@
 use crate::{
-    CodeIndex, CodeResult, Prototype,
+    CodeIndex, CodeResult, LogLevel, Prototype, logln,
     parser::{expr::Expr, lexer::Token, parser::Parser},
     run_sub,
 };
@@ -13,6 +13,7 @@ pub struct Try {
 
 impl Try {
     pub fn parse(parser: &mut Parser) -> Self {
+        logln(LogLevel::Info, "Entering Try::parse");
         let block = parser.parse_block();
         let catch = if let Token::Catch = &parser.tokens()[parser.index()] {
             parser.bump();
@@ -33,6 +34,14 @@ impl Try {
         } else {
             None
         };
+        logln(
+            LogLevel::Trace,
+            &format!(
+                "Exiting Try::parse has_catch={} has_finally={}",
+                catch.is_some(),
+                finally.is_some()
+            ),
+        );
         Self {
             block,
             catch,
@@ -52,6 +61,7 @@ impl Expr for Try {
         });
         let finally = self.finally.as_ref().map(|m| m.compile(mem.clone()));
         vec![Box::new(move |proto, _| {
+            logln(LogLevel::Trace, "Entering Expr::Try block");
             let mut res = run_sub(
                 block.as_ref(),
                 Prototype::new_child(proto.clone(), None, []),
@@ -60,6 +70,10 @@ impl Expr for Try {
             if let Some((param, catch)) = catch.as_ref()
                 && let CodeResult::Error(ref err) = res
             {
+                logln(
+                    LogLevel::Trace,
+                    &format!("Entering Expr::Try catch after block error {err:?}"),
+                );
                 let child = Prototype::new_child(
                     proto.clone(),
                     None,
@@ -75,6 +89,7 @@ impl Expr for Try {
                 }
             }
             if let Some(finally) = finally.as_ref() {
+                logln(LogLevel::Trace, "Entering Expr::Try finally");
                 let t = run_sub(
                     finally.as_ref(),
                     Prototype::new_child(proto.clone(), None, []),

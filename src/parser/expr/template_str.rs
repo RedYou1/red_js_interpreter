@@ -42,12 +42,28 @@ impl TemplateLiteral {
                     parser.bump();
                     let expr = Box::new(parser.parse_expression());
                     if !matches!(parser.tokens()[parser.index()], Token::RBrace) {
+                        logln(
+                            LogLevel::Fatal,
+                            &format!(
+                                "TemplateLiteral::parse expected '}}' at index {} but found {:?}",
+                                parser.index(),
+                                parser.tokens()[parser.index()]
+                            ),
+                        );
                         panic!("expected '}}' after template expression");
                     }
                     parser.bump();
                     parts.push(expr::TemplatePart::Expr(expr));
                 }
                 _ => {
+                    logln(
+                        LogLevel::Fatal,
+                        &format!(
+                            "TemplateLiteral::parse unexpected token at index {}: {:?}",
+                            parser.index(),
+                            parser.tokens()[parser.index()]
+                        ),
+                    );
                     panic!(
                         "unexpected template token: {:?}",
                         parser.tokens()[parser.index()]

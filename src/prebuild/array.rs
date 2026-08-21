@@ -286,7 +286,7 @@ new_class! {
     };
     |proto, _| {
         let JsValue::BigInt(i) = inline_borrow!(Prototype::find(proto.clone(), &"i".into()).1) else {
-            panic!("?")
+            panic!("Array.iterator next index is not BigInt")
         };
         let this = proto
             .borrow()
@@ -294,7 +294,7 @@ new_class! {
             .borrow()
             .unwrap_proto("Array.iterator this not found");
         let JsValue::BigInt(arr_len) = inline_borrow!(Prototype::find(this.clone(), &"length".into()).1) else {
-            panic!("?")
+            panic!("Array.iterator next length is not BigInt")
         };
         if i >= arr_len {
             CodeResult::YieldBreak
@@ -309,7 +309,7 @@ new_class! {
     };
     |proto, ind| {
         let JsValue::BigInt(i) = inline_borrow!(Prototype::find(proto.clone(), &"i".into()).1) else {
-            panic!("?")
+            panic!("Array.iterator return index is not BigInt")
         };
         let this = proto
             .borrow()
@@ -317,7 +317,7 @@ new_class! {
             .borrow()
             .unwrap_proto("Array.iterator this not found");
         let JsValue::BigInt(arr_len) = inline_borrow!(Prototype::find(this.clone(), &"length".into()).1) else {
-            panic!("?")
+            panic!("Array.iterator return length is not BigInt")
         };
         if i < arr_len {
             ind.move_iamount(-1);

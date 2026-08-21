@@ -13,7 +13,7 @@ impl Expr for ConstBigInt {
         vec![Box::new(move |_, _| {
             logln(
                 LogLevel::Trace,
-                &format!("Entering Expr::ConstBigInt num={:?}", num),
+                &format!("Expr::ConstBigInt num={:?}", num),
             );
             CodeResult::Normal(Rc::new(RefCell::new(JsValue::BigInt(num))))
         })]
@@ -34,7 +34,7 @@ impl Expr for ConstNumber {
         vec![Box::new(move |_, _| {
             logln(
                 LogLevel::Trace,
-                &format!("Entering Expr::ConstNumber num={:?}", num),
+                &format!("Expr::ConstNumber num={:?}", num),
             );
             CodeResult::Normal(Rc::new(RefCell::new(JsValue::Number(num))))
         })]
@@ -55,7 +55,7 @@ impl Expr for ConstString {
         vec![Box::new(move |_, _| {
             logln(
                 LogLevel::Trace,
-                &format!("Entering Expr::ConstString s={:?}", s),
+                &format!("Expr::ConstString s={:?}", s),
             );
             CodeResult::Normal(Rc::new(RefCell::new(JsValue::String(s.clone()))))
         })]
@@ -76,7 +76,7 @@ impl Expr for ConstBoolean {
         vec![Box::new(move |_, _| {
             logln(
                 LogLevel::Trace,
-                &format!("Entering Expr::ConstBoolean b={:?}", b),
+                &format!("Expr::ConstBoolean b={:?}", b),
             );
             CodeResult::Normal(Rc::new(RefCell::new(JsValue::Boolean(b))))
         })]
@@ -97,7 +97,7 @@ impl Expr for ConstObj {
         vec![Box::new(move |_, _| {
             logln(
                 LogLevel::Trace,
-                &format!("Entering Expr::ConstObj obj={:?}", obj),
+                &format!("Expr::ConstObj obj={:?}", obj),
             );
             CodeResult::Normal(Rc::new(RefCell::new(obj.clone())))
         })]

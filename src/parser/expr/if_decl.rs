@@ -17,13 +17,29 @@ pub struct IfExpr {
 
 impl IfExpr {
     pub fn parse(parser: &mut Parser) -> Self {
-        logln(LogLevel::Info, "parse_IfDecl");
+        logln(LogLevel::Info, "Entering IfExpr::parse");
         if !matches!(parser.tokens()[parser.index()], Token::LParen) {
+            logln(
+                LogLevel::Fatal,
+                &format!(
+                    "IfExpr::parse expected '(' at index {} but found {:?}",
+                    parser.index(),
+                    parser.tokens()[parser.index()]
+                ),
+            );
             panic!("expected '(' after 'if'");
         }
         parser.bump();
         let condition = Box::new(parser.parse_expression());
         if !matches!(parser.tokens()[parser.index()], Token::RParen) {
+            logln(
+                LogLevel::Fatal,
+                &format!(
+                    "IfExpr::parse expected ')' at index {} but found {:?}",
+                    parser.index(),
+                    parser.tokens()[parser.index()]
+                ),
+            );
             panic!("expected ')' after if condition, {condition:?}");
         }
         parser.bump();
@@ -36,11 +52,27 @@ impl IfExpr {
             let condition: Box<dyn Expr> = if let Token::If = parser.tokens()[parser.index()] {
                 parser.bump();
                 if !matches!(parser.tokens()[parser.index()], Token::LParen) {
+                    logln(
+                        LogLevel::Fatal,
+                        &format!(
+                            "IfExpr::parse expected else-if '(' at index {} but found {:?}",
+                            parser.index(),
+                            parser.tokens()[parser.index()]
+                        ),
+                    );
                     panic!("expected '(' after 'if'");
                 }
                 parser.bump();
                 let condition = parser.parse_expression();
                 if !matches!(parser.tokens()[parser.index()], Token::RParen) {
+                    logln(
+                        LogLevel::Fatal,
+                        &format!(
+                            "IfExpr::parse expected else-if ')' at index {} but found {:?}",
+                            parser.index(),
+                            parser.tokens()[parser.index()]
+                        ),
+                    );
                     panic!("expected ')' after if condition");
                 }
                 parser.bump();
@@ -60,7 +92,7 @@ impl Expr for IfExpr {
     fn compile(&self, mem: Rc<RefCell<Prototype>>) -> Vec<Code> {
         logln(
             LogLevel::Info,
-            &format!("IfExpr::compile blocks={}", self.blocks.len()),
+            &format!("Entering IfExpr::compile blocks={}", self.blocks.len()),
         );
         let blocks: Vec<(Vec<Code>, Vec<Code>)> = self
             .blocks
@@ -80,8 +112,11 @@ impl Expr for IfExpr {
                     Box::new(move |proto, i| {
                         let cond = handle_return!(run_sub(&k, proto, &mut CodeIndex::new()));
                         if cond.borrow().is_fasly() {
+                            logln(LogLevel::Trace, "IfExpr condition false; skipping branch");
                             i.move_amount(true, len + 1);
                             i.reset_retry();
+                        } else {
+                            logln(LogLevel::Trace, "IfExpr condition true; executing branch");
                         }
                         CodeResult::Normal(Rc::new(RefCell::new(JsValue::Undefined)))
                     }),

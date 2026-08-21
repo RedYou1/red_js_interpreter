@@ -24,7 +24,16 @@ impl Iterator for IterGenerator {
         while self.index.current() < self.code.len() {
             let res = self.code[self.index.current()](self.proto.clone(), &mut self.index);
             match res {
-                CodeResult::Return(_) => panic!("return in generator?"),
+                CodeResult::Return(_) => {
+                    crate::logln(
+                        LogLevel::Fatal,
+                        &format!(
+                            "a return in a generator at code index {}",
+                            self.index.current()
+                        ),
+                    );
+                    panic!("return in generator?")
+                }
                 CodeResult::Yield(res) => {
                     self.index.set_retry();
                     return Some(CodeResult::Normal(res));
@@ -74,10 +83,14 @@ pub fn run_generator_object(
     let JsValue::Generator(ref runnable) =
         inline_borrow!(inline_borrow!(func.clone()).properties[&RUNNABLE.into()].clone())
     else {
+        crate::logln(
+            LogLevel::Fatal,
+            &format!("run_generator_object received a non-generator object: {func:?}"),
+        );
         panic!("func not runnable")
     };
     crate::logln(
-        LogLevel::Info,
+        LogLevel::Trace,
         &format!(
             "run_generator_object: {}({:?})",
             func.clone().borrow().name.unwrap_or("anonymous"),
@@ -98,6 +111,10 @@ pub fn run_generator_object(
     let JsValue::Prototype(array) =
         inline_borrow!(Prototype::find(mem.clone(), &stringify!(Array).into()).1)
     else {
+        crate::logln(
+            LogLevel::Fatal,
+            "run_generator_object could not locate the Array prototype",
+        );
         panic!("Array not found")
     };
     if let Some(excess) = &runnable.excess {

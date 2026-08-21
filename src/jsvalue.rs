@@ -104,6 +104,10 @@ impl JsValue {
 
     pub fn unwrap_proto(&self, message: &str) -> Rc<RefCell<Prototype>> {
         let JsValue::Prototype(p) = self else {
+            crate::logln(
+                crate::LogLevel::Fatal,
+                &format!("JsValue::unwrap_proto failed: {message} value={self:?}"),
+            );
             panic!("panick in unwrap_proto: {message} with value of {self:?}")
         };
         p.clone()
