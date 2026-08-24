@@ -79,7 +79,82 @@ pub enum Token {
     Eof,
 }
 
-use crate::parser::expr::BinaryOp;
+impl Token {
+    pub fn from_keyword(value: String) -> Self {
+        match value.as_str() {
+            "function" => Token::Function,
+            "class" => Token::Class,
+            "return" => Token::Return,
+            "let" => Token::Let,
+            "const" => Token::Const,
+            "var" => Token::Var,
+            "new" => Token::New,
+            "true" => Token::True,
+            "false" => Token::False,
+            "undefined" => Token::Undefined,
+            "null" => Token::Null,
+            "while" => Token::While,
+            "for" => Token::For,
+            "do" => Token::Do,
+            "break" => Token::Break,
+            "continue" => Token::Continue,
+            "yield" => Token::Yield,
+            "if" => Token::If,
+            "else" => Token::Else,
+            "switch" => Token::Switch,
+            "case" => Token::Case,
+            "default" => Token::Default,
+            "of" => Token::Of,
+            "typeof" => Token::Typeof,
+            "void" => Token::Void,
+            "instanceof" => Token::InstanceOf,
+            "try" => Token::Try,
+            "catch" => Token::Catch,
+            "finally" => Token::Finally,
+            "throw" => Token::Throw,
+            _ => Token::Ident(value),
+        }
+    }
+
+    pub fn as_keyword(&self) -> &str {
+        match self {
+            Token::Function => "function",
+            Token::Class => "class",
+            Token::Return => "return",
+            Token::Let => "let",
+            Token::Const => "const",
+            Token::Var => "var",
+            Token::New => "new",
+            Token::True => "true",
+            Token::False => "false",
+            Token::Undefined => "undefined",
+            Token::Null => "null",
+            Token::While => "while",
+            Token::For => "for",
+            Token::Do => "do",
+            Token::Break => "break",
+            Token::Continue => "continue",
+            Token::Yield => "yield",
+            Token::If => "if",
+            Token::Else => "else",
+            Token::Switch => "switch",
+            Token::Case => "case",
+            Token::Default => "default",
+            Token::Of => "of",
+            Token::Typeof => "typeof",
+            Token::Void => "void",
+            Token::InstanceOf => "instanceof",
+            Token::Try => "try",
+            Token::Catch => "catch",
+            Token::Finally => "finally",
+            Token::Throw => "throw",
+            Token::Ident(value) => value.as_str(),
+            e => panic!("into_keyword not supported {e:?}"),
+        }
+    }
+}
+
+use crate::{LogLevel::Trace, logln, parser::expr::BinaryOp};
 
 pub struct Lexer<'a> {
     chars: std::str::Chars<'a>,
@@ -342,10 +417,6 @@ impl<'a> Lexer<'a> {
                     self.bump();
                     return Token::Semicolon;
                 }
-                '.' => {
-                    self.bump();
-                    return Token::Dot;
-                }
                 ':' => {
                     self.bump();
                     return Token::Colon;
@@ -406,6 +477,9 @@ impl<'a> Lexer<'a> {
                         return Token::GtEq;
                     } else if self.peek() == Some('>') {
                         self.bump();
+                        if self.peek() == Some('>') {
+                            self.bump();
+                        }
                         if self.peek() == Some('=') {
                             self.bump();
                             return Token::Assign(Some(BinaryOp::ShiftR));
@@ -480,54 +554,52 @@ impl<'a> Lexer<'a> {
                     }
                     return Token::Str(s);
                 }
-                c if c.is_ascii_digit() => {
-                    let s = self.eat_while(|ch| ch.is_ascii_digit() || ch == '.');
+                c if is_ident_start(c) => {
+                    return Token::from_keyword(self.eat_while(is_ident_continue));
+                }
+                _ if let mut s = self.eat_while(|ch| ch.is_ascii_digit() || ch == '.')
+                    && !s.is_empty() =>
+                {
+                    if s == "." {
+                        return Token::Dot;
+                    }
+                    if s.starts_with(".") {
+                        s.insert(0, '0');
+                    }
+                    let pow = if matches!(self.peek(), Some('e' | 'E')) {
+                        self.bump();
+                        let neg = matches!(self.peek(), Some('-'));
+                        if matches!(self.peek(), Some('+') | Some('-')) {
+                            self.bump();
+                        }
+                        let s = self
+                            .eat_while(|ch| ch.is_ascii_digit())
+                            .parse::<u32>()
+                            .unwrap();
+                        10.0_f64.powf(s as f64 * if neg { -1.0 } else { 1.0 })
+                    } else {
+                        1.0_f64
+                    };
                     if let Some('n') = self.peek() {
                         self.bump();
                     }
                     if let Ok(n) = s.parse::<i64>() {
-                        return Token::BigInt(n);
+                        let n = n as f64 * pow;
+                        if ((n as i64) as f64) == n {
+                            return Token::BigInt(n as i64);
+                        } else {
+                            return Token::Number(n);
+                        }
                     } else if let Ok(n) = s.parse::<f64>() {
-                        return Token::Number(n);
+                        let n = n * pow;
+                        if ((n as i64) as f64) == n {
+                            return Token::BigInt(n as i64);
+                        } else {
+                            return Token::Number(n);
+                        }
                     } else {
-                        continue;
+                        panic!("number not tokenized: {s:?}");
                     }
-                }
-                c if is_ident_start(c) => {
-                    let s = self.eat_while(is_ident_continue);
-                    return match s.as_str() {
-                        "function" => Token::Function,
-                        "class" => Token::Class,
-                        "return" => Token::Return,
-                        "let" => Token::Let,
-                        "const" => Token::Const,
-                        "var" => Token::Var,
-                        "new" => Token::New,
-                        "true" => Token::True,
-                        "false" => Token::False,
-                        "undefined" => Token::Undefined,
-                        "null" => Token::Null,
-                        "while" => Token::While,
-                        "for" => Token::For,
-                        "do" => Token::Do,
-                        "break" => Token::Break,
-                        "continue" => Token::Continue,
-                        "yield" => Token::Yield,
-                        "if" => Token::If,
-                        "else" => Token::Else,
-                        "switch" => Token::Switch,
-                        "case" => Token::Case,
-                        "default" => Token::Default,
-                        "of" => Token::Of,
-                        "typeof" => Token::Typeof,
-                        "void" => Token::Void,
-                        "instanceof" => Token::InstanceOf,
-                        "try" => Token::Try,
-                        "catch" => Token::Catch,
-                        "finally" => Token::Finally,
-                        "throw" => Token::Throw,
-                        _ => Token::Ident(s),
-                    };
                 }
                 _ => {
                     self.bump();
@@ -543,4 +615,25 @@ const fn is_ident_start(c: char) -> bool {
 }
 const fn is_ident_continue(c: char) -> bool {
     c.is_ascii_alphanumeric() || c == '_'
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{Lexer, Token};
+
+    #[test]
+    fn lexes_decimal_exponents() {
+        for (source, expected) in [
+            ("1e4", Token::BigInt(10_000)),
+            ("1E4", Token::BigInt(10_000)),
+            ("1e-4", Token::Number(0.0001)),
+            ("1E+4", Token::BigInt(10_000)),
+            ("1.5e2", Token::BigInt(150)),
+            ("4n", Token::BigInt(4)),
+        ] {
+            let mut lexer = Lexer::new(source);
+            assert_eq!(lexer.next_token(&[]), expected);
+            assert_eq!(lexer.next_token(&[expected]), Token::Eof);
+        }
+    }
 }

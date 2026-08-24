@@ -46,6 +46,10 @@ impl Operator {
 
     fn parse_binary(parser: &mut Parser, min_bp: u8) -> Box<dyn Expr> {
         let mut lhs = match parser.tokens()[parser.index()] {
+            Token::Plus => {
+                parser.bump();
+                Self::parse_binary(parser, 26)
+            }
             Token::Minus => {
                 parser.bump();
                 Box::new(expr::Operator {
@@ -90,6 +94,25 @@ impl Operator {
                 Token::Gt => expr::BinaryOp::Gt,
                 Token::LtEq => expr::BinaryOp::LtEq,
                 Token::GtEq => expr::BinaryOp::GtEq,
+                Token::InstanceOf => {
+                    parser.bump();
+                    let class = Self::parse_binary(parser, 19);
+                    lhs = Box::new(expr::Call {
+                        args: vec![lhs],
+                        func: Box::new(expr::Member {
+                            object: class,
+                            property: Box::new(expr::Member {
+                                object: Box::new(expr::Identifier {
+                                    name: stringify!(Symbol).to_owned(),
+                                }),
+                                property: Box::new(expr::ConstString {
+                                    s: "hasInstance".to_owned(),
+                                }),
+                            }),
+                        }),
+                    });
+                    continue;
+                }
                 Token::And if let Token::And = parser.tokens()[parser.index() + 1] => {
                     parser.bump();
                     expr::BinaryOp::LogAnd
@@ -132,7 +155,9 @@ impl Operator {
             (Token::XOr, _) => Some((12, 13)),
             (Token::And, _) => Some((14, 15)),
             (Token::Eq | Token::NotEq, _) => Some((16, 17)),
-            (Token::Lt | Token::Gt | Token::LtEq | Token::GtEq, _) => Some((18, 19)),
+            (Token::InstanceOf | Token::Lt | Token::Gt | Token::LtEq | Token::GtEq, _) => {
+                Some((18, 19))
+            }
             (Token::ShiftL | Token::ShiftR, _) => Some((20, 21)),
             (Token::Plus | Token::Minus, _) => Some((22, 23)),
             (Token::Star | Token::Slash | Token::Mod, _) => Some((24, 25)),

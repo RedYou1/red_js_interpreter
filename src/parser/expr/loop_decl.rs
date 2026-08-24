@@ -59,11 +59,13 @@ impl LoopExpr {
                     if let Token::Assign(t) = &parser.tokens()[parser.index()] {
                         assert_eq!(*t, Option::<BinaryOp>::None);
                         parser.bump();
-                        Some(Box::new(parser.parse_expression()))
+                        Some(Box::new(parser.set_can_multi(true, |parser| parser.parse_expression())))
                     } else if let Token::Of = parser.tokens()[parser.index()] {
                         parser.bump();
                         of = true;
-                        Some(Box::new(parser.parse_expression()))
+                        Some(Box::new(
+                            parser.set_can_multi(true, |parser| parser.parse_expression()),
+                        ))
                     } else {
                         None
                     };
@@ -120,7 +122,9 @@ impl LoopExpr {
                     (Some(Box::new(expr::VarDecl { name, initializer })), None)
                 }
             } else {
-                let expr = Box::new(parser.parse_expression());
+                let expr = Box::new(
+                    parser.set_can_multi(true, |parser| parser.parse_expression()),
+                );
                 if let Token::Semicolon = parser.tokens()[parser.index()] {
                     parser.bump();
                 }
@@ -134,7 +138,7 @@ impl LoopExpr {
             Some(if let Token::Semicolon = parser.tokens()[parser.index()] {
                 Box::new(expr::ConstBoolean { b: true })
             } else {
-                Box::new(parser.parse_expression())
+                Box::new(parser.set_can_multi(true, |parser| parser.parse_expression()))
             })
         };
         if let Token::Semicolon = parser.tokens()[parser.index()] {
@@ -146,7 +150,9 @@ impl LoopExpr {
             if of || matches!(parser.tokens()[parser.index()], Token::RParen) {
                 None
             } else {
-                Some(Box::new(parser.parse_expression()))
+                Some(Box::new(
+                    parser.set_can_multi(true, |parser| parser.parse_expression()),
+                ))
             };
 
         if !matches!(parser.tokens()[parser.index()], Token::RParen) {

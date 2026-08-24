@@ -132,7 +132,13 @@ impl Parser {
 
     pub fn parse_block(&mut self) -> Vec<Box<dyn Expr>> {
         if self.tokens[self.index] != Token::LBrace {
-            return self.parse_expression();
+            let res = self.set_can_multi(true, |parser| parser.parse_expression());
+
+            if let Token::Semicolon = self.tokens[self.index] {
+                self.bump();
+            }
+
+            return res;
         }
         assert_eq!(self.tokens[self.index], Token::LBrace);
         self.bump();
@@ -141,6 +147,10 @@ impl Parser {
             let before = self.index;
             let mut exprs = self.parse_expression();
             if exprs.is_empty() && self.index == before {
+                if self.tokens[self.index] == Token::Comma {
+                    self.bump();
+                    continue;
+                }
                 logln(
                     LogLevel::Error,
                     &format!(
@@ -314,7 +324,6 @@ impl Parser {
                     if self.can_multi {
                         self.bump();
                     } else {
-                        assert!(!res.is_empty());
                         break;
                     }
                 }
@@ -365,24 +374,6 @@ impl Parser {
                 _ => {
                     let expr = expr::Operator::parse(self);
                     match &self.tokens[self.index] {
-                        Token::InstanceOf => {
-                            self.bump();
-                            let class = self.parse_primary();
-                            res.push(Box::new(expr::Call {
-                                args: vec![expr],
-                                func: Box::new(expr::Member {
-                                    object: class,
-                                    property: Box::new(expr::Member {
-                                        object: Box::new(expr::Identifier {
-                                            name: stringify!(Symbol).to_owned(),
-                                        }),
-                                        property: Box::new(expr::ConstString {
-                                            s: "hasInstance".to_owned(),
-                                        }),
-                                    }),
-                                }),
-                            }))
-                        }
                         Token::Assign(t) => {
                             let t = t.clone();
                             self.bump();
@@ -561,14 +552,9 @@ impl Parser {
                 })
             }
             e => {
-                logln(
-                    LogLevel::Error,
-                    &format!(
-                        "Parser::parse_primary unexpected token at index {}: {:?}",
-                        self.index, e
-                    ),
-                );
-                panic!("unexpected token in parse_primary: {:?}", e);
+                let name = e.as_keyword().to_owned();
+                self.bump();
+                Box::new(expr::Identifier { name })
             }
         }
     }
@@ -589,30 +575,17 @@ impl Parser {
                 }
                 Token::Dot => {
                     self.bump();
-                    if let Token::Ident(name) = &self.tokens[self.index] {
-                        let prop = name.clone();
-                        self.bump();
-                        expr = Box::new(expr::Member {
-                            object: expr,
-                            property: Box::new(expr::ConstString { s: prop }),
-                        });
-                    } else {
-                        logln(
-                            LogLevel::Error,
-                            &format!(
-                                "Parser::parse_call_or_primary expected property name at index {}, but got {:?}",
-                                self.index, self.tokens[self.index]
-                            ),
-                        );
-                        panic!(
-                            "expected property name after '.', got {:?}",
-                            self.tokens[self.index]
-                        );
-                    }
+                    let prop = self.tokens[self.index].as_keyword().to_owned();
+                    self.bump();
+                    expr = Box::new(expr::Member {
+                        object: expr,
+                        property: Box::new(expr::ConstString { s: prop }),
+                    });
                 }
                 Token::LBracket => {
                     self.bump();
-                    let index = Box::new(self.parse_expression());
+                    let index =
+                        Box::new(self.set_can_multi(true, |parser| parser.parse_expression()));
                     if self.tokens[self.index] != Token::RBracket {
                         logln(
                             LogLevel::Fatal,
