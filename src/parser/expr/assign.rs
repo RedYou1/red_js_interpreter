@@ -92,7 +92,7 @@ impl VarDecl {
             if let Token::Assign(t) = &parser.tokens()[parser.index()] {
                 assert_eq!(*t, Option::<BinaryOp>::None);
                 parser.bump();
-                Some(parser.set_can_multi(false, |parser| Box::new(parser.parse_expression())))
+                Some(Box::new(parser.parse_expression(false)))
             } else {
                 None
             };

@@ -44,7 +44,7 @@ impl SwitchExpr {
             panic!("expected '(' after switch");
         }
         parser.bump();
-        let value = parser.set_can_multi(true, |parser| Box::new(parser.parse_expression()));
+        let value = Box::new(parser.parse_expression(true));
         if parser.tokens()[parser.index()] != Token::RParen {
             logln(
                 LogLevel::Fatal,
@@ -78,7 +78,8 @@ impl SwitchExpr {
             match parser.tokens()[parser.index()] {
                 Token::Case => {
                     parser.bump();
-                    let cond = parser.set_can_multi(false, |parser| expr::Operator::parse(parser));
+                    //false
+                    let cond = expr::Operator::parse(parser);
                     if parser.tokens()[parser.index()] != Token::Colon {
                         panic!("expected ':' after case condition");
                     }
@@ -102,7 +103,7 @@ impl SwitchExpr {
                     }
 
                     let before = parser.index();
-                    let mut exprs = parser.parse_expression();
+                    let mut exprs = parser.parse_expression(true);
                     if exprs.is_empty() && parser.index() == before {
                         parser.bump();
                         continue;

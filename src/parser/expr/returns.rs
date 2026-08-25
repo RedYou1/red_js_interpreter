@@ -41,7 +41,7 @@ impl Return {
             None
         };
         logln(LogLevel::Info, "Entering Return::parse");
-        let expr = Box::new(parser.set_can_multi(false, |parser| parser.parse_expression()));
+        let expr = Box::new(parser.parse_expression(false));
         if let Token::Semicolon = parser.tokens()[parser.index()] {
             parser.bump();
         }

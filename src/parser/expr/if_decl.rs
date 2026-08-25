@@ -30,7 +30,7 @@ impl IfExpr {
             panic!("expected '(' after 'if'");
         }
         parser.bump();
-        let condition = Box::new(parser.parse_expression());
+        let condition = Box::new(parser.parse_expression(true));
         if !matches!(parser.tokens()[parser.index()], Token::RParen) {
             logln(
                 LogLevel::Fatal,
@@ -63,7 +63,7 @@ impl IfExpr {
                     panic!("expected '(' after 'if'");
                 }
                 parser.bump();
-                let condition = parser.parse_expression();
+                let condition = parser.parse_expression(true);
                 if !matches!(parser.tokens()[parser.index()], Token::RParen) {
                     logln(
                         LogLevel::Fatal,

@@ -371,40 +371,35 @@ pub struct ConditionalOp {
 
 impl ConditionalOp {
     pub fn parse(parser: &mut Parser, cond: Box<dyn Expr>) -> ConditionalOp {
-        let (t, f) = parser.set_can_multi(false, |parser| {
-            parser.bump();
-            let mut t = parser.parse_expression();
-            let t: Box<dyn Expr> = if t.len() == 1 {
-                t.pop().expect("len == 1")
-            } else if t.is_empty() {
-                Box::new(expr::ConstObj {
-                    obj: JsValue::Undefined,
-                })
-            } else {
-                Box::new(t)
-            };
+        parser.bump();
+        let mut t = parser.parse_expression(false);
+        let t: Box<dyn Expr> = if t.len() == 1 {
+            t.pop().expect("len == 1")
+        } else if t.is_empty() {
+            Box::new(expr::ConstObj {
+                obj: JsValue::Undefined,
+            })
+        } else {
+            Box::new(t)
+        };
 
-            if parser.tokens()[parser.index()] != Token::Colon {
-                return (
-                    t,
-                    Box::new(expr::ConstObj {
-                        obj: JsValue::Undefined,
-                    }) as Box<dyn Expr>,
-                );
-            }
+        let f = if parser.tokens()[parser.index()] != Token::Colon {
+            Box::new(expr::ConstObj {
+                obj: JsValue::Undefined,
+            }) as Box<dyn Expr>
+        } else {
             parser.bump();
-            let mut f = parser.parse_expression();
-            let f: Box<dyn Expr> = if f.len() == 1 {
+            let mut f = parser.parse_expression(false);
+            if f.len() == 1 {
                 f.pop().expect("len == 1")
             } else if f.is_empty() {
                 Box::new(expr::ConstObj {
                     obj: JsValue::Undefined,
                 })
             } else {
-                Box::new(f)
-            };
-            (t, f)
-        });
+                Box::new(f) as Box<dyn Expr>
+            }
+        };
         expr::ConditionalOp { cond, t, f }
     }
 }

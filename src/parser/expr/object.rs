@@ -31,13 +31,13 @@ impl Object {
                 parser.bump();
                 key
             } else {
-                parser.set_can_multi(false, |parser| parser.parse_primary())
+                //false
+                parser.parse_primary()
             };
             match parser.tokens()[parser.index()] {
                 Token::Colon => {
                     parser.bump();
-                    let value =
-                        parser.set_can_multi(false, |parser| Box::new(parser.parse_expression()));
+                    let value = Box::new(parser.parse_expression(false));
                     properties.push((key, value));
                 }
                 Token::LParen => {

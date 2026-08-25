@@ -48,7 +48,7 @@ impl New {
             }
             if parser.tokens()[parser.index()] == Token::LBracket {
                 parser.bump();
-                let index = Box::new(parser.parse_expression());
+                let index = Box::new(parser.parse_expression(true));
                 if parser.tokens()[parser.index()] != Token::RBracket {
                     logln(
                         LogLevel::Fatal,
@@ -73,7 +73,7 @@ impl New {
         if parser.tokens()[parser.index()] == Token::LParen {
             parser.bump();
             while !matches!(parser.tokens()[parser.index()], Token::RParen | Token::Eof) {
-                args.append(&mut parser.parse_expression());
+                args.append(&mut parser.parse_expression(true));
                 if parser.tokens()[parser.index()] == Token::Comma {
                     parser.bump();
                 }

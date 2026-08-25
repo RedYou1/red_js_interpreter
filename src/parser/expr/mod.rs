@@ -133,7 +133,7 @@ impl Typeof {
         } else {
             false
         };
-        let expr = Box::new(parser.parse_expression());
+        let expr = Box::new(parser.parse_expression(true));
         if t {
             if let Token::RParen = parser.tokens()[parser.index()] {
                 parser.bump();
