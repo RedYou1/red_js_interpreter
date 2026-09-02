@@ -6,6 +6,9 @@ shallow Test262 copy, builds the release runner, and passes only the explicitly
 unsupported `BigInt` and `Symbol` features as skips. Runner output and the
 machine-readable triage summary are retained as artifacts.
 
+The runner is built with the nightly Rust toolchain because the interpreter's
+dependency uses an unstable language feature.
+
 The coordinator is `scripts/test262_triage.py`. It parses only `FAIL` records,
 groups them by directory, feature metadata, and failure category, and compares
 the current sweep with cached state. Actionable groups are created or updated

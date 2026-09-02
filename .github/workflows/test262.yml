@@ -30,10 +30,13 @@ jobs:
           path: test262
           fetch-depth: 1
 
+      - name: Install nightly Rust
+        run: rustup toolchain install nightly --profile minimal
+
       - name: Build runner
         id: build
         continue-on-error: true
-        run: cargo build --release --manifest-path test262_runner/Cargo.toml
+        run: cargo +nightly build --release --manifest-path test262_runner/Cargo.toml
 
       - name: Run supported Test262 tests
         id: test262
@@ -41,7 +44,7 @@ jobs:
         run: |
           mkdir -p artifacts
           set +e
-          cargo run --release --manifest-path test262_runner/Cargo.toml -- \
+          cargo +nightly run --release --manifest-path test262_runner/Cargo.toml -- \
             --test262-dir test262 \
             --skip-feature BigInt \
             --skip-feature Symbol \
