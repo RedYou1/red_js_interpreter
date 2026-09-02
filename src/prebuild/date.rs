@@ -135,6 +135,16 @@ pub fn prebuild_date(mem: Rc<RefCell<Prototype>>) {
             "__constructable__".into(),
             Rc::new(RefCell::new(JsValue::Boolean(false))),
         );
+    let set_year = Prototype::find(date.clone(), &"setYear".into()).1;
+    set_year
+        .borrow()
+        .unwrap_proto("prebuild_date setYear")
+        .borrow_mut()
+        .properties
+        .insert(
+            "__constructable__".into(),
+            Rc::new(RefCell::new(JsValue::Boolean(false))),
+        );
     date_prototype
         .borrow_mut()
         .properties

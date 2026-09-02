@@ -2,7 +2,7 @@ use std::{cell::RefCell, rc::Rc};
 
 use crate::{
     Code, CodeIndex, CodeResult, JsValue, LogLevel, PROTOTYPE_NAME, Prototype, RUNNABLE,
-    handle_error, handle_return, inline_borrow, logln,
+    handle_error, handle_return, inline_borrow, is_constructor, logln, type_error,
     parser::{
         expr::{self, Expr},
         lexer::Token,
@@ -96,10 +96,14 @@ impl Expr for New {
             .collect();
         vec![Box::new(move |proto, _| {
             logln(LogLevel::Trace, "Entering Expr::New");
-            let mut class =
-                handle_return!(run_sub(&constructor, proto.clone(), &mut CodeIndex::new()))
-                    .borrow()
-                    .unwrap_proto("expr::New for constructor");
+            let constructor =
+                handle_return!(run_sub(&constructor, proto.clone(), &mut CodeIndex::new()));
+            if !is_constructor(&constructor) {
+                return type_error(proto);
+            }
+            let mut class = constructor
+                .borrow()
+                .unwrap_proto("expr::New for constructor");
             let constructor = if Prototype::opt_find(class.clone(), &RUNNABLE.into()).is_some() {
                 class = inline_borrow!(Prototype::find(class.clone(), &PROTOTYPE_NAME.into()).1)
                     .unwrap_proto("expr::New get prototype");

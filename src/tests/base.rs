@@ -186,6 +186,20 @@ assert_result!(
     "1901"
 );
 
+assert_result!(
+    test_date_set_year_is_not_a_constructor,
+    r#"
+    var constructable = true;
+    try { Reflect.construct(function(){}, [], Date.prototype.setYear); } catch (_) { constructable = false; }
+    var threw = false;
+    try { var date = new Date(Date.now()); new date.setYear(); } catch (error) { threw = error.constructor === TypeError; }
+    console.log(constructable);
+    console.log(threw);
+    "#,
+    "false",
+    "true"
+);
+
 fn append_console_log(logs_ptr: &mut i64, value: String) {
     let logs = unsafe { ((*logs_ptr) as *mut Vec<String>).as_mut_unchecked() };
     logs.push(value);
