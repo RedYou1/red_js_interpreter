@@ -1,6 +1,7 @@
 # Continuous Test262 triage
 
-`.github/workflows/test262.yml` runs the supported Test262 language suite every
+`.github/workflows/test262.yml` runs the supported Test262 built-ins, language,
+and Annex B suites every
 Monday and can also be started with **Run workflow**. The workflow checks out a
 shallow Test262 copy, builds the release runner, and passes only the explicitly
 unsupported `BigInt` and `Symbol` features as skips. Runner output and the
