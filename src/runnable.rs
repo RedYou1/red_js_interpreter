@@ -18,9 +18,19 @@ pub fn new_runnable_with_object(
     name: &'static str,
     runnable: Runnable,
 ) -> Rc<RefCell<JsValue>> {
+    let function_name = name.rsplit('.').next().unwrap_or(name);
     let function_obj = Rc::new(RefCell::new(Prototype {
         name: Some(name),
-        properties: std::collections::HashMap::new(),
+        properties: std::collections::HashMap::from([
+            (
+                "name".into(),
+                Rc::new(RefCell::new(JsValue::String(function_name.to_owned()))),
+            ),
+            (
+                "length".into(),
+                Rc::new(RefCell::new(JsValue::BigInt(runnable.params.len() as i64))),
+            ),
+        ]),
         formating: false,
     }));
     let prototype_obj = Prototype::new_child(

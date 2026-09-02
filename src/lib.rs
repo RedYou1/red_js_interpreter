@@ -45,6 +45,7 @@ mod tests;
 use crate::prebuild::{
     array::prebuild_array,
     console::prebuild_console,
+    date::prebuild_date,
     error::{prebuild_error, prebuild_type_error},
     iterator::{prebuild_iterator, prebuild_itergen},
     math::prebuild_math,
@@ -187,6 +188,7 @@ pub fn prebuild_prototypes(
     prebuild_symbol(prototypes.clone());
     prebuild_iterator(prototypes.clone());
     prebuild_array(prototypes.clone());
+    prebuild_date(prototypes.clone());
     prebuild_string(prototypes.clone());
     prebuild_number(prototypes.clone());
     prebuild_math(prototypes.clone());
