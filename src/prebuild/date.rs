@@ -81,7 +81,7 @@ new_class! {
             Ok(year) => year,
             Err(error) => return error,
         };
-        let value = if year.is_nan() {
+        let value = if !year.is_finite() {
             f64::NAN
         } else {
             let time = if current.is_nan() { 0.0 } else { current };
@@ -113,7 +113,14 @@ pub fn prebuild_date(mem: Rc<RefCell<Prototype>>) {
         .1
         .borrow()
         .unwrap_proto("prebuild_date for Object");
-    let date_prototype = Prototype::new_child(object, None, []);
+    let date_prototype = Prototype::new_child(
+        object,
+        None,
+        [(
+            DATE_VALUE.into(),
+            Rc::new(RefCell::new(JsValue::Number(f64::NAN))),
+        )],
+    );
     let get_year = Prototype::find(date.clone(), &"getYear".into()).1;
     date_prototype
         .borrow_mut()
@@ -203,7 +210,11 @@ fn date_object(this: Rc<RefCell<JsValue>>) -> Option<Rc<RefCell<Prototype>>> {
     let JsValue::Prototype(object) = inline_borrow!(this) else {
         return None;
     };
-    if Prototype::opt_find(object.clone(), &DATE_VALUE.into()).is_some() {
+    if object
+        .borrow()
+        .properties
+        .contains_key(&DATE_VALUE.into())
+    {
         Some(object)
     } else {
         None
@@ -215,8 +226,13 @@ fn date_value_of(this: Rc<RefCell<JsValue>>) -> Option<f64> {
 }
 
 fn date_value_from_object(object: Rc<RefCell<Prototype>>) -> f64 {
-    match Prototype::find(object, &DATE_VALUE.into()).1.borrow().clone() {
-        JsValue::Number(value) => value,
+    match object
+        .borrow()
+        .properties
+        .get(&DATE_VALUE.into())
+        .map(|value| inline_borrow!(value.clone()))
+    {
+        Some(JsValue::Number(value)) => value,
         _ => f64::NAN,
     }
 }

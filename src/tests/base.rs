@@ -129,6 +129,8 @@ assert_result!(
     date = new Date(0);
     console.log(date.setYear());
     console.log(date.valueOf());
+    console.log(date.setYear(Infinity));
+    console.log(Date.prototype.setYear(1));
     "#,
     "34311845000",
     "71",
@@ -139,7 +141,9 @@ assert_result!(
     "31536000000",
     "1971",
     "NaN",
-    "NaN"
+    "NaN",
+    "NaN",
+    "-2177452800000"
 );
 
 assert_result!(
