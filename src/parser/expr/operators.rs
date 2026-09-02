@@ -72,6 +72,12 @@ impl Operator {
                     inc: false,
                 }) as Box<dyn Expr>
             }
+            Token::Not => {
+                parser.bump();
+                Box::new(expr::Not {
+                    expr: Self::parse_binary(parser, 26),
+                }) as Box<dyn Expr>
+            }
             _ => parser.parse_call_or_primary(min_bp == 0),
         };
         // advance tokens for loop
@@ -163,6 +169,29 @@ impl Operator {
             (Token::Star | Token::Slash | Token::Mod, _) => Some((24, 25)),
             _ => None,
         }
+    }
+}
+
+#[derive(Debug)]
+pub struct Not {
+    pub expr: Box<dyn Expr>,
+}
+
+impl Expr for Not {
+    fn compile(&self, mem: Rc<RefCell<Prototype>>) -> Vec<Code> {
+        let expr = self.expr.compile(mem);
+        vec![Box::new(move |proto, _| {
+            let value = handle_return!(run_sub(&expr, proto, &mut CodeIndex::new()));
+            CodeResult::Normal(Rc::new(RefCell::new(JsValue::Boolean(
+                !inline_borrow!(value).is_truthy(),
+            ))))
+        })]
+    }
+
+    fn duplicate(&self) -> Box<dyn Expr> {
+        Box::new(Self {
+            expr: self.expr.duplicate(),
+        })
     }
 }
 
