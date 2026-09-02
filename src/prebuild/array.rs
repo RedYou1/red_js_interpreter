@@ -91,6 +91,18 @@ new_class! {
         let array = Prototype::find(mem, &stringify!(Array).into()).1.borrow().unwrap_proto("Array.of for Array");
         CodeResult::Return(new_array(array, arguments))
     },
+    isArray, fn_direct,
+    |_, _, arguments| {
+        let Some(value) = arguments.first() else {
+            return CodeResult::Return(Rc::new(RefCell::new(JsValue::Boolean(false))));
+        };
+        let JsValue::Prototype(value) = inline_borrow!(value) else {
+            return CodeResult::Return(Rc::new(RefCell::new(JsValue::Boolean(false))));
+        };
+        CodeResult::Return(Rc::new(RefCell::new(JsValue::Boolean(
+            value.borrow().parent().is_some_and(|parent| parent.borrow().name == Some("Array")),
+        ))))
+    },
     at, fn,
     |_, this, [at]| {
         let this = this.borrow().unwrap_proto("Array.at for this");

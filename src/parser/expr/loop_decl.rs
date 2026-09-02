@@ -41,6 +41,7 @@ impl LoopExpr {
 
         // Parse init
         let mut of = false;
+        let mut for_in = false;
         let (init, of_cond): (Option<Box<dyn Expr>>, Option<Box<dyn Expr>>) =
             if !matches!(t, Token::For)
                 || matches!(parser.tokens()[parser.index()], Token::Semicolon)
@@ -56,7 +57,12 @@ impl LoopExpr {
                 }
                 let name = parser.expect_ident();
                 let initializer: Option<Box<dyn Expr>> =
-                    if let Token::Assign(t) = &parser.tokens()[parser.index()] {
+                    if matches!(&parser.tokens()[parser.index()], Token::Ident(name) if name == "in") {
+                        parser.bump();
+                        parser.parse_expression(true);
+                        for_in = true;
+                        None
+                    } else if let Token::Assign(t) = &parser.tokens()[parser.index()] {
                         assert_eq!(*t, Option::<BinaryOp>::None);
                         parser.bump();
                         Some(Box::new(parser.parse_expression(true)))
@@ -128,6 +134,20 @@ impl LoopExpr {
             };
 
         // Parse condition
+        if for_in {
+            if !matches!(parser.tokens()[parser.index()], Token::RParen) {
+                panic!("expected ')' after for-in expression");
+            }
+            parser.bump();
+            return Self {
+                init: Some(Box::new(expr::ConstBoolean { b: false })),
+                condition: Some(Box::new(expr::ConstBoolean { b: false })),
+                update: None,
+                body: parser.parse_block(),
+                do_first: false,
+            };
+        }
+
         let condition: Option<Box<dyn Expr>> = if of {
             of_cond
         } else {

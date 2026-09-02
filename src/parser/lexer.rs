@@ -33,6 +33,7 @@ pub enum Token {
     Of,
     Typeof,
     Void,
+    Delete,
     InstanceOf,
 
     LParen,
@@ -108,6 +109,7 @@ impl Token {
             "of" => Token::Of,
             "typeof" => Token::Typeof,
             "void" => Token::Void,
+            "delete" => Token::Delete,
             "instanceof" => Token::InstanceOf,
             "try" => Token::Try,
             "catch" => Token::Catch,
@@ -144,6 +146,7 @@ impl Token {
             Token::Of => "of",
             Token::Typeof => "typeof",
             Token::Void => "void",
+            Token::Delete => "delete",
             Token::InstanceOf => "instanceof",
             Token::Try => "try",
             Token::Catch => "catch",

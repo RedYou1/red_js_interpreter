@@ -82,8 +82,16 @@ pub fn prebuild_prototypes(
         properties: HashMap::from([(PROTO_NAME.into(), Rc::new(RefCell::new(JsValue::Null)))]),
         formating: false,
     }));
+    object.borrow_mut().properties.insert(
+        PROTOTYPE_NAME.into(),
+        Rc::new(RefCell::new(JsValue::Prototype(object.clone()))),
+    );
 
     let function = Prototype::new_child(object.clone(), Some("Function"), []);
+    function.borrow_mut().properties.insert(
+        PROTOTYPE_NAME.into(),
+        Rc::new(RefCell::new(JsValue::Prototype(function.clone()))),
+    );
 
     let prototypes = Rc::new(RefCell::new(Prototype {
         name: None,
@@ -126,6 +134,134 @@ pub fn prebuild_prototypes(
                     } else {
                         todo!() // return as an object of primitive wrapper
                     }
+                }),
+            ),
+        ),
+    );
+    object.borrow_mut().properties.insert(
+        "getOwnPropertyDescriptor".into(),
+        new_runnable_with_object(
+            function.clone(),
+            object.clone(),
+            "Object.getOwnPropertyDescriptor",
+            prebuild_runnable(
+                prototypes.clone(),
+                Box::new(|mem, _, [target, property]| {
+                    let JsValue::Prototype(target) = inline_borrow!(target) else {
+                        return CodeResult::Return(Rc::new(RefCell::new(JsValue::Undefined)));
+                    };
+                    let property = inline_borrow!(property);
+                    let Some(value) = target.borrow().properties.get(&property).cloned() else {
+                        return CodeResult::Return(Rc::new(RefCell::new(JsValue::Undefined)));
+                    };
+                    let object = Prototype::find(mem, &stringify!(Object).into())
+                        .1
+                        .borrow()
+                        .unwrap_proto("Object.getOwnPropertyDescriptor for Object");
+                    CodeResult::Return(Rc::new(RefCell::new(JsValue::Prototype(
+                        Prototype::new_child(
+                            object,
+                            None,
+                            [
+                                ("value".into(), value),
+                                (
+                                    "writable".into(),
+                                    Rc::new(RefCell::new(JsValue::Boolean(true))),
+                                ),
+                                (
+                                    "enumerable".into(),
+                                    Rc::new(RefCell::new(JsValue::Boolean(false))),
+                                ),
+                                (
+                                    "configurable".into(),
+                                    Rc::new(RefCell::new(JsValue::Boolean(true))),
+                                ),
+                            ],
+                        ),
+                    ))))
+                }),
+            ),
+        ),
+    );
+    object.borrow_mut().properties.insert(
+        "getOwnPropertyNames".into(),
+        new_runnable_with_object(
+            function.clone(),
+            object.clone(),
+            "Object.getOwnPropertyNames",
+            prebuild_runnable_direct(
+                prototypes.clone(),
+                Box::new(|mem, this, arguments| {
+                    let target = arguments.first().cloned().unwrap_or(this);
+                    let JsValue::Prototype(target) = inline_borrow!(target) else {
+                        return CodeResult::Return(Rc::new(RefCell::new(JsValue::Undefined)));
+                    };
+                    let names = target
+                        .borrow()
+                        .properties
+                        .keys()
+                        .filter_map(|key| match key {
+                            JsValue::String(name) if name == PROTO_NAME => None,
+                            JsValue::String(_) | JsValue::BigInt(_) => {
+                                Some(Rc::new(RefCell::new(key.clone())))
+                            }
+                            _ => None,
+                        })
+                        .collect();
+                    let array = Prototype::find(mem, &stringify!(Array).into())
+                        .1
+                        .borrow()
+                        .unwrap_proto("Object.getOwnPropertyNames for Array");
+                    CodeResult::Return(new_array(array, names))
+                }),
+            ),
+        ),
+    );
+    object.borrow_mut().properties.insert(
+        "hasOwnProperty".into(),
+        new_runnable_with_object(
+            function.clone(),
+            object.clone(),
+            "Object.prototype.hasOwnProperty",
+            prebuild_runnable(
+                prototypes.clone(),
+                Box::new(|_, this, [property]| {
+                    let JsValue::Prototype(this) = inline_borrow!(this) else {
+                        return CodeResult::Return(Rc::new(RefCell::new(JsValue::Boolean(false))));
+                    };
+                    CodeResult::Return(Rc::new(RefCell::new(JsValue::Boolean(
+                        this.borrow().properties.contains_key(&inline_borrow!(property)),
+                    ))))
+                }),
+            ),
+        ),
+    );
+    object.borrow_mut().properties.insert(
+        "propertyIsEnumerable".into(),
+        new_runnable_with_object(
+            function.clone(),
+            object.clone(),
+            "Object.prototype.propertyIsEnumerable",
+            prebuild_runnable(
+                prototypes.clone(),
+                Box::new(|_, _, [_property]| {
+                    CodeResult::Return(Rc::new(RefCell::new(JsValue::Boolean(false))))
+                }),
+            ),
+        ),
+    );
+    object.borrow_mut().properties.insert(
+        "toString".into(),
+        new_runnable_with_object(
+            function.clone(),
+            object.clone(),
+            "Object.prototype.toString",
+            prebuild_runnable_direct(
+                prototypes.clone(),
+                Box::new(|_, _, _| {
+                    CodeResult::Return(Rc::new(RefCell::new(JsValue::String(
+                        "[object Object]".to_owned(),
+                    ))))
                 }),
             ),
         ),
@@ -207,6 +343,48 @@ pub fn prebuild_prototypes(
             ),
         ),
     );
+    function.borrow_mut().properties.insert(
+        "bind".into(),
+        new_runnable_with_object(
+            function.clone(),
+            object.clone(),
+            "Function.bind",
+            prebuild_runnable_direct(
+                prototypes.clone(),
+                Box::new(|mem, this, arguments| {
+                    let target = this.clone();
+                    let bound_this = arguments
+                        .first()
+                        .cloned()
+                        .unwrap_or_else(|| Rc::new(RefCell::new(JsValue::Undefined)));
+                    let bound_arguments = arguments.iter().skip(1).cloned().collect::<Vec<_>>();
+                    let function = Prototype::find(mem.clone(), &stringify!(Function).into())
+                        .1
+                        .borrow()
+                        .unwrap_proto("Function.bind for Function")
+                        .clone();
+                    CodeResult::Return(new_runnable(
+                        function,
+                        "Function.bound",
+                        prebuild_runnable_direct(
+                            mem,
+                            Box::new(move |_, _, call_arguments| {
+                                let JsValue::Prototype(target) = inline_borrow!(target.clone())
+                                else {
+                                    return CodeResult::Return(Rc::new(RefCell::new(
+                                        JsValue::Undefined,
+                                    )));
+                                };
+                                let mut arguments = bound_arguments.clone();
+                                arguments.extend(call_arguments);
+                                run_function_object(target, bound_this.clone(), arguments)
+                            }),
+                        ),
+                    ))
+                }),
+            ),
+        ),
+    );
 
     prebuild_symbol(prototypes.clone());
     let symbol = Prototype::find(prototypes.clone(), &stringify!(Symbol).into())
@@ -254,6 +432,15 @@ pub fn prebuild_prototypes(
         .insert(has_instance, has_instance_function);
     prebuild_iterator(prototypes.clone());
     prebuild_array(prototypes.clone());
+    let array = Prototype::find(prototypes.clone(), &stringify!(Array).into())
+        .1
+        .borrow()
+        .unwrap_proto("prebuild_prototypes for Array")
+        .clone();
+    array.borrow_mut().properties.insert(
+        PROTOTYPE_NAME.into(),
+        Rc::new(RefCell::new(JsValue::Prototype(array.clone()))),
+    );
     prebuild_date(prototypes.clone());
     prebuild_string(prototypes.clone());
     prebuild_number(prototypes.clone());

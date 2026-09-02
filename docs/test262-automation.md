@@ -15,9 +15,8 @@ groups them by directory, feature metadata, and failure category, and compares
 the current sweep with cached state. Actionable groups are created or updated
 as issues labeled `test262-failure`; at most eight open task issues are created
 at once. Skips, unsupported results, infrastructure failures, and duplicate
-failures are not delegated. The workflow also omits cases that require
-unsupported property-descriptor infrastructure. A group absent from a later
-sweep is closed with a comment after the rerun.
+failures are not delegated. A group absent from a later sweep is closed with a
+comment after the rerun.
 
 Each issue contains the coordinator and fixer-agent checklists. A coordinator
 must verify supported scope before delegating work, split unrelated cases into

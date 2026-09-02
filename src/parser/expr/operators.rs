@@ -210,6 +210,11 @@ impl Expr for Operator {
                 proto.clone(),
                 &mut CodeIndex::new()
             )));
+            if (op == BinaryOp::LogAnd && !l.is_truthy())
+                || (op == BinaryOp::LogOr && l.is_truthy())
+            {
+                return CodeResult::Normal(Rc::new(RefCell::new(l)));
+            }
             let r = inline_borrow!(handle_return!(run_sub(
                 &right,
                 proto.clone(),
@@ -368,8 +373,7 @@ impl Expr for Operator {
                 },
                 BinaryOp::BinAnd => todo!(),
                 BinaryOp::BinOr => todo!(),
-                BinaryOp::LogAnd => JsValue::Boolean(l.is_truthy() && r.is_truthy()),
-                BinaryOp::LogOr => JsValue::Boolean(l.is_truthy() || r.is_truthy()),
+                BinaryOp::LogAnd | BinaryOp::LogOr => r,
                 BinaryOp::XOr => todo!(),
                 BinaryOp::ShiftL => todo!(),
                 BinaryOp::ShiftR => todo!(),

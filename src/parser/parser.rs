@@ -441,6 +441,10 @@ impl Parser {
                 }));
                 Box::new(expr)
             }
+            Token::Delete => {
+                self.bump();
+                Box::new(expr::Delete::parse(self))
+            }
             Token::LBrace => Box::new(expr::Object::parse(self)),
             Token::LBracket | Token::LParen => {
                 let end = if let Token::LBracket = self.tokens[self.index] {

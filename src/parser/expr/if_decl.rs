@@ -16,6 +16,18 @@ pub struct IfExpr {
 }
 
 impl IfExpr {
+    fn parse_body(parser: &mut Parser) -> Vec<Box<dyn Expr>> {
+        if parser.tokens()[parser.index()] == Token::LBrace {
+            parser.parse_block()
+        } else {
+            let body = parser.parse_expression(false);
+            if parser.tokens()[parser.index()] == Token::Semicolon {
+                parser.bump();
+            }
+            body
+        }
+    }
+
     pub fn parse(parser: &mut Parser) -> Self {
         logln(LogLevel::Info, "Entering IfExpr::parse");
         if !matches!(parser.tokens()[parser.index()], Token::LParen) {
@@ -45,7 +57,7 @@ impl IfExpr {
         parser.bump();
 
         let mut blocks: Vec<(Box<dyn Expr>, Vec<Box<dyn Expr>>)> =
-            vec![(condition, parser.parse_block())];
+            vec![(condition, Self::parse_body(parser))];
 
         while let Token::Else = parser.tokens()[parser.index()] {
             parser.bump();
@@ -81,7 +93,7 @@ impl IfExpr {
             } else {
                 Box::new(expr::ConstBoolean { b: true })
             };
-            blocks.push((condition, parser.parse_block()));
+            blocks.push((condition, Self::parse_body(parser)));
         }
 
         Self { blocks }

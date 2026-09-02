@@ -174,6 +174,38 @@ impl Expr for Typeof {
 }
 
 #[derive(Debug)]
+pub struct Delete {
+    pub obj: Box<dyn Expr>,
+}
+
+impl Delete {
+    pub fn parse(parser: &mut Parser) -> Self {
+        Self {
+            obj: parser.parse_call_or_primary(false),
+        }
+    }
+}
+
+impl Expr for Delete {
+    fn compile(&self, mem: Rc<RefCell<Prototype>>) -> Vec<Code> {
+        let obj = self.obj.compile(mem);
+        vec![Box::new(move |proto, _| {
+            let result = run_sub(&obj, proto, &mut CodeIndex::new());
+            if let CodeResult::NormalMember(_, object, key) = result {
+                object.borrow_mut().properties.remove(&inline_borrow!(key));
+            }
+            CodeResult::Normal(Rc::new(RefCell::new(JsValue::Boolean(true))))
+        })]
+    }
+
+    fn duplicate(&self) -> Box<dyn Expr> {
+        Box::new(Self {
+            obj: self.obj.duplicate(),
+        })
+    }
+}
+
+#[derive(Debug)]
 pub struct Label {
     pub name: String,
     pub code: Vec<Box<dyn Expr>>,

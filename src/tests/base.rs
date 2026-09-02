@@ -142,12 +142,19 @@ assert_result!(
     console.log(Date.prototype.toGMTString === Date.prototype.toUTCString);
     console.log(Date.prototype.toGMTString.name);
     console.log(Date.prototype.toGMTString.length);
+    var descriptor = Object.getOwnPropertyDescriptor(Date.prototype, "toGMTString");
+    console.log(descriptor.writable);
+    console.log(descriptor.enumerable);
+    console.log(descriptor.configurable);
     "#,
     "Thu, 01 Jan 1970 00:00:00 GMT",
     "Thu, 01 Jan 1970 00:00:00 GMT",
     "true",
     "toUTCString",
-    "0"
+    "0",
+    "true",
+    "false",
+    "true"
 );
 
 assert_result!(
