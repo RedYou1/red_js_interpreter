@@ -241,27 +241,21 @@ pub fn prebuild_prototypes(
     prototypes
 }
 
-pub(crate) fn is_constructor(value: &Rc<RefCell<JsValue>>) -> bool {
+fn is_constructor(value: &Rc<RefCell<JsValue>>) -> bool {
     let JsValue::Prototype(object) = inline_borrow!(value.clone()) else {
         return false;
     };
-    if Prototype::opt_find(object.clone(), &RUNNABLE.into()).is_some() {
-        return !matches!(
-            Prototype::opt_find(object, &"__constructable__".into())
-                .map(|(_, value)| inline_borrow!(value)),
-            Some(JsValue::Boolean(false))
-        );
-    }
-    if object.borrow().name.is_none() {
+    if Prototype::opt_find(object.clone(), &RUNNABLE.into()).is_none() {
         return false;
     }
-    let Some((_, constructor)) = Prototype::opt_find(object, &"constructor".into()) else {
-        return false;
-    };
-    is_constructor(&constructor)
+    !matches!(
+        Prototype::opt_find(object, &"__constructable__".into())
+            .map(|(_, value)| inline_borrow!(value)),
+        Some(JsValue::Boolean(false))
+    )
 }
 
-pub(crate) fn type_error(mem: Rc<RefCell<Prototype>>) -> CodeResult {
+fn type_error(mem: Rc<RefCell<Prototype>>) -> CodeResult {
     let error = Prototype::find(mem, &stringify!(TypeError).into())
         .1
         .borrow()
