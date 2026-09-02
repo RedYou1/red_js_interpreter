@@ -2,7 +2,7 @@ use std::{cell::RefCell, fmt::Debug, mem::MaybeUninit, rc::Rc};
 
 use crate::{
     Code, CodeIndex, CodeResult, JsValue, LogLevel, Prototype, handle_return, inline_borrow, logln,
-    parser::{lexer::Token, parser::Parser},
+    parser::parser::Parser,
     run_sub,
 };
 
@@ -127,25 +127,7 @@ pub struct Typeof {
 
 impl Typeof {
     pub fn parse(parser: &mut Parser) -> Self {
-        let t = if let Token::LParen = parser.tokens()[parser.index()] {
-            parser.bump();
-            true
-        } else {
-            false
-        };
-        let expr = Box::new(parser.parse_expression(true));
-        if t {
-            if let Token::RParen = parser.tokens()[parser.index()] {
-                parser.bump();
-            } else {
-                panic!(
-                    "Typeof Englobe paren in parse_primary {:?} {:?} {:?}",
-                    parser.tokens()[parser.index()],
-                    parser.tokens()[parser.index() + 1],
-                    parser.tokens()[parser.index() + 2]
-                );
-            }
-        }
+        let expr = parser.parse_call_or_primary(false);
         Self { obj: expr }
     }
 }
