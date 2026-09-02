@@ -164,6 +164,7 @@ pub struct Lexer<'a> {
     template_mode: bool,
     in_template_expr: bool,
     template_expr_depth: usize,
+    line_terminator: bool,
 }
 
 impl<'a> Lexer<'a> {
@@ -177,6 +178,7 @@ impl<'a> Lexer<'a> {
             template_mode: false,
             in_template_expr: false,
             template_expr_depth: 0,
+            line_terminator: false,
         }
     }
 
@@ -293,10 +295,44 @@ impl<'a> Lexer<'a> {
                     return Token::RBrace;
                 }
             }
+            let had_line_terminator = self.line_terminator;
+            if !c.is_whitespace() {
+                self.line_terminator = false;
+            }
             match c {
                 c if c.is_whitespace() => {
+                    if c == '\n' || c == '\r' {
+                        self.line_terminator = true;
+                    }
                     self.bump();
                     continue;
+                }
+                '<' => {
+                    let mut lookahead = self.chars.clone();
+                    if lookahead.next() == Some('!')
+                        && lookahead.next() == Some('-')
+                        && lookahead.next() == Some('-')
+                    {
+                        for _ in 0..4 {
+                            self.bump();
+                        }
+                        self.eat_while(|ch| ch != '\n' && ch != '\r');
+                        continue;
+                    }
+                    self.bump();
+                    if self.peek() == Some('=') {
+                        self.bump();
+                        return Token::LtEq;
+                    } else if self.peek() == Some('<') {
+                        self.bump();
+                        if self.peek() == Some('=') {
+                            self.bump();
+                            return Token::Assign(Some(BinaryOp::ShiftL));
+                        }
+                        return Token::ShiftL;
+                    } else {
+                        return Token::Lt;
+                    }
                 }
                 '/' => {
                     self.bump();
@@ -310,6 +346,9 @@ impl<'a> Lexer<'a> {
                         self.bump();
                         loop {
                             let a = self.peek() == Some('*');
+                            if matches!(self.peek(), Some('\n' | '\r')) {
+                                self.line_terminator = true;
+                            }
                             self.bump();
                             if a {
                                 let a = self.peek() == Some('/');
@@ -454,22 +493,6 @@ impl<'a> Lexer<'a> {
                     self.bump();
                     return Token::QMark;
                 }
-                '<' => {
-                    self.bump();
-                    if self.peek() == Some('=') {
-                        self.bump();
-                        return Token::LtEq;
-                    } else if self.peek() == Some('<') {
-                        self.bump();
-                        if self.peek() == Some('=') {
-                            self.bump();
-                            return Token::Assign(Some(BinaryOp::ShiftL));
-                        }
-                        return Token::ShiftL;
-                    } else {
-                        return Token::Lt;
-                    }
-                }
                 '>' => {
                     self.bump();
                     if self.peek() == Some('=') {
@@ -510,6 +533,16 @@ impl<'a> Lexer<'a> {
                     return Token::Plus;
                 }
                 '-' => {
+                    if had_line_terminator
+                        && self.chars.clone().next() == Some('-')
+                        && self.chars.clone().nth(1) == Some('>')
+                    {
+                        for _ in 0..3 {
+                            self.bump();
+                        }
+                        self.eat_while(|ch| ch != '\n' && ch != '\r');
+                        continue;
+                    }
                     self.bump();
                     if self.peek() == Some('-') {
                         self.bump();
@@ -635,5 +668,14 @@ mod tests {
             assert_eq!(lexer.next_token(&[]), expected);
             assert_eq!(lexer.next_token(&[expected]), Token::Eof);
         }
+    }
+
+    #[test]
+    fn lexes_html_comments() {
+        let mut lexer = Lexer::new("<!--\n-->");
+        assert_eq!(lexer.next_token(&[]), Token::Eof);
+
+        let mut lexer = Lexer::new("-->");
+        assert_eq!(lexer.next_token(&[]), Token::MinusMinus);
     }
 }

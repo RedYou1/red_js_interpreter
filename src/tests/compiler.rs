@@ -529,6 +529,27 @@ assert_result!(
 );
 
 assert_result!(
+    test_dynamic_function_html_comments,
+    r#"
+    console.log(typeof Function("<!--"));
+    console.log(typeof Function("<!--", ""));
+    console.log(typeof Function("\n-->"));
+    console.log(typeof Function("\n-->", ""));
+    try {
+        Function("-->", "");
+        console.log("not an error");
+    } catch (error) {
+        console.log(error.constructor === SyntaxError);
+    }
+    "#,
+    "function",
+    "function",
+    "function",
+    "function",
+    "true"
+);
+
+assert_result!(
     test_conditional_operator,
     r#"
     // Basic booleans

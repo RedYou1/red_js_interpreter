@@ -1,6 +1,12 @@
 #![feature(maybe_uninit_array_assume_init)]
 
-use std::{cell::RefCell, collections::HashMap, fmt::Debug, rc::Rc};
+use std::{
+    cell::RefCell,
+    collections::HashMap,
+    fmt::Debug,
+    panic::{self, AssertUnwindSafe},
+    rc::Rc,
+};
 
 mod code_manipulation;
 mod generator;
@@ -46,7 +52,7 @@ use crate::prebuild::{
     array::prebuild_array,
     console::prebuild_console,
     date::prebuild_date,
-    error::{prebuild_error, prebuild_type_error},
+    error::{prebuild_error, prebuild_syntax_error, prebuild_type_error},
     iterator::{prebuild_iterator, prebuild_itergen},
     math::prebuild_math,
     number::prebuild_number,
@@ -252,6 +258,55 @@ pub fn prebuild_prototypes(
         .borrow_mut()
         .properties
         .insert(has_instance, has_instance_function);
+    let dynamic_function_mem = prototypes.clone();
+    let dynamic_function = new_runnable_with_object(
+        function.clone(),
+        object.clone(),
+        "Function",
+        prebuild_runnable_direct(
+            prototypes.clone(),
+            Box::new(move |proto, _, arguments| {
+                let (parameters, body) = if let Some((body, parameters)) = arguments.split_last() {
+                    let parameters = parameters
+                        .iter()
+                        .map(|value| match &*value.borrow() {
+                            JsValue::String(value) => Ok(value.clone()),
+                            _ => Err(()),
+                        })
+                        .collect::<Result<Vec<_>, _>>();
+                    let body = match &*body.borrow() {
+                        JsValue::String(value) => Ok(value.clone()),
+                        _ => Err(()),
+                    };
+                    match (parameters, body) {
+                        (Ok(parameters), Ok(body)) => (parameters.join(","), body),
+                        _ => return syntax_error(dynamic_function_mem.clone()),
+                    }
+                } else {
+                    (String::new(), String::new())
+                };
+                if has_invalid_html_close_comment(&parameters) {
+                    return syntax_error(dynamic_function_mem.clone());
+                }
+                let source = format!("function anonymous({parameters}\n) {{\n{body}\n}}");
+                let parsed = panic::catch_unwind(AssertUnwindSafe(|| {
+                    let program = parse(&source).compile(dynamic_function_mem.clone());
+                    run_sub(&program.code, proto, &mut CodeIndex::new())
+                }));
+                match parsed {
+                    Ok(CodeResult::Normal(result) | CodeResult::NormalMember(result, _, _)) => {
+                        CodeResult::Return(result)
+                    }
+                    Ok(result) => result,
+                    Err(_) => syntax_error(dynamic_function_mem.clone()),
+                }
+            }),
+        ),
+    );
+    function
+        .borrow_mut()
+        .properties
+        .insert(CONSTRUCTOR_NAME.into(), dynamic_function);
     prebuild_iterator(prototypes.clone());
     prebuild_array(prototypes.clone());
     prebuild_date(prototypes.clone());
@@ -261,6 +316,7 @@ pub fn prebuild_prototypes(
     prebuild_console(prototypes.clone());
     prebuild_error(prototypes.clone());
     prebuild_type_error(prototypes.clone());
+    prebuild_syntax_error(prototypes.clone());
     prototypes.borrow().properties[&JsValue::String("console".to_owned())]
         .borrow()
         .unwrap_proto("prebuild_prototypes adding config to console")
@@ -307,6 +363,26 @@ fn type_error(mem: Rc<RefCell<Prototype>>) -> CodeResult {
     CodeResult::Error(Rc::new(RefCell::new(JsValue::Prototype(
         Prototype::new_child(error, None, [("constructor".into(), constructor)]),
     ))))
+}
+
+fn syntax_error(mem: Rc<RefCell<Prototype>>) -> CodeResult {
+    let error = Prototype::find(mem, &stringify!(SyntaxError).into())
+        .1
+        .borrow()
+        .unwrap_proto("Function constructor for SyntaxError");
+    let constructor = Rc::new(RefCell::new(JsValue::Prototype(error.clone())));
+    CodeResult::Error(Rc::new(RefCell::new(JsValue::Prototype(
+        Prototype::new_child(error, None, [("constructor".into(), constructor)]),
+    ))))
+}
+
+fn has_invalid_html_close_comment(parameters: &str) -> bool {
+    parameters.match_indices("-->").any(|(index, _)| {
+        !matches!(
+            parameters[..index].chars().next_back(),
+            Some('\n' | '\r')
+        )
+    })
 }
 
 const RUNNABLE: &str = "__!@#$%^&*()__";
