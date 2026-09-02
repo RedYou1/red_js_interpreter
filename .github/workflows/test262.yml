@@ -44,7 +44,9 @@ jobs:
           set +e
           cargo +nightly run --release --manifest-path test262_runner/Cargo.toml -- \
             --test262-dir test262 \
-            test262/test/annexB > artifacts/test262-output.txt 2>&1
+            test262/test/annexB \
+            test262/test/built-ins \
+            test262/test/language > artifacts/test262-output.txt 2>&1
           status=$?
           echo "exit_code=$status" >> "$GITHUB_OUTPUT"
           echo "runner_exit_code=$status" > artifacts/runner-status.txt
