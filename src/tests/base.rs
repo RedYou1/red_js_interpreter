@@ -134,6 +134,23 @@ assert_result!(
 );
 
 assert_result!(
+    test_date_to_gmt_string,
+    r#"
+    var date = new Date(0);
+    console.log(date.toUTCString());
+    console.log(date.toGMTString());
+    console.log(Date.prototype.toGMTString === Date.prototype.toUTCString);
+    console.log(Date.prototype.toGMTString.name);
+    console.log(Date.prototype.toGMTString.length);
+    "#,
+    "Thu, 01 Jan 1970 00:00:00 GMT",
+    "Thu, 01 Jan 1970 00:00:00 GMT",
+    "true",
+    "toUTCString",
+    "0"
+);
+
+assert_result!(
     test_date_set_year,
     r#"
     var date = new Date(1970, 1, 2, 3, 4, 5);

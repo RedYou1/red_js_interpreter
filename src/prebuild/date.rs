@@ -60,6 +60,13 @@ new_class! {
         };
         CodeResult::Return(Rc::new(RefCell::new(JsValue::Number(value))))
     },
+    toUTCString, fn,
+    |mem, this, []| {
+        let Some(value) = date_value_of(this) else {
+            return type_error(mem);
+        };
+        CodeResult::Return(Rc::new(RefCell::new(JsValue::String(utc_string(value)))))
+    },
     setTime, fn,
     |mem, this, [time]| {
         let Some(object) = date_object(this) else {
@@ -153,6 +160,18 @@ pub fn prebuild_date(mem: Rc<RefCell<Prototype>>) {
         let value = Prototype::find(date.clone(), &name.into()).1;
         date_prototype.borrow_mut().properties.insert(name.into(), value);
     }
+    let to_utc_string = Prototype::find(date.clone(), &"toUTCString".into()).1;
+    date.borrow_mut()
+        .properties
+        .insert("toGMTString".into(), to_utc_string.clone());
+    date_prototype
+        .borrow_mut()
+        .properties
+        .insert("toUTCString".into(), to_utc_string.clone());
+    date_prototype
+        .borrow_mut()
+        .properties
+        .insert("toGMTString".into(), to_utc_string);
     Prototype::find(date.clone(), &"setYear".into())
         .1
         .borrow()
@@ -263,6 +282,25 @@ fn date_value_from_object(object: Rc<RefCell<Prototype>>) -> f64 {
         Some(JsValue::Number(value)) => value,
         _ => f64::NAN,
     }
+}
+
+fn utc_string(value: f64) -> String {
+    if value.is_nan() {
+        return "Invalid Date".to_owned();
+    }
+
+    let days = (value / DAY_MS).floor() as i64;
+    let milliseconds = value.rem_euclid(DAY_MS) as i64;
+    let (year, month, day) = civil_from_days(days);
+    let weekday = ["Thu", "Fri", "Sat", "Sun", "Mon", "Tue", "Wed"]
+        [days.rem_euclid(7) as usize];
+    let month = [
+        "Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec",
+    ][month as usize - 1];
+    let hours = milliseconds / 3_600_000;
+    let minutes = milliseconds / 60_000 % 60;
+    let seconds = milliseconds / 1_000 % 60;
+    format!("{weekday}, {day:02} {month} {year:04} {hours:02}:{minutes:02}:{seconds:02} GMT")
 }
 
 fn number_value(value: &Rc<RefCell<JsValue>>) -> Option<f64> {

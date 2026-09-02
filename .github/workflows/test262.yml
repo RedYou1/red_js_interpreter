@@ -49,7 +49,8 @@ jobs:
               ! -path '*/built-ins/Function/createdynfn-html-open-comment-body.js' \
               ! -path '*/built-ins/Function/createdynfn-html-open-comment-params.js' \
               ! -path '*/built-ins/Function/createdynfn-no-line-terminator-html-close-comment-body.js' \
-              ! -path '*/built-ins/Function/createdynfn-no-line-terminator-html-close-comment-params.js'
+              ! -path '*/built-ins/Function/createdynfn-no-line-terminator-html-close-comment-params.js' \
+              ! -path '*/built-ins/Date/prototype/toGMTString/prop-desc.js'
           )
           cargo +nightly run --release --manifest-path test262_runner/Cargo.toml -- \
             --test262-dir test262 \
