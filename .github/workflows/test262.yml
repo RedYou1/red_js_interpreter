@@ -1,0 +1,128 @@
+name: Test262 conformance
+
+on:
+  schedule:
+    - cron: "23 3 * * 1"
+  workflow_dispatch:
+
+concurrency:
+  group: test262-conformance
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+  issues: write
+
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    outputs:
+      exit_code: ${{ steps.test262.outputs.exit_code }}
+      build_outcome: ${{ steps.build.outcome }}
+    steps:
+      - name: Check out interpreter
+        uses: actions/checkout@v4
+
+      - name: Check out Test262
+        uses: actions/checkout@v4
+        with:
+          repository: tc39/test262
+          path: test262
+          fetch-depth: 1
+
+      - name: Install nightly Rust
+        run: rustup toolchain install nightly --profile minimal
+
+      - name: Build runner
+        id: build
+        continue-on-error: true
+        run: cargo +nightly build --release --manifest-path test262_runner/Cargo.toml
+
+      - name: Run supported Test262 tests
+        id: test262
+        shell: bash
+        run: |
+          mkdir -p artifacts
+          set +e
+          cargo +nightly run --release --manifest-path test262_runner/Cargo.toml -- \
+            --test262-dir test262 \
+            --skip-feature BigInt \
+            --skip-feature Symbol \
+            --timeout-ms 2000 \
+            test262/test/language > artifacts/test262-output.txt 2>&1
+          status=$?
+          echo "exit_code=$status" >> "$GITHUB_OUTPUT"
+          echo "runner_exit_code=$status" > artifacts/runner-status.txt
+          cat artifacts/test262-output.txt
+          exit 0
+
+      - name: Preserve runner output
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test262-run-${{ github.run_id }}
+          path: artifacts/
+          if-no-files-found: error
+          retention-days: 14
+
+  coordinate:
+    if: always()
+    needs: run
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out interpreter
+        uses: actions/checkout@v4
+
+      - name: Check out Test262
+        uses: actions/checkout@v4
+        with:
+          repository: tc39/test262
+          path: test262
+          fetch-depth: 1
+
+      - name: Restore previous triage state
+        uses: actions/cache/restore@v4
+        with:
+          path: .test262-state
+          key: test262-state-${{ github.run_id }}
+          restore-keys: |
+            test262-state-
+
+      - name: Download runner output
+        uses: actions/download-artifact@v4
+        with:
+          name: test262-run-${{ github.run_id }}
+          path: artifacts
+
+      - name: Coordinate actionable failures
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TEST262_MAX_OPEN_TASKS: "8"
+        run: |
+          python3 scripts/test262_triage.py \
+            --output artifacts/test262-output.txt \
+            --test262-dir test262 \
+            --state-file .test262-state/failures.json \
+            --summary artifacts/test262-summary.json
+
+      - name: Preserve triage summary
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test262-triage-${{ github.run_id }}
+          path: artifacts/test262-summary.json
+          if-no-files-found: warn
+          retention-days: 90
+
+      - name: Save triage state for the next run
+        if: always()
+        uses: actions/cache/save@v4
+        with:
+          path: .test262-state
+          key: test262-state-${{ github.run_id }}
+
+      - name: Fail workflow when supported tests fail
+        if: always() && (needs.run.outputs.exit_code != '0' || needs.run.outputs.build_outcome != 'success')
+        run: |
+          echo "The Test262 runner reported failures; see the artifacts and test262-failure issues."
+          exit 1
