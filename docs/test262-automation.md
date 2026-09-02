@@ -28,4 +28,6 @@ issue.
 
 The cache is keyed by workflow run ID with a restore prefix, so the previous
 state is available without committing generated files to the repository.
-Artifacts and issues are the durable record when a run fails.
+Artifacts and issues are the durable record for each run; supported-test
+failures are surfaced as warnings, while runner infrastructure errors fail the
+workflow.
