@@ -127,7 +127,7 @@ pub struct Typeof {
 
 impl Typeof {
     pub fn parse(parser: &mut Parser) -> Self {
-        let expr = parser.parse_call_or_primary(false);
+        let expr = Box::new(parser.parse_expression(false));
         Self { obj: expr }
     }
 }
