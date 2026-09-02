@@ -111,6 +111,55 @@ assert_result!(
     "true"
 );
 
+assert_result!(
+    test_date_set_year,
+    r#"
+    var date = new Date(1970, 1, 2, 3, 4, 5);
+    console.log(date.setYear(71));
+    console.log(date.getYear());
+    console.log(date.getFullYear());
+    console.log(date.valueOf());
+    console.log(Date.prototype.setYear.name);
+    console.log(Date.prototype.setYear.length);
+
+    date = new Date({});
+    console.log(date.setYear(71));
+    console.log(date.getFullYear());
+
+    date = new Date(0);
+    console.log(date.setYear());
+    console.log(date.valueOf());
+    "#,
+    "34311845000",
+    "71",
+    "1971",
+    "34311845000",
+    "setYear",
+    "1",
+    "31536000000",
+    "1971",
+    "NaN",
+    "NaN"
+);
+
+assert_result!(
+    test_date_set_year_to_number_order,
+    r#"
+    var date = new Date(0);
+    var value = {
+        valueOf: function() {
+            date.setTime(NaN);
+            return 1;
+        }
+    };
+    date.setYear(value);
+    console.log(date.getYear());
+    console.log(date.getFullYear());
+    "#,
+    "1",
+    "1901"
+);
+
 fn append_console_log(logs_ptr: &mut i64, value: String) {
     let logs = unsafe { ((*logs_ptr) as *mut Vec<String>).as_mut_unchecked() };
     logs.push(value);

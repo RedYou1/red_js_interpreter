@@ -22,24 +22,84 @@ new_class! {
     },
     getYear, fn,
     |mem, this, []| {
-        let JsValue::Prototype(object) = inline_borrow!(this) else {
+        let Some(value) = date_value_of(this) else {
             return type_error(mem);
         };
-        let Some(value) = Prototype::opt_find(object, &DATE_VALUE.into())
-            .map(|(_, value)| inline_borrow!(value))
-        else {
+        CodeResult::Return(Rc::new(RefCell::new(JsValue::Number(if value.is_nan() {
+            f64::NAN
+        } else {
+            civil_from_days((value / DAY_MS).floor() as i64).0 as f64 - 1900.0
+        }))))
+    },
+    getFullYear, fn,
+    |mem, this, []| {
+        let Some(value) = date_value_of(this) else {
             return type_error(mem);
         };
-        let JsValue::Number(value) = value else {
+        CodeResult::Return(Rc::new(RefCell::new(JsValue::Number(if value.is_nan() {
+            f64::NAN
+        } else {
+            civil_from_days((value / DAY_MS).floor() as i64).0 as f64
+        }))))
+    },
+    getTime, fn,
+    |mem, this, []| {
+        let Some(value) = date_value_of(this) else {
             return type_error(mem);
         };
-        if value.is_nan() {
-            return CodeResult::Return(Rc::new(RefCell::new(JsValue::Number(f64::NAN))));
-        }
-        let year = year_from_days((value / DAY_MS).floor() as i64);
-        CodeResult::Return(Rc::new(RefCell::new(JsValue::Number(
-            year as f64 - 1900.0,
-        ))))
+        CodeResult::Return(Rc::new(RefCell::new(JsValue::Number(value))))
+    },
+    valueOf, fn,
+    |mem, this, []| {
+        let Some(value) = date_value_of(this) else {
+            return type_error(mem);
+        };
+        CodeResult::Return(Rc::new(RefCell::new(JsValue::Number(value))))
+    },
+    setTime, fn,
+    |mem, this, [time]| {
+        let Some(object) = date_object(this) else {
+            return type_error(mem);
+        };
+        let time = match to_number(mem, time) {
+            Ok(time) => time_clip(time),
+            Err(error) => return error,
+        };
+        object.borrow_mut().properties.insert(
+            DATE_VALUE.into(),
+            Rc::new(RefCell::new(JsValue::Number(time))),
+        );
+        CodeResult::Return(Rc::new(RefCell::new(JsValue::Number(time))))
+    },
+    setYear, fn,
+    |mem, this, [year]| {
+        let Some(object) = date_object(this) else {
+            return type_error(mem);
+        };
+        let current = date_value_from_object(object.clone());
+        let year = match to_number(mem, year) {
+            Ok(year) => year,
+            Err(error) => return error,
+        };
+        let value = if year.is_nan() {
+            f64::NAN
+        } else {
+            let time = if current.is_nan() { 0.0 } else { current };
+            let (_, month, day) = civil_from_days((time / DAY_MS).floor() as i64);
+            let year = year.trunc();
+            let year = if (0.0..=99.0).contains(&year) {
+                year + 1900.0
+            } else {
+                year
+            };
+            let days = days_from_civil(year as i64, month, day);
+            time_clip(days as f64 * DAY_MS + time.rem_euclid(DAY_MS))
+        };
+        object.borrow_mut().properties.insert(
+            DATE_VALUE.into(),
+            Rc::new(RefCell::new(JsValue::Number(value))),
+        );
+        CodeResult::Return(Rc::new(RefCell::new(JsValue::Number(value))))
     };
 }
 
@@ -59,6 +119,17 @@ pub fn prebuild_date(mem: Rc<RefCell<Prototype>>) {
         .borrow_mut()
         .properties
         .insert("getYear".into(), get_year);
+    for name in ["getFullYear", "getTime", "valueOf", "setTime", "setYear"] {
+        let value = Prototype::find(date.clone(), &name.into()).1;
+        date_prototype.borrow_mut().properties.insert(name.into(), value);
+    }
+    Prototype::find(date.clone(), &"setYear".into())
+        .1
+        .borrow()
+        .unwrap_proto("prebuild_date setYear")
+        .borrow_mut()
+        .properties
+        .insert("length".into(), Rc::new(RefCell::new(JsValue::BigInt(1))));
     date_prototype.borrow_mut().properties.insert(
         "constructor".into(),
         Rc::new(RefCell::new(JsValue::Prototype(date.clone()))),
@@ -128,11 +199,79 @@ fn date_value(arguments: &[Rc<RefCell<JsValue>>]) -> f64 {
     }
 }
 
+fn date_object(this: Rc<RefCell<JsValue>>) -> Option<Rc<RefCell<Prototype>>> {
+    let JsValue::Prototype(object) = inline_borrow!(this) else {
+        return None;
+    };
+    if Prototype::opt_find(object.clone(), &DATE_VALUE.into()).is_some() {
+        Some(object)
+    } else {
+        None
+    }
+}
+
+fn date_value_of(this: Rc<RefCell<JsValue>>) -> Option<f64> {
+    date_object(this).map(date_value_from_object)
+}
+
+fn date_value_from_object(object: Rc<RefCell<Prototype>>) -> f64 {
+    match Prototype::find(object, &DATE_VALUE.into()).1.borrow().clone() {
+        JsValue::Number(value) => value,
+        _ => f64::NAN,
+    }
+}
+
 fn number_value(value: &Rc<RefCell<JsValue>>) -> Option<f64> {
     match inline_borrow!(value.clone()) {
         JsValue::BigInt(value) => Some(value as f64),
         JsValue::Number(value) => Some(value),
         _ => None,
+    }
+}
+
+fn to_number(
+    mem: Rc<RefCell<Prototype>>,
+    value: Rc<RefCell<JsValue>>,
+) -> Result<f64, CodeResult> {
+    match inline_borrow!(value.clone()) {
+        JsValue::BigInt(value) => Ok(value as f64),
+        JsValue::Number(value) => Ok(value),
+        JsValue::String(value) => Ok(value.trim().parse().unwrap_or(f64::NAN)),
+        JsValue::Boolean(value) => Ok(if value { 1.0 } else { 0.0 }),
+        JsValue::Null => Ok(0.0),
+        JsValue::Undefined => Ok(f64::NAN),
+        JsValue::Symbol(_, _) => Err(type_error(mem)),
+        JsValue::Prototype(object) => {
+            let value_of = Prototype::find(object.clone(), &"valueOf".into()).1;
+            let value_of = inline_borrow!(value_of);
+            let JsValue::Prototype(value_of) = value_of else {
+                return Ok(f64::NAN);
+            };
+            let result = crate::run_function_object(value_of, value.clone(), vec![]);
+            let result = match result {
+                CodeResult::Normal(value) | CodeResult::NormalMember(value, _, _) => value,
+                CodeResult::Return(value) => value,
+                error => return Err(error),
+            };
+            match inline_borrow!(result) {
+                JsValue::BigInt(value) => Ok(value as f64),
+                JsValue::Number(value) => Ok(value),
+                JsValue::String(value) => Ok(value.trim().parse().unwrap_or(f64::NAN)),
+                JsValue::Boolean(value) => Ok(if value { 1.0 } else { 0.0 }),
+                JsValue::Null => Ok(0.0),
+                JsValue::Undefined | JsValue::Prototype(_) | JsValue::Symbol(_, _)
+                | JsValue::Function(_) | JsValue::Generator(_) => Ok(f64::NAN),
+            }
+        }
+        JsValue::Function(_) | JsValue::Generator(_) => Ok(f64::NAN),
+    }
+}
+
+fn time_clip(value: f64) -> f64 {
+    if value.is_finite() && value.abs() <= 8_640_000_000_000_000.0 {
+        value.trunc()
+    } else {
+        f64::NAN
     }
 }
 
@@ -157,7 +296,7 @@ fn days_from_civil(mut year: i64, month: i64, day: i64) -> i64 {
     era * 146_097 + day_of_era - 719_468
 }
 
-fn year_from_days(mut days: i64) -> i64 {
+fn civil_from_days(mut days: i64) -> (i64, i64, i64) {
     days += 719_468;
     let era = (if days >= 0 { days } else { days - 146_096 }) / 146_097;
     let day_of_era = days - era * 146_097;
@@ -165,8 +304,9 @@ fn year_from_days(mut days: i64) -> i64 {
         (day_of_era - day_of_era / 1_460 + day_of_era / 36_524 - day_of_era / 146_096) / 365;
     let mut year = year_of_era + era * 400;
     let day_of_year = day_of_era - (365 * year_of_era + year_of_era / 4 - year_of_era / 100);
-    let month = (5 * day_of_year + 2) / 153;
-    let month = month + if month < 10 { 3 } else { -9 };
+    let month_index = (5 * day_of_year + 2) / 153;
+    let day = day_of_year - (153 * month_index + 2) / 5 + 1;
+    let month = month_index + if month_index < 10 { 3 } else { -9 };
     year += i64::from(month <= 2);
-    year
+    (year, month, day)
 }
