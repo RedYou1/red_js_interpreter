@@ -332,15 +332,24 @@ impl Parser {
                         code: self.parse_block(),
                     }));
                 }
-                _ if let [params, _] = &self.tokens[self.index..]
-                    .splitn(2, |t| *t == Token::Arrow)
-                    .collect::<Vec<_>>()[..]
-                    && params.iter().all(|t| {
-                        matches!(
-                            *t,
-                            Token::LParen | Token::RParen | Token::Ident(_) | Token::Comma
-                        )
-                    }) =>
+                _ if (matches!(self.tokens[self.index], Token::LParen)
+                    && self.tokens[self.index..].contains(&Token::Arrow)
+                    && self.tokens[self.index..]
+                        .splitn(2, |t| *t == Token::Arrow)
+                        .next()
+                        .is_some_and(|params| {
+                            params.iter().all(|t| {
+                                matches!(
+                                    *t,
+                                    Token::LParen
+                                        | Token::RParen
+                                        | Token::Ident(_)
+                                        | Token::Comma
+                                )
+                            })
+                        }))
+                    || (matches!(self.tokens[self.index], Token::Ident(_))
+                        && self.tokens[self.index + 1] == Token::Arrow) =>
                 {
                     let params = self.parse_param_list();
                     assert_eq!(self.tokens[self.index], Token::Arrow);

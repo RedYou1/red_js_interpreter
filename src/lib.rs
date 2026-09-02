@@ -131,6 +131,29 @@ pub fn prebuild_prototypes(
         ),
     );
 
+    let reflect = Prototype::new_child(object.clone(), Some("Reflect"), []);
+    reflect.borrow_mut().properties.insert(
+        "construct".into(),
+        new_runnable_with_object(
+            function.clone(),
+            object.clone(),
+            "Reflect.construct",
+            prebuild_runnable(
+                prototypes.clone(),
+                Box::new(|mem, _, [_target, _arguments, new_target]| {
+                    if !is_constructor(&new_target) {
+                        return type_error(mem);
+                    }
+                    CodeResult::Return(Rc::new(RefCell::new(JsValue::Undefined)))
+                }),
+            ),
+        ),
+    );
+    prototypes.borrow_mut().properties.insert(
+        "Reflect".into(),
+        Rc::new(RefCell::new(JsValue::Prototype(reflect))),
+    );
+
     object.borrow_mut().properties.insert(
         "create".into(),
         new_runnable_with_object(
@@ -216,6 +239,31 @@ pub fn prebuild_prototypes(
         Rc::new(RefCell::new(JsValue::Number(f64::INFINITY))),
     );
     prototypes
+}
+
+fn is_constructor(value: &Rc<RefCell<JsValue>>) -> bool {
+    let JsValue::Prototype(object) = inline_borrow!(value.clone()) else {
+        return false;
+    };
+    if Prototype::opt_find(object.clone(), &RUNNABLE.into()).is_none() {
+        return false;
+    }
+    !matches!(
+        Prototype::opt_find(object, &"__constructable__".into())
+            .map(|(_, value)| inline_borrow!(value)),
+        Some(JsValue::Boolean(false))
+    )
+}
+
+fn type_error(mem: Rc<RefCell<Prototype>>) -> CodeResult {
+    let error = Prototype::find(mem, &stringify!(TypeError).into())
+        .1
+        .borrow()
+        .unwrap_proto("Reflect.construct for TypeError");
+    let constructor = Rc::new(RefCell::new(JsValue::Prototype(error.clone())));
+    CodeResult::Error(Rc::new(RefCell::new(JsValue::Prototype(
+        Prototype::new_child(error, None, [("constructor".into(), constructor)]),
+    ))))
 }
 
 const RUNNABLE: &str = "__!@#$%^&*()__";

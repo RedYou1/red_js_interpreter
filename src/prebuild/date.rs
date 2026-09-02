@@ -20,6 +20,10 @@ new_class! {
         }
         CodeResult::Return(Rc::new(RefCell::new(JsValue::Undefined)))
     },
+    now, fn_direct,
+    |_, _, _| {
+        CodeResult::Return(Rc::new(RefCell::new(JsValue::Number(current_time()))))
+    },
     getYear, fn,
     |mem, this, []| {
         let Some(value) = date_value_of(this) else {
@@ -122,6 +126,15 @@ pub fn prebuild_date(mem: Rc<RefCell<Prototype>>) {
         )],
     );
     let get_year = Prototype::find(date.clone(), &"getYear".into()).1;
+    get_year
+        .borrow()
+        .unwrap_proto("prebuild_date getYear")
+        .borrow_mut()
+        .properties
+        .insert(
+            "__constructable__".into(),
+            Rc::new(RefCell::new(JsValue::Boolean(false))),
+        );
     date_prototype
         .borrow_mut()
         .properties
@@ -149,10 +162,9 @@ pub fn prebuild_date(mem: Rc<RefCell<Prototype>>) {
 
 fn date_value(arguments: &[Rc<RefCell<JsValue>>]) -> f64 {
     if arguments.is_empty() {
-        return SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .map_or(f64::NAN, |duration| duration.as_millis() as f64);
+        return current_time();
     }
+
     if arguments.len() == 1 {
         return match inline_borrow!(arguments[0].clone()) {
             JsValue::BigInt(value) => value as f64,
@@ -204,6 +216,12 @@ fn date_value(arguments: &[Rc<RefCell<JsValue>>]) -> f64 {
     } else {
         value
     }
+}
+
+fn current_time() -> f64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map_or(f64::NAN, |duration| duration.as_millis() as f64)
 }
 
 fn date_object(this: Rc<RefCell<JsValue>>) -> Option<Rc<RefCell<Prototype>>> {
