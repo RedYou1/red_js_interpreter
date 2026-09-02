@@ -209,6 +209,49 @@ pub fn prebuild_prototypes(
     );
 
     prebuild_symbol(prototypes.clone());
+    let symbol = Prototype::find(prototypes.clone(), &stringify!(Symbol).into())
+        .1
+        .borrow()
+        .unwrap_proto("prebuild_prototypes for Symbol");
+    let has_instance = inline_borrow!(Prototype::find(symbol, &"hasInstance".into()).1);
+    let has_instance_function = new_runnable(
+        function.clone(),
+        "Function.[hasInstance]",
+        prebuild_runnable(
+            prototypes.clone(),
+            Box::new(|_, this, [instance]| {
+                let JsValue::Prototype(function) = inline_borrow!(this) else {
+                    return CodeResult::Return(Rc::new(RefCell::new(JsValue::Boolean(false))));
+                };
+                let Some((_, prototype)) = Prototype::opt_find(function, &PROTOTYPE_NAME.into())
+                else {
+                    return CodeResult::Return(Rc::new(RefCell::new(JsValue::Boolean(false))));
+                };
+                let JsValue::Prototype(prototype) = inline_borrow!(prototype) else {
+                    return CodeResult::Return(Rc::new(RefCell::new(JsValue::Boolean(false))));
+                };
+                let JsValue::Prototype(mut instance) = inline_borrow!(instance) else {
+                    return CodeResult::Return(Rc::new(RefCell::new(JsValue::Boolean(false))));
+                };
+                loop {
+                    let Some(parent) = instance.borrow().parent() else {
+                        break;
+                    };
+                    if Rc::ptr_eq(&parent, &prototype) {
+                        return CodeResult::Return(Rc::new(RefCell::new(
+                            JsValue::Boolean(true),
+                        )));
+                    }
+                    instance = parent;
+                }
+                CodeResult::Return(Rc::new(RefCell::new(JsValue::Boolean(false))))
+            }),
+        ),
+    );
+    function
+        .borrow_mut()
+        .properties
+        .insert(has_instance, has_instance_function);
     prebuild_iterator(prototypes.clone());
     prebuild_array(prototypes.clone());
     prebuild_date(prototypes.clone());

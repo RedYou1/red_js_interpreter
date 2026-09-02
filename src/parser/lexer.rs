@@ -57,6 +57,7 @@ pub enum Token {
     Mod,
     Eq,
     NotEq,
+    Not,
     Lt,
     Gt,
     LtEq,
@@ -446,8 +447,7 @@ impl<'a> Lexer<'a> {
                         }
                         return Token::NotEq;
                     } else {
-                        // For now, skip unknown '!'
-                        continue;
+                        return Token::Not;
                     }
                 }
                 '?' => {

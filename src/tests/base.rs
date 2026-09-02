@@ -187,6 +187,27 @@ assert_result!(
 );
 
 assert_result!(
+    test_date_set_year_to_number_error,
+    r#"
+    var date = new Date(0);
+    function ConversionError() {
+        if (!(this instanceof ConversionError)) return new ConversionError();
+    }
+    var year = {
+        valueOf: function() {
+            throw new ConversionError();
+        }
+    };
+    var threw = false;
+    try { date.setYear(year); } catch (error) { threw = error instanceof ConversionError; }
+    console.log(threw);
+    console.log(date.valueOf());
+    "#,
+    "true",
+    "0"
+);
+
+assert_result!(
     test_date_set_year_is_not_a_constructor,
     r#"
     var constructable = true;
