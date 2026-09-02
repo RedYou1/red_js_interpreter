@@ -7,6 +7,7 @@ pub use crate::{
     JsValue, Prototype, new_runnable,
     prebuild::{
         array::new_array,
+        array::new_array_with_length,
         console::{CONSOLE_LOGS, default_console_config},
     },
     prebuild_prototypes, run_function_object,

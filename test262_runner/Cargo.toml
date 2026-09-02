@@ -1,0 +1,14 @@
+[package]
+name = "test262_runner"
+version = "0.1.0"
+edition = "2024"
+default-run = "test262"
+
+[[bin]]
+name = "test262"
+path = "src/main.rs"
+
+[dependencies]
+red_js_interpreter = { path = ".." }
+serde = { version = "1.0", features = ["derive"] }
+serde_yaml = "0.9"

@@ -16,7 +16,10 @@ pub fn test_new_array() {
         Rc::new(RefCell::new(JsValue::Undefined)),
         vec![],
     );
-    assert_eq!(arr, CodeResult::Return(new_array(array.clone(), vec![])));
+    assert_eq!(
+        arr,
+        CodeResult::Return(new_array_with_length(array.clone(), 0))
+    );
     let arr = run_function_object(
         constructor.clone(),
         Rc::new(RefCell::new(JsValue::Undefined)),
@@ -24,16 +27,7 @@ pub fn test_new_array() {
     );
     assert_eq!(
         arr,
-        CodeResult::Return(new_array(
-            array.clone(),
-            vec![
-                Rc::new(RefCell::new(JsValue::Undefined)),
-                Rc::new(RefCell::new(JsValue::Undefined)),
-                Rc::new(RefCell::new(JsValue::Undefined)),
-                Rc::new(RefCell::new(JsValue::Undefined)),
-                Rc::new(RefCell::new(JsValue::Undefined))
-            ]
-        ))
+        CodeResult::Return(new_array_with_length(array.clone(), 5))
     );
     let content = vec![
         Rc::new(RefCell::new(JsValue::BigInt(1))),

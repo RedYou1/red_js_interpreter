@@ -21,6 +21,19 @@ pub fn new_array(
     Rc::new(RefCell::new(JsValue::Prototype(proto)))
 }
 
+pub fn new_array_with_length(array: Rc<RefCell<Prototype>>, length: i64) -> Rc<RefCell<JsValue>> {
+    logln(
+        LogLevel::Trace,
+        &format!("Array::new_array_with_length length={}", length),
+    );
+    let proto = Prototype::new_child(array, None, []);
+    proto.borrow_mut().properties.insert(
+        "length".into(),
+        Rc::new(RefCell::new(JsValue::BigInt(length))),
+    );
+    Rc::new(RefCell::new(JsValue::Prototype(proto)))
+}
+
 new_class! {
     prebuild_array,
     Array,
@@ -30,10 +43,7 @@ new_class! {
         let array = Prototype::find(mem.clone(), &stringify!(Array).into()).1.borrow().unwrap_proto("Array.constructor for Array");
         if let [nlength] = &arguments[..] && let JsValue::BigInt(nlength) = inline_borrow!(nlength) && (0..=(u32::MAX as i64)).contains(&nlength)
         {
-            CodeResult::Return(new_array(
-                array,
-                (0..nlength).map(|_| Rc::new(RefCell::new(JsValue::Undefined))).collect(),
-            ))
+            CodeResult::Return(new_array_with_length(array, nlength))
         } else {
             CodeResult::Return(new_array(array, arguments))
         }
