@@ -1,4 +1,4 @@
-use crate::{CodeResult, JsValue, inline_borrow, parse, tests::*};
+use crate::{CodeResult, JsValue, assert_result, tests::*};
 
 #[test]
 pub fn test_new_array() {
@@ -56,75 +56,62 @@ pub fn test_new_array() {
     );
 }
 
-#[test]
-pub fn test_date_get_year() {
-    let protos = prebuild_prototypes(default_console_config);
-    let eval = |source| {
-        let program = parse(&format!("return {source};")).compile(protos.clone());
-        let function = Prototype::find(protos.clone(), &JsValue::String("Function".to_owned()))
-            .1
-            .borrow()
-            .unwrap_proto("test_date_get_year for Function");
-        let main = new_runnable(function, "__date_test__", program)
-            .borrow()
-            .unwrap_proto("test_date_get_year for main");
-        let result = run_function_object(main, Rc::new(RefCell::new(JsValue::Undefined)), vec![]);
-        inline_borrow!(match result {
-            CodeResult::Return(value) | CodeResult::Normal(value) => value,
-            result => panic!("unexpected Date result: {result:?}"),
-        })
-    };
+assert_result!(
+    test_date_get_year,
+    r#"
+    console.log(new Date(1899, 0).getYear());
+    console.log(new Date(1899, 11, 31, 23, 59, 59, 999).getYear());
+    console.log(new Date(1900, 0).getYear());
+    console.log(new Date(1900, 11, 31, 23, 59, 59, 999).getYear());
+    console.log(new Date(1970, 0).getYear());
+    console.log(new Date(1970, 11, 31, 23, 59, 59, 999).getYear());
+    console.log(new Date(2000, 0).getYear());
+    console.log(new Date(2000, 11, 31, 23, 59, 59, 999).getYear());
+    console.log(new Date(0, 0).getYear());
+    console.log(new Date(99, 0).getYear());
+    console.log(new Date(100, 0).getYear());
+    console.log(new Date(1970, 12, 1).getYear());
+    console.log(new Date({}).getYear());
+    console.log(Date.prototype.getYear.name);
+    console.log(Date.prototype.getYear.length);
+    "#,
+    "-1",
+    "-1",
+    "0",
+    "0",
+    "70",
+    "70",
+    "100",
+    "100",
+    "0",
+    "99",
+    "-1800",
+    "71",
+    "NaN",
+    "getYear",
+    "0"
+);
 
-    assert_eq!(eval("new Date(1899, 0).getYear()"), JsValue::Number(-1.0));
-    assert_eq!(
-        eval("new Date(1899, 11, 31, 23, 59, 59, 999).getYear()"),
-        JsValue::Number(-1.0)
-    );
-    assert_eq!(eval("new Date(1900, 0).getYear()"), JsValue::Number(0.0));
-    assert_eq!(
-        eval("new Date(1900, 11, 31, 23, 59, 59, 999).getYear()"),
-        JsValue::Number(0.0)
-    );
-    assert_eq!(eval("new Date(1970, 0).getYear()"), JsValue::Number(70.0));
-    assert_eq!(eval("new Date(2000, 0).getYear()"), JsValue::Number(100.0));
-    assert!(matches!(eval("new Date({}).getYear()"), JsValue::Number(value) if value.is_nan()));
-    assert_eq!(
-        eval("Date.prototype.getYear.name"),
-        JsValue::String("getYear".to_owned())
-    );
-    assert_eq!(eval("Date.prototype.getYear.length"), JsValue::BigInt(0));
-}
+assert_result!(
+    test_date_get_year_requires_date,
+    r#"
+    var getYear = Date.prototype.getYear;
+    var objectThrew = false;
+    var undefinedThrew = false;
+    var nullThrew = false;
+    try { getYear.call({}); } catch (_) { objectThrew = true; }
+    try { getYear.call(undefined); } catch (_) { undefinedThrew = true; }
+    try { getYear.call(null); } catch (_) { nullThrew = true; }
+    console.log(objectThrew);
+    console.log(undefinedThrew);
+    console.log(nullThrew);
+    "#,
+    "true",
+    "true",
+    "true"
+);
 
-#[test]
-pub fn test_date_get_year_requires_date() {
-    let protos = prebuild_prototypes(default_console_config);
-    let program = parse("return Date.prototype.getYear.call({});").compile(protos.clone());
-    let function = Prototype::find(protos.clone(), &JsValue::String("Function".to_owned()))
-        .1
-        .borrow()
-        .unwrap_proto("test_date_get_year_requires_date for Function");
-    let main = new_runnable(function.clone(), "__date_type_test__", program)
-        .borrow()
-        .unwrap_proto("test_date_get_year_requires_date for main");
-    let result = run_function_object(main, Rc::new(RefCell::new(JsValue::Undefined)), vec![]);
-    assert!(matches!(result, CodeResult::Error(_)));
-
-    let program = parse(
-        "function assertThrows(f) { var threw = false; try { f(); } catch (_) { threw = true; } return threw; } return assertThrows(function() { Date.prototype.getYear.call({}); });",
-    )
-    .compile(protos.clone());
-    let main = new_runnable(function, "__date_type_function_catch_test__", program)
-        .borrow()
-        .unwrap_proto("test_date_get_year_requires_date for function catch main");
-    let result = run_function_object(main, Rc::new(RefCell::new(JsValue::Undefined)), vec![]);
-    let result = match result {
-        CodeResult::Return(value) | CodeResult::Normal(value) => inline_borrow!(value),
-        result => panic!("unexpected Date function catch result: {result:?}"),
-    };
-    assert_eq!(result, JsValue::Boolean(true));
-}
-
-fn append(logs_ptr: &mut i64, value: String) {
+fn append_console_log(logs_ptr: &mut i64, value: String) {
     let logs = unsafe { ((*logs_ptr) as *mut Vec<String>).as_mut_unchecked() };
     logs.push(value);
 }
@@ -133,7 +120,7 @@ fn append(logs_ptr: &mut i64, value: String) {
 pub fn test_console() {
     let mut logs = Vec::new();
     let protos = prebuild_prototypes_test(&mut Loggable::<i64> {
-        logger: &(append as fn(&mut i64, String)),
+        logger: &(append_console_log as fn(&mut i64, String)),
         data: &mut logs as *mut Vec<String> as i64,
     });
 
