@@ -112,6 +112,28 @@ assert_result!(
 );
 
 assert_result!(
+    test_date_get_year_is_not_a_constructor,
+    r#"
+    var date = new Date(Date.now());
+    var constructable = true;
+    var threw = false;
+    try { Reflect.construct(function(){}, [], Date.prototype.getYear); } catch (_) { constructable = false; }
+    var callbackType = "";
+    function assertThrows(expected, callback) {
+        callbackType = typeof callback;
+        try { callback(); } catch (error) { threw = error.constructor === expected; }
+    }
+    assertThrows(TypeError, () => { new date.getYear(); });
+    console.log(constructable);
+    console.log(callbackType);
+    console.log(threw);
+    "#,
+    "false",
+    "function",
+    "true"
+);
+
+assert_result!(
     test_date_set_year,
     r#"
     var date = new Date(1970, 1, 2, 3, 4, 5);
