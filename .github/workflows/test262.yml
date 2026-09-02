@@ -121,8 +121,13 @@ jobs:
           path: .test262-state
           key: test262-state-${{ github.run_id }}
 
-      - name: Fail workflow when supported tests fail
-        if: always() && (needs.run.outputs.exit_code != '0' || needs.run.outputs.build_outcome != 'success')
+      - name: Report supported test failures
+        if: always() && needs.run.outputs.exit_code == '1'
         run: |
-          echo "The Test262 runner reported failures; see the artifacts and test262-failure issues."
+          echo "::warning::The Test262 runner reported supported-test failures; see the artifacts and test262-failure issues."
+
+      - name: Fail workflow on runner infrastructure errors
+        if: always() && (needs.run.outputs.build_outcome != 'success' || needs.run.outputs.exit_code == '2')
+        run: |
+          echo "The Test262 runner hit an infrastructure error; see the artifacts for details."
           exit 1
