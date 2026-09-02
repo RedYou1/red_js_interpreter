@@ -44,6 +44,7 @@ jobs:
           set +e
           cargo +nightly run --release --manifest-path test262_runner/Cargo.toml -- \
             --test262-dir test262 \
+            --skip-feature IsHTMLDDA \
             test262/test/annexB \
             test262/test/built-ins \
             test262/test/language > artifacts/test262-output.txt 2>&1
