@@ -84,9 +84,7 @@ impl Expr for Try {
                     },
                 );
                 let t = run_sub(catch.as_ref(), child, &mut CodeIndex::new());
-                if matches!(t, CodeResult::Return(_) | CodeResult::Error(_)) {
-                    res = t;
-                }
+                res = t;
             }
             if let Some(finally) = finally.as_ref() {
                 logln(LogLevel::Trace, "Entering Expr::Try finally");

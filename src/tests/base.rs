@@ -103,11 +103,25 @@ pub fn test_date_get_year_requires_date() {
         .1
         .borrow()
         .unwrap_proto("test_date_get_year_requires_date for Function");
-    let main = new_runnable(function, "__date_type_test__", program)
+    let main = new_runnable(function.clone(), "__date_type_test__", program)
         .borrow()
         .unwrap_proto("test_date_get_year_requires_date for main");
     let result = run_function_object(main, Rc::new(RefCell::new(JsValue::Undefined)), vec![]);
     assert!(matches!(result, CodeResult::Error(_)));
+
+    let program = parse(
+        "function assertThrows(f) { var threw = false; try { f(); } catch (_) { threw = true; } return threw; } return assertThrows(function() { Date.prototype.getYear.call({}); });",
+    )
+    .compile(protos.clone());
+    let main = new_runnable(function, "__date_type_function_catch_test__", program)
+        .borrow()
+        .unwrap_proto("test_date_get_year_requires_date for function catch main");
+    let result = run_function_object(main, Rc::new(RefCell::new(JsValue::Undefined)), vec![]);
+    let result = match result {
+        CodeResult::Return(value) | CodeResult::Normal(value) => inline_borrow!(value),
+        result => panic!("unexpected Date function catch result: {result:?}"),
+    };
+    assert_eq!(result, JsValue::Boolean(true));
 }
 
 fn append(logs_ptr: &mut i64, value: String) {
