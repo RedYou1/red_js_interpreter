@@ -9,7 +9,6 @@ import json
 import os
 import re
 import sys
-from collections import defaultdict
 from pathlib import Path, PurePosixPath
 from urllib import error, parse, request
 
@@ -124,7 +123,7 @@ class GitHub:
             method=method,
             headers={
                 "Accept": "application/vnd.github+json",
-                "Authorization": f"******",
+                "Authorization": "Bearer " + self.token,
                 "X-GitHub-Api-Version": "2022-11-28",
                 "Content-Type": "application/json",
             },

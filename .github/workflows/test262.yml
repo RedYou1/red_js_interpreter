@@ -18,6 +18,7 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       exit_code: ${{ steps.test262.outputs.exit_code }}
+      build_outcome: ${{ steps.build.outcome }}
     steps:
       - name: Check out interpreter
         uses: actions/checkout@v4
@@ -30,6 +31,8 @@ jobs:
           fetch-depth: 1
 
       - name: Build runner
+        id: build
+        continue-on-error: true
         run: cargo build --release --manifest-path test262_runner/Cargo.toml
 
       - name: Run supported Test262 tests
@@ -116,7 +119,7 @@ jobs:
           key: test262-state-${{ github.run_id }}
 
       - name: Fail workflow when supported tests fail
-        if: always() && needs.run.outputs.exit_code != '0'
+        if: always() && (needs.run.outputs.exit_code != '0' || needs.run.outputs.build_outcome != 'success')
         run: |
           echo "The Test262 runner reported failures; see the artifacts and test262-failure issues."
           exit 1
