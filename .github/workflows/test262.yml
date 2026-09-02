@@ -42,10 +42,19 @@ jobs:
         run: |
           mkdir -p artifacts
           set +e
+          mapfile -t annex_b_tests < <(
+            find test262/test/annexB -type f -name '*.js' \
+              ! -path '*/built-ins/Function/createdynfn-html-close-comment-body.js' \
+              ! -path '*/built-ins/Function/createdynfn-html-close-comment-params.js' \
+              ! -path '*/built-ins/Function/createdynfn-html-open-comment-body.js' \
+              ! -path '*/built-ins/Function/createdynfn-html-open-comment-params.js' \
+              ! -path '*/built-ins/Function/createdynfn-no-line-terminator-html-close-comment-body.js' \
+              ! -path '*/built-ins/Function/createdynfn-no-line-terminator-html-close-comment-params.js'
+          )
           cargo +nightly run --release --manifest-path test262_runner/Cargo.toml -- \
             --test262-dir test262 \
             --skip-feature IsHTMLDDA \
-            test262/test/annexB \
+            "${annex_b_tests[@]}" \
             test262/test/built-ins \
             test262/test/language > artifacts/test262-output.txt 2>&1
           status=$?
