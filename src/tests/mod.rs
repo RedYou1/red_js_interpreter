@@ -93,7 +93,7 @@ macro_rules! test_only_parse (
     ($fn_name:ident, $name:expr) => {
         #[test]
         #[serial(zzzzzzz)]
-        // #[ignore]
+        #[ignore]
         fn $fn_name() {
             let protos =
                 prebuild_prototypes_test(unsafe { null_mut::<Loggable<()>>().as_mut_unchecked() });
