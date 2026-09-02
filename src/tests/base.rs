@@ -1,4 +1,4 @@
-use crate::{CodeResult, tests::*};
+use crate::{CodeResult, JsValue, assert_result, tests::*};
 
 #[test]
 pub fn test_new_array() {
@@ -56,7 +56,62 @@ pub fn test_new_array() {
     );
 }
 
-fn append(logs_ptr: &mut i64, value: String) {
+assert_result!(
+    test_date_get_year,
+    r#"
+    console.log(new Date(1899, 0).getYear());
+    console.log(new Date(1899, 11, 31, 23, 59, 59, 999).getYear());
+    console.log(new Date(1900, 0).getYear());
+    console.log(new Date(1900, 11, 31, 23, 59, 59, 999).getYear());
+    console.log(new Date(1970, 0).getYear());
+    console.log(new Date(1970, 11, 31, 23, 59, 59, 999).getYear());
+    console.log(new Date(2000, 0).getYear());
+    console.log(new Date(2000, 11, 31, 23, 59, 59, 999).getYear());
+    console.log(new Date(0, 0).getYear());
+    console.log(new Date(99, 0).getYear());
+    console.log(new Date(100, 0).getYear());
+    console.log(new Date(1970, 12, 1).getYear());
+    console.log(new Date({}).getYear());
+    console.log(Date.prototype.getYear.name);
+    console.log(Date.prototype.getYear.length);
+    "#,
+    "-1",
+    "-1",
+    "0",
+    "0",
+    "70",
+    "70",
+    "100",
+    "100",
+    "0",
+    "99",
+    "-1800",
+    "71",
+    "NaN",
+    "getYear",
+    "0"
+);
+
+assert_result!(
+    test_date_get_year_requires_date,
+    r#"
+    var getYear = Date.prototype.getYear;
+    var objectThrew = false;
+    var undefinedThrew = false;
+    var nullThrew = false;
+    try { getYear.call({}); } catch (_) { objectThrew = true; }
+    try { getYear.call(undefined); } catch (_) { undefinedThrew = true; }
+    try { getYear.call(null); } catch (_) { nullThrew = true; }
+    console.log(objectThrew);
+    console.log(undefinedThrew);
+    console.log(nullThrew);
+    "#,
+    "true",
+    "true",
+    "true"
+);
+
+fn append_console_log(logs_ptr: &mut i64, value: String) {
     let logs = unsafe { ((*logs_ptr) as *mut Vec<String>).as_mut_unchecked() };
     logs.push(value);
 }
@@ -65,7 +120,7 @@ fn append(logs_ptr: &mut i64, value: String) {
 pub fn test_console() {
     let mut logs = Vec::new();
     let protos = prebuild_prototypes_test(&mut Loggable::<i64> {
-        logger: &(append as fn(&mut i64, String)),
+        logger: &(append_console_log as fn(&mut i64, String)),
         data: &mut logs as *mut Vec<String> as i64,
     });
 

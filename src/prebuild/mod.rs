@@ -4,6 +4,7 @@ use crate::{ARGUMENTS, CodeResult, JsValue, Prototype, Runnable, inline_borrow};
 
 pub mod array;
 pub mod console;
+pub mod date;
 pub mod error;
 pub mod iterator;
 pub mod math;
