@@ -22,7 +22,7 @@ INFRASTRUCTURE_MARKERS = (
     "runner infrastructure",
 )
 LABEL = "test262-failure"
-DEFAULT_MAX_OPEN_TASKS = 8
+DEFAULT_MAX_OPEN_TASKS = 32
 
 
 def parse_features(test262_dir: Path, test_path: str) -> tuple[str, ...]:
