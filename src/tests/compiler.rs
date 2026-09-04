@@ -780,4 +780,196 @@ assert_result!(
     "2",
     "2" //,"[object Object]"
 );
+
+assert_result!(
+    test_regex_constructor_and_literal,
+    r#"
+    console.log(typeof RegExp);
+    var constructor = new RegExp("a+", "g");
+    console.log(constructor.source);
+    console.log(constructor.flags);
+    console.log(constructor.test("xxaa"));
+    console.log(constructor.lastIndex);
+    console.log(constructor.toString());
+
+    var literal = /\d+/;
+    console.log(literal.test("abc123"));
+    console.log(literal.exec("abc123")[0]);
+    console.log(literal.toString());
+    "#,
+    "function",
+    "a+",
+    "g",
+    "true",
+    "4",
+    "/a+/g",
+    "true",
+    "123",
+    "/\\d+/"
+);
+
+assert_result!(
+    test_regexp_compile_metadata,
+    r#"
+    console.log(typeof RegExp.prototype.compile);
+    console.log(RegExp.prototype.compile.name);
+    console.log(RegExp.prototype.compile.length);
+    let descriptor = Object.getOwnPropertyDescriptor(RegExp.prototype.compile, "length");
+    console.log(descriptor.value);
+    console.log(descriptor.writable);
+    console.log(descriptor.enumerable);
+    console.log(descriptor.configurable);
+    "#,
+    "function",
+    "compile",
+    "2",
+    "2",
+    "false",
+    "false",
+    "true"
+);
+
+assert_result!(
+    test_regexp_compile_reinitializes,
+    r#"
+    let re = /a/g;
+    re.lastIndex = 4;
+    let result = re.compile("b", "y");
+    console.log(result === re);
+    console.log(re.source);
+    console.log(re.flags);
+    console.log(re.lastIndex);
+    console.log(re.test("b"));
+    console.log(re.lastIndex);
+    "#,
+    "true",
+    "b",
+    "y",
+    "0",
+    "true",
+    "1"
+);
+
+assert_result!(
+    test_regexp_compile_canonical_flags,
+    r#"
+    let re = /x/;
+    re.compile("x", "ysimug");
+    console.log(re.flags);
+    "#,
+    "gimsuy"
+);
+
+assert_result!(
+    test_regexp_compile_regexp_pattern,
+    r#"
+    let source = /a+/g;
+    let target = /old/;
+    console.log(target.compile(source) === target);
+    console.log(target.source);
+    console.log(target.flags);
+    console.log(target.test("caa"));
+    "#,
+    "true",
+    "a+",
+    "g",
+    "true"
+);
+
+assert_result!(
+    test_regexp_compile_preserves_state_on_error,
+    r#"
+    let re = /ok/g;
+    re.lastIndex = 2;
+    try {
+        re.compile("[", "i");
+    } catch (error) {
+        console.log(typeof error);
+    }
+    console.log(re.source);
+    console.log(re.flags);
+    console.log(re.lastIndex);
+    console.log(re.test("ok"));
+    "#,
+    "object",
+    "ok",
+    "g",
+    "2",
+    "false"
+);
+
+assert_result!(
+    test_object_primordial_methods,
+    r#"
+    console.log(Object.prototype.toString.call({}));
+    console.log(Object.prototype.hasOwnProperty.call({a: 1}, "a"));
+    console.log(Object.prototype.propertyIsEnumerable.call({a: 1}, "a"));
+    let bound = Function.prototype.call.bind(Object.prototype.toString);
+    console.log(bound({}));
+    let values = [];
+    let push = Function.prototype.call.bind(Array.prototype.push);
+    console.log(push(values, "value"));
+    let join = Function.prototype.call.bind(Array.prototype.join);
+    console.log(join(values, ","));
+    console.log(Object.getOwnPropertyNames({a: 1})[0]);
+    "#,
+    "[object Object]",
+    "true",
+    "false",
+    "[object Object]",
+    "1",
+    "value",
+    "a"
+);
+
+assert_result!(
+    test_function_arguments_binding,
+    r#"
+    function count(first) {
+        return arguments.length;
+    }
+    console.log(count(1, 2, 3));
+    "#,
+    "3"
+);
+
+assert_result!(
+    test_logical_operators_short_circuit,
+    r#"
+    console.log(false && missing.value);
+    console.log(true || missing.value);
+    "#,
+    "false",
+    "true"
+);
+
+assert_result!(
+    test_regexp_compile_descriptor_values,
+    r#"
+    let desc = Object.getOwnPropertyDescriptor(RegExp.prototype.compile, "length");
+    console.log(desc.value);
+    console.log(desc.writable);
+    console.log(desc.enumerable);
+    console.log(desc.configurable);
+    console.log(Object.prototype.hasOwnProperty.call(desc, "__proto__"));
+    console.log(desc.value === RegExp.prototype.compile.length);
+    "#,
+    "2",
+    "false",
+    "false",
+    "true",
+    "false",
+    "true"
+);
+
+assert_result!(
+    test_delete_operator,
+    r#"
+    let object = {a: 1};
+    console.log(delete object.a);
+    console.log(Object.prototype.hasOwnProperty.call(object, "a"));
+    "#,
+    "true",
+    "false"
+);
 //TODO obj casting (remove temp string cast to number when subing)

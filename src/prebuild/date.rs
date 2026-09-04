@@ -303,10 +303,11 @@ fn to_number(env: Environment, value: Rc<RefCell<JsValue>>) -> Result<f64, CodeR
                 | JsValue::Prototype(_)
                 | JsValue::Symbol(_, _)
                 | JsValue::Function(_)
-                | JsValue::Generator(_) => Ok(f64::NAN),
+                | JsValue::Generator(_)
+                | JsValue::RedGex(_) => Ok(f64::NAN),
             }
         }
-        JsValue::Function(_) | JsValue::Generator(_) => Ok(f64::NAN),
+        JsValue::Function(_) | JsValue::Generator(_) | JsValue::RedGex(_) => Ok(f64::NAN),
     }
 }
 

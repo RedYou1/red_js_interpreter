@@ -1,11 +1,13 @@
 use std::{cell::RefCell, fmt::Debug, hash::Hash, rc::Rc};
 
 use crate::{Generator, PROTO_NAME, Prototype, Runnable, inline_borrow};
+use redgex::RedGex;
 
 #[derive(Clone)]
 pub enum JsValue {
     Function(Rc<Runnable>),
     Generator(Rc<Generator>),
+    RedGex(Rc<RedGex>),
 
     Prototype(Rc<RefCell<Prototype>>),
     Symbol(u64, Box<JsValue>),
@@ -23,6 +25,7 @@ impl PartialEq for JsValue {
     fn eq(&self, other: &Self) -> bool {
         match (self, other) {
             (Self::Prototype(l0), Self::Prototype(r0)) => l0.eq(r0),
+            (Self::RedGex(l0), Self::RedGex(r0)) => Rc::ptr_eq(l0, r0),
             (Self::Symbol(l0, l1), Self::Symbol(r0, r1)) => *l0 == *r0 && l1.eq(r1),
             (Self::String(l0), Self::String(r0)) => l0.eq(r0),
             (Self::Number(l0), Self::Number(r0)) => *l0 == *r0,
@@ -50,7 +53,11 @@ impl Hash for JsValue {
             Self::Number(value) => value.to_bits().hash(state),
             Self::BigInt(value) => (*value as f64).to_bits().hash(state),
             Self::Boolean(value) => value.hash(state),
-            Self::Undefined | Self::Null | Self::Function(_) | Self::Generator(_) => {}
+            Self::Undefined
+            | Self::Null
+            | Self::Function(_)
+            | Self::Generator(_)
+            | Self::RedGex(_) => {}
         }
     }
 }
@@ -128,6 +135,7 @@ impl JsValue {
         match self {
             JsValue::Function(_) => "[Function (anonymous)]".to_owned(),
             JsValue::Generator(_) => "[GeneratorFunction (anonymous)]".to_owned(),
+            JsValue::RedGex(_) => "[RedGex]".to_owned(),
             JsValue::Prototype(ref_cell) => {
                 if let JsValue::Prototype(ref class) =
                     inline_borrow!(ref_cell.borrow().properties[&PROTO_NAME.into()].clone())
@@ -215,6 +223,7 @@ impl Debug for JsValue {
         match self {
             Self::Function(arg0) => f.debug_tuple("Function").field(arg0).finish(),
             Self::Generator(arg0) => f.debug_tuple("Generator").field(arg0).finish(),
+            Self::RedGex(_) => f.write_str("RedGex"),
             Self::Prototype(arg0) => f.debug_tuple("Prototype").field(arg0.as_ref()).finish(),
             Self::Symbol(arg0, arg1) => f.debug_tuple("Symbol").field(arg0).field(arg1).finish(),
             Self::String(arg0) => f.debug_tuple("String").field(arg0).finish(),

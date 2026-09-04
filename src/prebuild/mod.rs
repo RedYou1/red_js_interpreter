@@ -10,6 +10,7 @@ pub mod iterator;
 pub mod math;
 pub mod number;
 mod prelude;
+pub mod regex;
 pub mod string;
 pub mod symbol;
 
@@ -55,13 +56,7 @@ pub fn prebuild_runnable<const WANTED_PARAM: usize>(
 
 pub fn prebuild_runnable_direct(
     env: Environment,
-    fun: Box<
-        dyn Fn(
-            Environment,
-            Rc<RefCell<JsValue>>,
-            Vec<Rc<RefCell<JsValue>>>,
-        ) -> CodeResult,
-    >,
+    fun: Box<dyn Fn(Environment, Rc<RefCell<JsValue>>, Vec<Rc<RefCell<JsValue>>>) -> CodeResult>,
 ) -> Runnable {
     Runnable {
         params: Vec::new(),

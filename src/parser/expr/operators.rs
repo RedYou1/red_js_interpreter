@@ -195,6 +195,34 @@ impl Expr for Not {
     }
 }
 
+#[derive(Debug)]
+pub struct Delete {
+    pub expr: Box<dyn Expr>,
+}
+
+impl Expr for Delete {
+    fn compile(&self, env: Environment) -> Vec<Code> {
+        let expr = self.expr.compile(env);
+        vec![Box::new(move |env, _| {
+            let result = run_sub(&expr, env.clone(), &mut CodeIndex::new());
+            let (object, key) = match result {
+                CodeResult::NormalMember(_, object, key) => (object, key),
+                _ => {
+                    return CodeResult::Normal(Rc::new(RefCell::new(JsValue::Boolean(true))));
+                }
+            };
+            object.borrow_mut().properties.remove(&inline_borrow!(key));
+            CodeResult::Normal(Rc::new(RefCell::new(JsValue::Boolean(true))))
+        })]
+    }
+
+    fn duplicate(&self) -> Box<dyn Expr> {
+        Box::new(Self {
+            expr: self.expr.duplicate(),
+        })
+    }
+}
+
 impl Expr for Operator {
     fn compile(&self, env: Environment) -> Vec<Code> {
         let left = self.left.compile(env.clone());
@@ -204,11 +232,22 @@ impl Expr for Operator {
             env.logger.borrow_mut().logln(LogLevel::Trace, &|| {
                 format!("Entering Expr::Operator op={:?}", op)
             });
-            let l = inline_borrow!(handle_return!(run_sub(
-                &left,
-                env.clone(),
-                &mut CodeIndex::new()
-            )));
+            let left_value = handle_return!(run_sub(&left, env.clone(), &mut CodeIndex::new()));
+            if op == BinaryOp::LogAnd || op == BinaryOp::LogOr {
+                let left_truthy = left_value.borrow().is_truthy();
+                let should_return_left =
+                    (op == BinaryOp::LogAnd && !left_truthy)
+                        || (op == BinaryOp::LogOr && left_truthy);
+                if should_return_left {
+                    return CodeResult::Normal(left_value);
+                }
+                return CodeResult::Normal(handle_return!(run_sub(
+                    &right,
+                    env.clone(),
+                    &mut CodeIndex::new()
+                )));
+            }
+            let l = inline_borrow!(left_value);
             let r = inline_borrow!(handle_return!(run_sub(
                 &right,
                 env.clone(),

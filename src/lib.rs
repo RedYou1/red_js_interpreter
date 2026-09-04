@@ -147,11 +147,12 @@ use crate::prebuild::{
     array::prebuild_array,
     console::prebuild_console,
     date::prebuild_date,
-    error::{prebuild_error, prebuild_type_error},
+    error::{prebuild_error, prebuild_syntax_error, prebuild_type_error},
     iterator::{prebuild_iterator, prebuild_itergen},
     math::prebuild_math,
     number::prebuild_number,
     prebuild_runnable, prebuild_runnable_direct,
+    regex::prebuild_regex,
     string::prebuild_string,
     symbol::prebuild_symbol,
 };
@@ -193,6 +194,10 @@ pub fn prebuild_prototypes(
     }));
 
     let function = Prototype::new_child(object.clone(), Some("Function"), []);
+    function.borrow_mut().properties.insert(
+        PROTOTYPE_NAME.into(),
+        Rc::new(RefCell::new(JsValue::Prototype(function.clone()))),
+    );
 
     let env = Environment {
         mem: Rc::new(RefCell::new(Prototype {
@@ -241,6 +246,148 @@ pub fn prebuild_prototypes(
                 }),
             ),
         ),
+    );
+
+    let descriptor_object = object.clone();
+    object.borrow_mut().properties.insert(
+        "getOwnPropertyDescriptor".into(),
+        new_runnable_with_object(
+            function.clone(),
+            object.clone(),
+            "Object.getOwnPropertyDescriptor",
+            prebuild_runnable(
+                env.clone(),
+                Box::new(move |_env, _, [value, key]| {
+                    let JsValue::Prototype(target) = inline_borrow!(value) else {
+                        return CodeResult::Return(Rc::new(RefCell::new(JsValue::Undefined)));
+                    };
+                    let key = inline_borrow!(key);
+                    let Some(property) = target.borrow().properties.get(&key).cloned() else {
+                        return CodeResult::Return(Rc::new(RefCell::new(JsValue::Undefined)));
+                    };
+                    let writable = !matches!(key, JsValue::String(ref key) if key == "name" || key == "length");
+                    let descriptor = Prototype::new_child(
+                        descriptor_object.clone(),
+                        None,
+                        [
+                            ("value".into(), property),
+                            ("writable".into(), Rc::new(RefCell::new(JsValue::Boolean(writable)))),
+                            ("enumerable".into(), Rc::new(RefCell::new(JsValue::Boolean(false)))),
+                            ("configurable".into(), Rc::new(RefCell::new(JsValue::Boolean(true)))),
+                        ],
+                    );
+                    descriptor.borrow_mut().properties.remove(&PROTO_NAME.into());
+                    CodeResult::Return(Rc::new(RefCell::new(JsValue::Prototype(descriptor))))
+                }),
+            ),
+        ),
+    );
+
+    object.borrow_mut().properties.insert(
+        "getOwnPropertyNames".into(),
+        new_runnable_with_object(
+            function.clone(),
+            object.clone(),
+            "Object.getOwnPropertyNames",
+            prebuild_runnable(
+                env.clone(),
+                Box::new(|env, _, [value]| {
+                    let JsValue::Prototype(target) = inline_borrow!(value) else {
+                        return CodeResult::Return(Rc::new(RefCell::new(JsValue::Undefined)));
+                    };
+                    let names = target
+                        .borrow()
+                        .properties
+                        .keys()
+                        .filter_map(|key| match key {
+                            JsValue::String(key) => {
+                                Some(Rc::new(RefCell::new(JsValue::String(key.clone()))))
+                            }
+                            _ => None,
+                        })
+                        .collect();
+                    let array = Prototype::find(env.mem.clone(), &stringify!(Array).into())
+                        .1
+                        .borrow()
+                        .unwrap_proto("Object.getOwnPropertyNames for Array");
+                    CodeResult::Return(new_array(array, names, env.logger))
+                }),
+            ),
+        ),
+    );
+
+    let own_property_object = object.clone();
+    object.borrow_mut().properties.insert(
+        "hasOwnProperty".into(),
+        new_runnable_with_object(
+            function.clone(),
+            object.clone(),
+            "Object.prototype.hasOwnProperty",
+            prebuild_runnable(
+                env.clone(),
+                Box::new(move |_env, this, [key]| {
+                    let JsValue::Prototype(target) = inline_borrow!(this) else {
+                        return CodeResult::Return(Rc::new(RefCell::new(JsValue::Boolean(false))));
+                    };
+                    let key = inline_borrow!(key);
+                    CodeResult::Return(Rc::new(RefCell::new(JsValue::Boolean(
+                        target.borrow().properties.contains_key(&key),
+                    ))))
+                }),
+            ),
+        ),
+    );
+
+    object.borrow_mut().properties.insert(
+        "propertyIsEnumerable".into(),
+        new_runnable_with_object(
+            function.clone(),
+            own_property_object,
+            "Object.prototype.propertyIsEnumerable",
+            prebuild_runnable(
+                env.clone(),
+                Box::new(|_env, _this, [_key]| {
+                    CodeResult::Return(Rc::new(RefCell::new(JsValue::Boolean(false))))
+                }),
+            ),
+        ),
+    );
+    object.borrow_mut().properties.insert(
+        "toString".into(),
+        new_runnable_with_object(
+            function.clone(),
+            object.clone(),
+            "Object.prototype.toString",
+            prebuild_runnable(
+                env.clone(),
+                Box::new(|_env, this, []| {
+                    let tag = match inline_borrow!(this) {
+                        JsValue::Null => "Null",
+                        JsValue::Undefined => "Undefined",
+                        JsValue::Prototype(object) => object
+                            .borrow()
+                            .name
+                            .map(|name| match name {
+                                "Array" => "Array",
+                                "Function" => "Function",
+                                "RegExp" => "RegExp",
+                                "Error" | "TypeError" | "SyntaxError" => "Error",
+                                _ => "Object",
+                            })
+                            .unwrap_or("Object"),
+                        JsValue::Function(_) => "Function",
+                        _ => "Object",
+                    };
+                    CodeResult::Return(Rc::new(RefCell::new(JsValue::String(format!(
+                        "[object {tag}]"
+                    )))))
+                }),
+            ),
+        ),
+    );
+    object.borrow_mut().properties.insert(
+        PROTOTYPE_NAME.into(),
+        Rc::new(RefCell::new(JsValue::Prototype(object.clone()))),
     );
 
     let reflect = Prototype::new_child(object.clone(), Some("Reflect"), []);
@@ -367,8 +514,58 @@ pub fn prebuild_prototypes(
         .borrow_mut()
         .properties
         .insert(has_instance, has_instance_function);
+    let function_for_bind = function.clone();
+    let object_for_bind = object.clone();
+    function.borrow_mut().properties.insert(
+        "bind".into(),
+        new_runnable_with_object(
+            function_for_bind.clone(),
+            object_for_bind.clone(),
+            "Function.bind",
+            prebuild_runnable_direct(
+                env.clone(),
+                Box::new(move |env, this, arguments| {
+                    let JsValue::Prototype(target) = inline_borrow!(this) else {
+                        return CodeResult::Return(Rc::new(RefCell::new(JsValue::Undefined)));
+                    };
+                    let bound_this = arguments
+                        .first()
+                        .cloned()
+                        .unwrap_or_else(|| Rc::new(RefCell::new(JsValue::Undefined)));
+                    let target = target.clone();
+                    let bound_arguments = arguments.into_iter().skip(1).collect::<Vec<_>>();
+                    CodeResult::Return(new_runnable_with_object(
+                        function_for_bind.clone(),
+                        object_for_bind.clone(),
+                        "Function.bound",
+                        prebuild_runnable_direct(
+                            env.clone(),
+                            Box::new(move |env, _, arguments| {
+                                let mut call_arguments = bound_arguments.clone();
+                                call_arguments.extend(arguments);
+                                run_function_object(
+                                    target.clone(),
+                                    bound_this.clone(),
+                                    call_arguments,
+                                    env.logger.clone(),
+                                )
+                            }),
+                        ),
+                    ))
+                }),
+            ),
+        ),
+    );
     prebuild_iterator(env.clone());
     prebuild_array(env.clone());
+    let array = Prototype::find(env.mem.clone(), &stringify!(Array).into())
+        .1
+        .borrow()
+        .unwrap_proto("prebuild_prototypes for Array");
+    array.borrow_mut().properties.insert(
+        PROTOTYPE_NAME.into(),
+        Rc::new(RefCell::new(JsValue::Prototype(array.clone()))),
+    );
     prebuild_date(env.clone());
     prebuild_string(env.clone());
     prebuild_number(env.clone());
@@ -376,6 +573,7 @@ pub fn prebuild_prototypes(
     prebuild_console(env.clone());
     prebuild_error(env.clone());
     prebuild_type_error(env.clone());
+    prebuild_syntax_error(env.clone());
     env.mem.borrow().properties[&JsValue::String("console".to_owned())]
         .borrow()
         .unwrap_proto("prebuild_prototypes adding config to console")
@@ -396,6 +594,7 @@ pub fn prebuild_prototypes(
         "Infinity".into(),
         Rc::new(RefCell::new(JsValue::Number(f64::INFINITY))),
     );
+    prebuild_regex(env.clone());
     env.mem
 }
 

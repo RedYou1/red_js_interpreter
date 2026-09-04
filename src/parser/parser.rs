@@ -1,12 +1,10 @@
-use std::cell::RefCell;
-use std::collections::HashMap;
 use std::io::{Write, stdout};
 use std::rc::Rc;
 
 use crate::parser::ast::*;
 use crate::parser::expr::{self, Expr};
 use crate::parser::lexer::{Lexer, Token};
-use crate::{Environment, JsValue, LogLevel, Prototype};
+use crate::{Environment, JsValue, LogLevel};
 
 pub struct Parser {
     pub env: Environment,
@@ -432,6 +430,12 @@ impl Parser {
                 }));
                 Box::new(expr)
             }
+            Token::Delete => {
+                self.bump();
+                Box::new(expr::Delete {
+                    expr: self.parse_call_or_primary(false),
+                })
+            }
             Token::LBrace => Box::new(expr::Object::parse(self)),
             Token::LBracket | Token::LParen => {
                 let end = if let Token::LBracket = self.tokens[self.index] {
@@ -544,20 +548,11 @@ impl Parser {
                 self.bump();
                 Box::new(expr::ConstNumber { num: -value })
             }
-            Token::Regex(s) => {
-                let value = s.clone();
+            Token::Regex(source, flags) => {
+                let source = source.clone();
+                let flags = flags.clone();
                 self.bump();
-                //TODO do Regex
-                Box::new(expr::ConstObj {
-                    obj: JsValue::Prototype(Rc::new(RefCell::new(Prototype {
-                        name: None,
-                        properties: HashMap::from([(
-                            "value".into(),
-                            Rc::new(RefCell::new(value.into())),
-                        )]),
-                        formating: false,
-                    }))),
-                })
+                Box::new(expr::ConstRegex { source, flags })
             }
             e => {
                 let name = e.as_keyword().to_owned();

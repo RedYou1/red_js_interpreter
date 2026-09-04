@@ -22,7 +22,7 @@ new_class! {
             },
             JsValue::Boolean(b) => JsValue::BigInt(if b { 1 } else { 0 }),
             JsValue::Null | JsValue::Undefined => JsValue::BigInt(0),
-            JsValue::Prototype(_) | JsValue::Symbol(_, _) | JsValue::Function(_) | JsValue::Generator(_) => JsValue::BigInt(0),
+            JsValue::Prototype(_) | JsValue::Symbol(_, _) | JsValue::Function(_) | JsValue::Generator(_) | JsValue::RedGex(_) => JsValue::BigInt(0),
         })))
     },
     isNaN, fn,
