@@ -144,6 +144,7 @@ impl Expr for Typeof {
                 match inline_borrow!(t) {
                     JsValue::Function(_) => "function",
                     JsValue::Generator(_) => "function",
+                    JsValue::RedGex(_) => "object",
                     JsValue::Prototype(proto) => {
                         if proto.borrow().name.is_some() {
                             "function"

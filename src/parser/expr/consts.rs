@@ -101,3 +101,26 @@ impl Expr for ConstObj {
         Box::new(self.clone())
     }
 }
+
+#[derive(Debug, Clone)]
+pub struct ConstRegex {
+    pub source: String,
+    pub flags: String,
+}
+
+impl Expr for ConstRegex {
+    fn compile(&self, _env: Environment) -> Vec<Code> {
+        let source = self.source.clone();
+        let flags = self.flags.clone();
+        vec![Box::new(move |env, _| {
+            env.logger.borrow_mut().logln(LogLevel::Trace, &|| {
+                format!("Expr::ConstRegex source={source:?} flags={flags:?}")
+            });
+            crate::prebuild::regex::new_regex(env.clone(), source.clone(), flags.clone())
+        })]
+    }
+
+    fn duplicate(&self) -> Box<dyn Expr> {
+        Box::new(self.clone())
+    }
+}

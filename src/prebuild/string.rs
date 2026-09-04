@@ -17,7 +17,7 @@ new_class! {
             JsValue::BigInt(o) => CodeResult::Return(Rc::new(RefCell::new(JsValue::String(format!("{}", *o))))),
             JsValue::Number(o) => CodeResult::Return(Rc::new(RefCell::new(JsValue::String(format!("{}", *o))))),
             JsValue::Boolean(o) => CodeResult::Return(Rc::new(RefCell::new(JsValue::String(format!("{}", *o))))),
-            JsValue::Symbol(_, _) | JsValue::Function(_) | JsValue::Generator(_) => panic!("not implemented"),
+            JsValue::Symbol(_, _) | JsValue::Function(_) | JsValue::Generator(_) | JsValue::RedGex(_) => panic!("not implemented"),
         }
     },
     length, fn,

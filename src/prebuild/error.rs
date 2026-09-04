@@ -31,3 +31,19 @@ new_class! {
         CodeResult::Return(Rc::new(RefCell::new(JsValue::Prototype(proto))))
     };
 }
+
+new_class! {
+    prebuild_syntax_error,
+    SyntaxError,
+    Error,;
+    constructor, fn,
+    |env, _, [arg]| {
+        let error = Prototype::find(env.mem.clone(), &stringify!(SyntaxError).into()).1.borrow().unwrap_proto("SyntaxError.constructor for SyntaxError");
+        let proto = Prototype::new_child(
+            error,
+            None,
+            vec![("message".into(), arg)],
+        );
+        CodeResult::Return(Rc::new(RefCell::new(JsValue::Prototype(proto))))
+    };
+}

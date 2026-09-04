@@ -33,6 +33,7 @@ pub enum Token {
     Of,
     Typeof,
     Void,
+    Delete,
     InstanceOf,
 
     LParen,
@@ -75,7 +76,7 @@ pub enum Token {
     Finally,
     Throw,
 
-    Regex(String),
+    Regex(String, String),
 
     Eof,
 }
@@ -108,6 +109,7 @@ impl Token {
             "of" => Token::Of,
             "typeof" => Token::Typeof,
             "void" => Token::Void,
+            "delete" => Token::Delete,
             "instanceof" => Token::InstanceOf,
             "try" => Token::Try,
             "catch" => Token::Catch,
@@ -144,6 +146,7 @@ impl Token {
             Token::Of => "of",
             Token::Typeof => "typeof",
             Token::Void => "void",
+            Token::Delete => "delete",
             Token::InstanceOf => "instanceof",
             Token::Try => "try",
             Token::Catch => "catch",
@@ -340,23 +343,28 @@ impl<'a> Lexer<'a> {
                             return Token::Slash;
                         } else {
                             let mut s = String::new();
+                            let mut in_class = false;
                             while let Some(ch) = self.peek() {
                                 if ch == '\\' {
-                                    if let Some(escaped) = self.read_escaped_char() {
+                                    self.bump();
+                                    s.push('\\');
+                                    if let Some(escaped) = self.bump() {
                                         s.push(escaped);
                                     }
                                     continue;
                                 }
                                 self.bump();
-                                if ch == '/' {
+                                if ch == '[' {
+                                    in_class = true;
+                                } else if ch == ']' {
+                                    in_class = false;
+                                } else if ch == '/' && !in_class {
                                     break;
                                 }
                                 s.push(ch);
                             }
-                            if let Some('g') = self.peek() {
-                                self.bump();
-                            }
-                            return Token::Regex(s);
+                            let flags = self.eat_while(|flag| flag.is_ascii_alphabetic());
+                            return Token::Regex(s, flags);
                         }
                     }
 
