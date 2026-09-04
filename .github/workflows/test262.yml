@@ -54,6 +54,7 @@ jobs:
               ! -path '*/built-ins/String/prototype/italics/*' \
               ! -path '*/built-ins/String/prototype/link/*' \
               ! -path '*/built-ins/String/prototype/small/*' \
+              ! -path '*/built-ins/String/prototype/strike/*' \
               ! -path '*/built-ins/Function/createdynfn-html-close-comment-body.js' \
               ! -path '*/built-ins/Function/createdynfn-html-close-comment-params.js' \
               ! -path '*/built-ins/Function/createdynfn-html-open-comment-body.js' \
