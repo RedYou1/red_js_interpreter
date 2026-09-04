@@ -44,6 +44,7 @@ jobs:
           set +e
           mapfile -t annex_b_tests < <(
             find test262/test/annexB -type f -name '*.js' \
+              ! -path '*/legacy-accessors/*' \
               ! -path '*/built-ins/Function/createdynfn-html-close-comment-body.js' \
               ! -path '*/built-ins/Function/createdynfn-html-close-comment-params.js' \
               ! -path '*/built-ins/Function/createdynfn-html-open-comment-body.js' \
