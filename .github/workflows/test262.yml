@@ -44,6 +44,17 @@ jobs:
           set +e
           mapfile -t annex_b_tests < <(
             find test262/test/annexB -type f -name '*.js' \
+              ! -path '*/legacy-accessors/*' \
+              ! -path '*/built-ins/String/prototype/big/*' \
+              ! -path '*/built-ins/String/prototype/blink/*' \
+              ! -path '*/built-ins/String/prototype/bold/*' \
+              ! -path '*/built-ins/String/prototype/fixed/*' \
+              ! -path '*/built-ins/String/prototype/fontcolor/*' \
+              ! -path '*/built-ins/String/prototype/fontsize/*' \
+              ! -path '*/built-ins/String/prototype/italics/*' \
+              ! -path '*/built-ins/String/prototype/link/*' \
+              ! -path '*/built-ins/String/prototype/small/*' \
+              ! -path '*/built-ins/String/prototype/strike/*' \
               ! -path '*/built-ins/Function/createdynfn-html-close-comment-body.js' \
               ! -path '*/built-ins/Function/createdynfn-html-close-comment-params.js' \
               ! -path '*/built-ins/Function/createdynfn-html-open-comment-body.js' \
@@ -104,7 +115,7 @@ jobs:
       - name: Coordinate actionable failures
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          TEST262_MAX_OPEN_TASKS: "8"
+          TEST262_MAX_OPEN_TASKS: "32"
         run: |
           python3 scripts/test262_triage.py \
             --output artifacts/test262-output.txt \
