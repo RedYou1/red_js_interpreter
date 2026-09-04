@@ -1,5 +1,5 @@
 use crate::prebuild::prelude::*;
-use crate::{LogLevel, handle_error, logln};
+use crate::{LogLevel, handle_error};
 
 #[cfg(test)]
 pub const CONSOLE_LOGS: &str = "__$G%RH^&$%E$WG#ESOVBT__";
@@ -8,8 +8,8 @@ pub const CONSOLE_LOGS: &str = "__$G%RH^&$%E$WG#ESOVBT__";
 /// %d or %i Outputs an integer.<br>
 /// %s Outputs a string.<br>
 /// %f Outputs a floating-point value.<br>
-pub fn default_console_config(mem: Rc<RefCell<Prototype>>) -> Rc<RefCell<Prototype>> {
-    let function = Prototype::find(mem.clone(), &stringify!(Function).into())
+pub fn default_console_config(env: Environment) -> Rc<RefCell<Prototype>> {
+    let function = Prototype::find(env.mem.clone(), &stringify!(Function).into())
         .1
         .borrow()
         .unwrap_proto("default_console_config for Function");
@@ -17,7 +17,7 @@ pub fn default_console_config(mem: Rc<RefCell<Prototype>>) -> Rc<RefCell<Prototy
         function.clone(),
         "console.format.simple",
         prebuild_runnable(
-            mem.clone(),
+            env.clone(),
             Box::new(|_, _, [value]| {
                 CodeResult::Return(Rc::new(RefCell::new(JsValue::String(
                     value.borrow().print(),
@@ -29,7 +29,7 @@ pub fn default_console_config(mem: Rc<RefCell<Prototype>>) -> Rc<RefCell<Prototy
         function.clone(),
         "console.format.digit",
         prebuild_runnable(
-            mem.clone(),
+            env.clone(),
             Box::new(|_, _, [value]| {
                 CodeResult::Return(Rc::new(RefCell::new(JsValue::String(
                     match inline_borrow!(value) {
@@ -61,7 +61,7 @@ pub fn default_console_config(mem: Rc<RefCell<Prototype>>) -> Rc<RefCell<Prototy
                     function.clone(),
                     "console.format.float",
                     prebuild_runnable(
-                        mem.clone(),
+                        env.clone(),
                         Box::new(|_, _, [value]| {
                             CodeResult::Return(Rc::new(RefCell::new(JsValue::String(
                                 match inline_borrow!(value) {
@@ -117,7 +117,7 @@ new_class!(
     console,
     Object,
     __config__,JsValue::Null;
-    log, fn_direct, |_, this, arguments| {
+    log, fn_direct, |env, this, arguments| {
         if arguments.is_empty() {
             println!();
 
@@ -141,7 +141,7 @@ new_class!(
                     break;
                 }
                 if format.is_empty() {
-                    logln(
+                    env.logger.borrow_mut().logln_str(
                         LogLevel::Fatal,
                         "console.log formatter received a trailing '%' specifier",
                     );
@@ -156,18 +156,18 @@ new_class!(
                 }
 
                 let JsValue::Prototype(ref formater) = inline_borrow!(Prototype::find(config.clone(), &JsValue::String(formater.clone())).1) else {
-                    logln(LogLevel::Fatal, &format!("console.log formatter not found specifier={formater}"));
+                    env.logger.borrow_mut().logln(LogLevel::Fatal, &||format!("console.log formatter not found specifier={formater}"));
                     panic!("console formater {formater} not found")
                 };
-                let JsValue::String(ref res) = inline_borrow!(handle_error!(run_function_object(formater.clone(), Rc::new(RefCell::new(JsValue::Undefined)), vec![arguments[argi].clone()]))) else {
-                    logln(LogLevel::Fatal, &format!("console.log formatter returned a non-string specifier={formater:?}"));
+                let JsValue::String(ref res) = inline_borrow!(handle_error!(run_function_object(formater.clone(), Rc::new(RefCell::new(JsValue::Undefined)), vec![arguments[argi].clone()], env.logger.clone()))) else {
+                    env.logger.borrow_mut().logln(LogLevel::Fatal, &||format!("console.log formatter returned a non-string specifier={formater:?}"));
                     panic!("console formater didnt returned a string")
                 };
                 argi += 1;
                 text += res;
             }
 
-            logln(LogLevel::Trace, &format!("console.log formatted output={text}"));
+            env.logger.borrow_mut().logln(LogLevel::Trace, &||format!("console.log formatted output={text}"));
             println!("{text}");
 
             #[cfg(test)]
@@ -175,7 +175,7 @@ new_class!(
         } else {
             let text = arguments.iter().map(|t| t.borrow().print()).collect::<Vec<String>>().join(" ");
 
-            logln(LogLevel::Trace, &format!("console.log output={text}"));
+            env.logger.borrow_mut().logln(LogLevel::Trace, &||format!("console.log output={text}"));
             println!("{text}");
 
             #[cfg(test)]

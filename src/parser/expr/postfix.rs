@@ -1,8 +1,8 @@
 use std::{cell::RefCell, rc::Rc};
 
 use crate::{
-    Code, CodeIndex, CodeResult, JsValue, LogLevel, Prototype, handle_return, logln,
-    parser::expr::Expr, run_sub,
+    Code, CodeIndex, CodeResult, Environment, JsValue, LogLevel, handle_return, parser::expr::Expr,
+    run_sub,
 };
 
 #[derive(Debug)]
@@ -12,12 +12,14 @@ pub struct Postfix {
 }
 
 impl Expr for Postfix {
-    fn compile(&self, mem: Rc<RefCell<Prototype>>) -> Vec<Code> {
+    fn compile(&self, env: Environment) -> Vec<Code> {
         let inc = self.inc;
-        let target = self.expr.compile(mem.clone());
-        vec![Box::new(move |proto, _| {
-            logln(LogLevel::Trace, &format!("Entering Expr::Postfix op:{inc}"));
-            let target_ref = handle_return!(run_sub(&target, proto.clone(), &mut CodeIndex::new()));
+        let target = self.expr.compile(env.clone());
+        vec![Box::new(move |env, _| {
+            env.logger.borrow_mut().logln(LogLevel::Trace, &|| {
+                format!("Entering Expr::Postfix op:{inc}")
+            });
+            let target_ref = handle_return!(run_sub(&target, env.clone(), &mut CodeIndex::new()));
             let old_value = target_ref.borrow().clone();
             let new_value = match &old_value {
                 JsValue::Number(n) => JsValue::Number(*n + if inc { 1.0 } else { -1.0 }),
@@ -26,10 +28,9 @@ impl Expr for Postfix {
             };
             *target_ref.borrow_mut() = new_value.clone();
             let out = Rc::new(RefCell::new(old_value));
-            logln(
-                LogLevel::Trace,
-                &format!("Exiting Expr::Postfix result={:?}", out),
-            );
+            env.logger.borrow_mut().logln(LogLevel::Trace, &|| {
+                format!("Exiting Expr::Postfix result={:?}", out)
+            });
             CodeResult::Normal(out)
         })]
     }
@@ -48,12 +49,14 @@ pub struct Prefix {
 }
 
 impl Expr for Prefix {
-    fn compile(&self, mem: Rc<RefCell<Prototype>>) -> Vec<Code> {
+    fn compile(&self, env: Environment) -> Vec<Code> {
         let inc = self.inc;
-        let target = self.expr.compile(mem.clone());
-        vec![Box::new(move |proto, _| {
-            logln(LogLevel::Trace, &format!("Entering Expr::Prefix op:{inc}"));
-            let target_ref = handle_return!(run_sub(&target, proto.clone(), &mut CodeIndex::new()));
+        let target = self.expr.compile(env.clone());
+        vec![Box::new(move |env, _| {
+            env.logger.borrow_mut().logln(LogLevel::Trace, &|| {
+                format!("Entering Expr::Prefix op:{inc}")
+            });
+            let target_ref = handle_return!(run_sub(&target, env.clone(), &mut CodeIndex::new()));
             let old_value = target_ref.borrow().clone();
             let new_value = match &old_value {
                 JsValue::Number(n) => JsValue::Number(*n + if inc { 1.0 } else { -1.0 }),
@@ -62,10 +65,9 @@ impl Expr for Prefix {
             };
             *target_ref.borrow_mut() = new_value.clone();
             let out = Rc::new(RefCell::new(new_value));
-            logln(
-                LogLevel::Trace,
-                &format!("Exiting Expr::Prefix result={:?}", out),
-            );
+            env.logger.borrow_mut().logln(LogLevel::Trace, &|| {
+                format!("Exiting Expr::Prefix result={:?}", out)
+            });
             CodeResult::Normal(out)
         })]
     }

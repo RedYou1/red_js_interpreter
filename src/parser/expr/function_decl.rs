@@ -1,7 +1,7 @@
-use std::{cell::RefCell, rc::Rc};
+use std::rc::Rc;
 
 use crate::{
-    Code, CodeResult, LogLevel, Prototype, logln, new_generator, new_runnable,
+    Code, CodeResult, Environment, LogLevel, Prototype, new_generator, new_runnable,
     parser::{expr::Expr, lexer::Token, parser::Parser},
 };
 
@@ -29,21 +29,19 @@ impl FunctionDecl {
         } else {
             "anonymous function"
         };
-        logln(
-            LogLevel::Info,
-            &format!("Entering FunctionDecl::parse name={}", name),
-        );
+        parser.env.logger.borrow_mut().logln(LogLevel::Info, &|| {
+            format!("Entering FunctionDecl::parse name={}", name)
+        });
         // Expect LParen
         parser.skip_to(Token::LParen);
         if !matches!(parser.tokens()[parser.index()], Token::LParen) {
-            logln(
-                LogLevel::Fatal,
-                &format!(
+            parser.env.logger.borrow_mut().logln(LogLevel::Fatal, &|| {
+                format!(
                     "FunctionDecl::parse expected '(' at index {} but found {:?}",
                     parser.index(),
                     parser.tokens()[parser.index()]
-                ),
-            );
+                )
+            });
             panic!("expected '('");
         }
         parser.bump();
@@ -61,8 +59,8 @@ impl FunctionDecl {
 }
 
 impl Expr for FunctionDecl {
-    fn compile(&self, mem: Rc<RefCell<Prototype>>) -> Vec<Code> {
-        let function_proto = Prototype::find(mem.clone(), &stringify!(Function).into())
+    fn compile(&self, env: Environment) -> Vec<Code> {
+        let function_proto = Prototype::find(env.mem.clone(), &stringify!(Function).into())
             .1
             .borrow()
             .unwrap_proto("expr::FunctionDecl for Function");
@@ -72,27 +70,30 @@ impl Expr for FunctionDecl {
         let body = self.body.clone();
         let insert = self.insert;
 
-        logln(
-            LogLevel::Info,
-            &format!(
+        env.logger.borrow_mut().logln(LogLevel::Info, &|| {
+            format!(
                 "Entering FunctionDecl::compile name={} generator={}",
                 self.name, self.generator
-            ),
-        );
+            )
+        });
         let name = self.name;
-        vec![Box::new(move |proto, _| {
-            logln(
-                LogLevel::Trace,
-                &format!(
+        vec![Box::new(move |env, _| {
+            env.logger.borrow_mut().logln(LogLevel::Trace, &|| {
+                format!(
                     "Entering FunctionDecl::execute name={} generator={}",
                     name, generator
-                ),
-            );
+                )
+            });
 
-            let my_mem = Prototype::new_child(proto.clone(), None, []);
+            let my_mem = Prototype::new_child(env.mem.clone(), None, []);
             let code: Vec<Code> = body
                 .iter()
-                .flat_map(|stmt| stmt.compile(my_mem.clone()))
+                .flat_map(|stmt| {
+                    stmt.compile(Environment {
+                        mem: my_mem.clone(),
+                        logger: env.logger.clone(),
+                    })
+                })
                 .collect();
 
             let js_func = if generator {
@@ -120,7 +121,7 @@ impl Expr for FunctionDecl {
             };
 
             if insert {
-                proto
+                env.mem
                     .borrow_mut()
                     .properties
                     .insert(name.into(), js_func.clone());

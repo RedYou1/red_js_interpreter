@@ -1,7 +1,7 @@
 use std::{cell::RefCell, rc::Rc};
 
 use crate::{
-    Code, CodeIndex, CodeResult, JsValue, LogLevel, Prototype, handle_return, logln,
+    Code, CodeIndex, CodeResult, Environment, JsValue, LogLevel, handle_return,
     parser::{
         expr::{self, Expr},
         lexer::Token,
@@ -42,28 +42,26 @@ impl TemplateLiteral {
                     parser.bump();
                     let expr = Box::new(parser.parse_expression(true));
                     if !matches!(parser.tokens()[parser.index()], Token::RBrace) {
-                        logln(
-                            LogLevel::Fatal,
-                            &format!(
+                        parser.env.logger.borrow_mut().logln(LogLevel::Fatal, &|| {
+                            format!(
                                 "TemplateLiteral::parse expected '}}' at index {} but found {:?}",
                                 parser.index(),
                                 parser.tokens()[parser.index()]
-                            ),
-                        );
+                            )
+                        });
                         panic!("expected '}}' after template expression");
                     }
                     parser.bump();
                     parts.push(expr::TemplatePart::Expr(expr));
                 }
                 _ => {
-                    logln(
-                        LogLevel::Fatal,
-                        &format!(
+                    parser.env.logger.borrow_mut().logln(LogLevel::Fatal, &|| {
+                        format!(
                             "TemplateLiteral::parse unexpected token at index {}: {:?}",
                             parser.index(),
                             parser.tokens()[parser.index()]
-                        ),
-                    );
+                        )
+                    });
                     panic!(
                         "unexpected template token: {:?}",
                         parser.tokens()[parser.index()]
@@ -79,24 +77,26 @@ impl TemplateLiteral {
 }
 
 impl Expr for TemplateLiteral {
-    fn compile(&self, mem: Rc<RefCell<Prototype>>) -> Vec<Code> {
+    fn compile(&self, env: Environment) -> Vec<Code> {
         let parts: Vec<CompiledTemplatePart> = self
             .parts
             .iter()
             .map(|part| match part {
                 TemplatePart::String(s) => CompiledTemplatePart::String(s.clone()),
-                TemplatePart::Expr(e) => CompiledTemplatePart::Expr(e.compile(mem.clone())),
+                TemplatePart::Expr(e) => CompiledTemplatePart::Expr(e.compile(env.clone())),
             })
             .collect();
-        vec![Box::new(move |proto, _| {
-            logln(LogLevel::Trace, "Entering Expr::TemplateLiteral");
+        vec![Box::new(move |env, _| {
+            env.logger
+                .borrow_mut()
+                .logln_str(LogLevel::Trace, "Entering Expr::TemplateLiteral");
             let mut result = String::new();
             for part in &parts {
                 match part {
                     CompiledTemplatePart::String(value) => result.push_str(value),
                     CompiledTemplatePart::Expr(expr) => {
                         result.push_str(
-                            &handle_return!(run_sub(expr, proto.clone(), &mut CodeIndex::new()))
+                            &handle_return!(run_sub(expr, env.clone(), &mut CodeIndex::new()))
                                 .borrow()
                                 .print(),
                         );
@@ -104,10 +104,9 @@ impl Expr for TemplateLiteral {
                 }
             }
             let out = Rc::new(RefCell::new(JsValue::String(result)));
-            logln(
-                LogLevel::Trace,
-                &format!("Exiting Expr::TemplateLiteral result={:?}", out),
-            );
+            env.logger.borrow_mut().logln(LogLevel::Trace, &|| {
+                format!("Exiting Expr::TemplateLiteral result={:?}", out)
+            });
             CodeResult::Normal(out)
         })]
     }

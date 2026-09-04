@@ -1,7 +1,8 @@
 use std::{cell::RefCell, rc::Rc};
 
 use crate::{
-    Code, CodeIndex, CodeResult, JsValue, LogLevel, Prototype, handle_return, inline_borrow, logln,
+    Code, CodeIndex, CodeResult, Environment, JsValue, LogLevel, Prototype, handle_return,
+    inline_borrow,
     parser::{
         expr::{self, Expr, FunctionDecl},
         lexer::Token,
@@ -22,20 +23,18 @@ impl ClassDecl {
         let name = if let Token::Ident(_) = parser.tokens()[parser.index()] {
             parser.expect_ident().leak()
         } else {
-            logln(
-                LogLevel::Fatal,
-                &format!(
+            parser.env.logger.borrow_mut().logln(LogLevel::Fatal, &|| {
+                format!(
                     "ClassDecl::parse expected class name at index {} but found {:?}",
                     parser.index(),
                     parser.tokens()[parser.index()]
-                ),
-            );
+                )
+            });
             panic!("expected class name");
         };
-        logln(
-            LogLevel::Info,
-            &format!("Entering ClassDecl::parse name={}", name),
-        );
+        parser.env.logger.borrow_mut().logln(LogLevel::Info, &|| {
+            format!("Entering ClassDecl::parse name={}", name)
+        });
         let super_class = if let Token::Ident(ident) = &parser.tokens()[parser.index()] {
             if ident.eq("extends") {
                 parser.bump();
@@ -47,14 +46,13 @@ impl ClassDecl {
             None
         };
         if !matches!(parser.tokens()[parser.index()], Token::LBrace) {
-            logln(
-                LogLevel::Fatal,
-                &format!(
+            parser.env.logger.borrow_mut().logln(LogLevel::Fatal, &|| {
+                format!(
                     "ClassDecl::parse expected '{{' at index {} but found {:?}",
                     parser.index(),
                     parser.tokens()[parser.index()]
-                ),
-            );
+                )
+            });
             panic!("expected '{{' after class name");
         }
         parser.bump();
@@ -79,9 +77,9 @@ impl ClassDecl {
 }
 
 impl Expr for ClassDecl {
-    fn compile(&self, mem: Rc<RefCell<Prototype>>) -> Vec<Code> {
+    fn compile(&self, env: Environment) -> Vec<Code> {
         let super_constructor: Vec<Code> = if let Some(ref expr) = self.super_class {
-            expr.compile(mem.clone())
+            expr.compile(env.clone())
         } else {
             vec![Box::new(|_, _| {
                 CodeResult::Normal(Rc::new(RefCell::new(JsValue::Undefined)))
@@ -91,7 +89,7 @@ impl Expr for ClassDecl {
         let constructor_method = self.methods.iter().find(|m| m.name == "constructor");
 
         let constructor_runnable = if let Some(constructor) = constructor_method {
-            constructor.compile(mem.clone())
+            constructor.compile(env.clone())
         } else {
             FunctionDecl {
                 name: "constructor",
@@ -100,32 +98,30 @@ impl Expr for ClassDecl {
                 generator: false,
                 insert: false,
             }
-            .compile(mem.clone())
+            .compile(env.clone())
         };
 
         let name = self.name;
         let methodes: Vec<(&'static str, Vec<Code>)> = self
             .methods
             .iter()
-            .map(|methode| (methode.name, methode.compile(mem.clone())))
+            .map(|methode| (methode.name, methode.compile(env.clone())))
             .collect();
-        let mem = mem.clone();
-        vec![Box::new(move |proto, _| {
-            logln(
-                LogLevel::Trace,
-                &format!("Entering Expr::ClassDecl name={}", name),
-            );
-            let outer_proto = proto.clone();
+        let mem = env.mem.clone();
+        vec![Box::new(move |env, _| {
+            env.logger.borrow_mut().logln(LogLevel::Trace, &|| {
+                format!("Entering Expr::ClassDecl name={}", name)
+            });
 
             let class_proto = Prototype::new_child(
                 if let JsValue::Prototype(super_func_proto) = inline_borrow!(handle_return!(
-                    run_sub(&super_constructor, proto.clone(), &mut CodeIndex::new())
+                    run_sub(&super_constructor, env.clone(), &mut CodeIndex::new())
                 )) && let JsValue::Prototype(super_proto_obj) =
                     inline_borrow!(Prototype::find(super_func_proto.clone(), &"prototype".into()).1)
                 {
                     super_proto_obj
                 } else {
-                    Prototype::find(proto.clone(), &stringify!(Object).into())
+                    Prototype::find(env.mem.clone(), &stringify!(Object).into())
                         .1
                         .borrow()
                         .unwrap_proto("expr::ClassDecl for Object")
@@ -137,7 +133,7 @@ impl Expr for ClassDecl {
                 "constructor".into(),
                 handle_return!(run_sub(
                     &constructor_runnable,
-                    outer_proto.clone(),
+                    env.clone(),
                     &mut CodeIndex::new()
                 )),
             );
@@ -149,18 +145,13 @@ impl Expr for ClassDecl {
             for (methode_name, methode_code) in methodes.iter() {
                 class_proto.borrow_mut().properties.insert(
                     (*methode_name).into(),
-                    handle_return!(run_sub(
-                        methode_code,
-                        outer_proto.clone(),
-                        &mut CodeIndex::new()
-                    )),
+                    handle_return!(run_sub(methode_code, env.clone(), &mut CodeIndex::new())),
                 );
             }
 
-            logln(
-                LogLevel::Trace,
-                &format!("Exiting Expr::ClassDecl {class_proto:?}"),
-            );
+            env.logger.borrow_mut().logln(LogLevel::Trace, &|| {
+                format!("Exiting Expr::ClassDecl {class_proto:?}")
+            });
             let res = Rc::new(RefCell::new(JsValue::Prototype(class_proto)));
             mem.borrow_mut().properties.insert(name.into(), res.clone());
             CodeResult::Normal(res)

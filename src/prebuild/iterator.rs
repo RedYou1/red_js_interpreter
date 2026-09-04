@@ -16,7 +16,7 @@ impl IterGenerator {
             [
                 (
                     "__mem__".into(),
-                    Rc::new(RefCell::new(JsValue::Prototype(self.proto))),
+                    Rc::new(RefCell::new(JsValue::Prototype(self.env.mem))),
                 ),
                 (
                     "__code__len".into(),
@@ -39,7 +39,7 @@ new_class! {
     prebuild_itergen,
     Generator,
     Iterator,;
-    next, fn, |_, this, []| {
+    next, fn, |env, this, []| {
         let this = this.borrow().unwrap_proto("Generator.next this not proto");
         let JsValue::Prototype(proto) = inline_borrow!(Prototype::find(this.clone(), &"__mem__".into()).1) else {panic!("Generator.next parse __mem__ not proto {this:?}")};
         let JsValue::BigInt(code_len) = inline_borrow!(Prototype::find(this.clone(), &"__code__len".into()).1) else {panic!("Generator.next parse __code__len not BigInt {this:?}")};
@@ -51,7 +51,7 @@ new_class! {
             drop(unsafe{ Rc::from_raw(code) });
             return CodeResult::Return(Rc::new(RefCell::new(JsValue::Undefined)));
         }
-        let res = run_sub(code, proto.clone(), &mut code_index);
+        let res = run_sub(code, env.with_mem(proto.clone()), &mut code_index);
         match res {
             CodeResult::Normal(r) | CodeResult::Return(r) => {
                 drop(unsafe{ Rc::from_raw(code) });

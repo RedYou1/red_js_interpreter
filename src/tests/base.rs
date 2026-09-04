@@ -2,7 +2,8 @@ use crate::{CodeResult, JsValue, assert_result, tests::*};
 
 #[test]
 pub fn test_new_array() {
-    let protos = prebuild_prototypes(default_console_config);
+    let logger = test_logger();
+    let protos = prebuild_prototypes(default_console_config, logger.clone());
     let array = Prototype::find(protos.clone(), &stringify!(Array).into())
         .1
         .borrow()
@@ -15,19 +16,21 @@ pub fn test_new_array() {
         constructor.clone(),
         Rc::new(RefCell::new(JsValue::Undefined)),
         vec![],
+        logger.clone(),
     );
     assert_eq!(
         arr,
-        CodeResult::Return(new_array_with_length(array.clone(), 0))
+        CodeResult::Return(new_array_with_length(array.clone(), 0, logger.clone()))
     );
     let arr = run_function_object(
         constructor.clone(),
         Rc::new(RefCell::new(JsValue::Undefined)),
         vec![Rc::new(RefCell::new(JsValue::BigInt(5)))],
+        logger.clone(),
     );
     assert_eq!(
         arr,
-        CodeResult::Return(new_array_with_length(array.clone(), 5))
+        CodeResult::Return(new_array_with_length(array.clone(), 5, logger.clone()))
     );
     let content = vec![
         Rc::new(RefCell::new(JsValue::BigInt(1))),
@@ -37,10 +40,11 @@ pub fn test_new_array() {
         constructor.clone(),
         Rc::new(RefCell::new(JsValue::Undefined)),
         content.clone(),
+        logger.clone(),
     );
     assert_eq!(
         arr,
-        CodeResult::Return(new_array(array.clone(), content.clone()))
+        CodeResult::Return(new_array(array.clone(), content.clone(), logger.clone()))
     );
     let arr = run_function_object(
         Prototype::find(array.clone(), &"of".into())
@@ -49,10 +53,11 @@ pub fn test_new_array() {
             .unwrap_proto("test_new_array for Array.of"),
         Rc::new(RefCell::new(JsValue::Undefined)),
         content.clone(),
+        logger.clone(),
     );
     assert_eq!(
         arr,
-        CodeResult::Return(new_array(array.clone(), content.clone()))
+        CodeResult::Return(new_array(array.clone(), content.clone(), logger.clone()))
     );
 }
 
@@ -229,12 +234,12 @@ fn append_console_log(logs_ptr: &mut i64, value: String) {
 #[test]
 pub fn test_console() {
     let mut logs = Vec::new();
-    let protos = prebuild_prototypes_test(&mut Loggable::<i64> {
+    let env = prebuild_prototypes_test(&mut Loggable::<i64> {
         logger: &(append_console_log as fn(&mut i64, String)),
         data: &mut logs as *mut Vec<String> as i64,
     });
 
-    let console = Prototype::find(protos.clone(), &"console".into()).1;
+    let console = Prototype::find(env.mem.clone(), &"console".into()).1;
     let console_log = Prototype::find(
         console.borrow().unwrap_proto("test_console for console"),
         &"log".into(),
@@ -248,6 +253,7 @@ pub fn test_console() {
         vec![Rc::new(RefCell::new(JsValue::String(
             "%%Hello World%%".to_owned(),
         )))],
+        env.logger.clone(),
     );
     assert_eq!(
         log,
@@ -267,6 +273,7 @@ pub fn test_console() {
             Rc::new(RefCell::new(JsValue::String("bloup bloup".to_owned()))),
             Rc::new(RefCell::new(JsValue::BigInt(69))),
         ],
+        env.logger.clone(),
     );
 
     assert_eq!(
@@ -284,6 +291,7 @@ pub fn test_console() {
             Rc::new(RefCell::new(JsValue::Number(69.69))),
             Rc::new(RefCell::new(JsValue::Null)),
         ],
+        env.logger.clone(),
     );
 
     assert_eq!(logs.as_slice(), ["69 420 69.69 null".to_owned()]);

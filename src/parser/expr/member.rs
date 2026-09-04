@@ -1,7 +1,5 @@
-use std::{cell::RefCell, rc::Rc};
-
 use crate::{
-    Code, CodeIndex, CodeResult, LogLevel, Prototype, handle_return, inline_borrow, logln,
+    Code, CodeIndex, CodeResult, Environment, LogLevel, Prototype, handle_return, inline_borrow,
     parser::expr::Expr, run_sub,
 };
 
@@ -12,20 +10,21 @@ pub struct Member {
 }
 
 impl Expr for Member {
-    fn compile(&self, mem: Rc<RefCell<Prototype>>) -> Vec<Code> {
-        let obj = self.object.compile(mem.clone());
-        let prop = self.property.compile(mem);
-        vec![Box::new(move |proto, _| {
-            logln(LogLevel::Trace, "Entering Expr::Member");
-            let obj = handle_return!(run_sub(&obj, proto.clone(), &mut CodeIndex::new()))
+    fn compile(&self, env: Environment) -> Vec<Code> {
+        let obj = self.object.compile(env.clone());
+        let prop = self.property.compile(env);
+        vec![Box::new(move |env, _| {
+            env.logger
+                .borrow_mut()
+                .logln_str(LogLevel::Trace, "Entering Expr::Member");
+            let obj = handle_return!(run_sub(&obj, env.clone(), &mut CodeIndex::new()))
                 .borrow()
                 .unwrap_proto("expr::Member for obj");
-            let key = handle_return!(run_sub(&prop, proto, &mut CodeIndex::new()));
+            let key = handle_return!(run_sub(&prop, env.clone(), &mut CodeIndex::new()));
             let out = Prototype::find(obj.clone(), &inline_borrow!(key.clone())).1;
-            logln(
-                LogLevel::Trace,
-                &format!("Exiting Expr::Member {obj:?}[{key:?}] == {out:?}"),
-            );
+            env.logger.borrow_mut().logln(LogLevel::Trace, &|| {
+                format!("Exiting Expr::Member {obj:?}[{key:?}] == {out:?}")
+            });
             CodeResult::NormalMember(out, obj, key)
         })]
     }

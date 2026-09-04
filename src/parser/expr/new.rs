@@ -1,8 +1,8 @@
 use std::{cell::RefCell, rc::Rc};
 
 use crate::{
-    Code, CodeIndex, CodeResult, JsValue, LogLevel, PROTOTYPE_NAME, Prototype, RUNNABLE,
-    handle_error, handle_return, inline_borrow, logln,
+    Code, CodeIndex, CodeResult, Environment, JsValue, LogLevel, PROTOTYPE_NAME, Prototype,
+    RUNNABLE, handle_error, handle_return, inline_borrow,
     parser::{
         expr::{self, Expr},
         lexer::Token,
@@ -32,14 +32,13 @@ impl New {
                     });
                     continue;
                 } else {
-                    logln(
-                        LogLevel::Fatal,
-                        &format!(
+                    parser.env.logger.borrow_mut().logln(LogLevel::Fatal, &|| {
+                        format!(
                             "New::parse expected property name at index {} but found {:?}",
                             parser.index(),
                             parser.tokens()[parser.index()]
-                        ),
-                    );
+                        )
+                    });
                     panic!(
                         "expected property name after '.', got {:?}",
                         parser.tokens()[parser.index()]
@@ -50,14 +49,13 @@ impl New {
                 parser.bump();
                 let index = Box::new(parser.parse_expression(true));
                 if parser.tokens()[parser.index()] != Token::RBracket {
-                    logln(
-                        LogLevel::Fatal,
-                        &format!(
+                    parser.env.logger.borrow_mut().logln(LogLevel::Fatal, &|| {
+                        format!(
                             "New::parse expected ']' at index {} but found {:?}",
                             parser.index(),
                             parser.tokens()[parser.index()]
-                        ),
-                    );
+                        )
+                    });
                     panic!("expected ']'");
                 }
                 parser.bump();
@@ -87,17 +85,19 @@ impl New {
 }
 
 impl Expr for New {
-    fn compile(&self, mem: Rc<RefCell<Prototype>>) -> Vec<Code> {
-        let constructor = self.constructor.compile(mem.clone());
+    fn compile(&self, env: Environment) -> Vec<Code> {
+        let constructor = self.constructor.compile(env.clone());
         let args: Vec<Vec<Code>> = self
             .args
             .iter()
-            .map(|arg| arg.compile(mem.clone()))
+            .map(|arg| arg.compile(env.clone()))
             .collect();
-        vec![Box::new(move |proto, _| {
-            logln(LogLevel::Trace, "Entering Expr::New");
+        vec![Box::new(move |env, _| {
+            env.logger
+                .borrow_mut()
+                .logln_str(LogLevel::Trace, "Entering Expr::New");
             let mut class =
-                handle_return!(run_sub(&constructor, proto.clone(), &mut CodeIndex::new()))
+                handle_return!(run_sub(&constructor, env.clone(), &mut CodeIndex::new()))
                     .borrow()
                     .unwrap_proto("expr::New for constructor");
             let constructor = if Prototype::opt_find(class.clone(), &RUNNABLE.into()).is_some() {
@@ -115,7 +115,7 @@ impl Expr for New {
             let new_obj = Prototype::new_child(class.clone(), None, []);
             let mut args_evaluated: Vec<Rc<RefCell<JsValue>>> = Vec::new();
             for arg in args.iter() {
-                match run_sub(arg, proto.clone(), &mut CodeIndex::new()) {
+                match run_sub(arg, env.clone(), &mut CodeIndex::new()) {
                     CodeResult::Normal(res) => args_evaluated.push(res),
                     CodeResult::NormalMember(res, _, _) => args_evaluated.push(res),
                     e => return e,
@@ -125,11 +125,11 @@ impl Expr for New {
                 constructor,
                 Rc::new(RefCell::new(JsValue::Prototype(new_obj.clone()))),
                 args_evaluated,
+                env.logger.clone(),
             );
-            logln(
-                LogLevel::Trace,
-                &format!("Exiting Expr::New new_obj={new_obj:?} out={out:?}"),
-            );
+            env.logger.borrow_mut().logln(LogLevel::Trace, &|| {
+                format!("Exiting Expr::New new_obj={new_obj:?} out={out:?}")
+            });
             let out = handle_error!(out);
             // In JavaScript, if the constructor returns an object, that object is used
             // Otherwise, the newly created object is used

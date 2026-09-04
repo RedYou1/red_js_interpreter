@@ -5,13 +5,13 @@ new_class! {
     String,
     Object,;
     constructor, fn,
-    |_, _, [arg]| {
+    |env, _, [arg]| {
         let arg = match inline_borrow!(arg) {
             JsValue::Symbol(_, ref t) =>  *t.clone(),
             v => v
         };
         match &arg {
-            JsValue::Prototype(proto) => run_function_object(Prototype::find(proto.clone(), &"toString".into()).1.borrow().unwrap_proto("String.constructor for toString"), Rc::new(RefCell::new(arg.clone())), vec![]),
+            JsValue::Prototype(proto) => run_function_object(Prototype::find(proto.clone(), &"toString".into()).1.borrow().unwrap_proto("String.constructor for toString"), Rc::new(RefCell::new(arg.clone())), vec![], env.logger),
             JsValue::String(s) => CodeResult::Return(Rc::new(RefCell::new(JsValue::String(s.clone())))),
             JsValue::Null | JsValue::Undefined => CodeResult::Return(Rc::new(RefCell::new(JsValue::String("".to_owned())))),
             JsValue::BigInt(o) => CodeResult::Return(Rc::new(RefCell::new(JsValue::String(format!("{}", *o))))),
@@ -158,8 +158,8 @@ new_class! {
         })))
     },
     split, fn,
-    |mem, this, [separator]| {
-        let array = Prototype::find(mem, &stringify!(Array).into()).1.borrow().unwrap_proto("String.split for Array");
+    |env, this, [separator]| {
+        let array = Prototype::find(env.mem, &stringify!(Array).into()).1.borrow().unwrap_proto("String.split for Array");
         if let JsValue::String(s) = inline_borrow!(this) {
             let parts: Vec<Rc<RefCell<JsValue>>> = match inline_borrow!(separator) {
                 JsValue::String(sep) => {
@@ -172,9 +172,9 @@ new_class! {
                 JsValue::Undefined => vec![Rc::new(RefCell::new(JsValue::String(s.clone())))],
                 _ => vec![Rc::new(RefCell::new(JsValue::String(s.clone())))],
             };
-            CodeResult::Return(new_array(array, parts))
+            CodeResult::Return(new_array(array, parts, env.logger))
         } else {
-            CodeResult::Return(new_array(array, vec![]))
+            CodeResult::Return(new_array(array, vec![], env.logger))
         }
     },
     repeat, fn,

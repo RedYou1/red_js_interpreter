@@ -107,13 +107,13 @@ new_class! {
     };
 }
 
-pub fn prebuild_date(mem: Rc<RefCell<Prototype>>) {
-    prebuild_date_class(mem.clone());
-    let date = Prototype::find(mem.clone(), &stringify!(Date).into())
+pub fn prebuild_date(env: Environment) {
+    prebuild_date_class(env.clone());
+    let date = Prototype::find(env.mem.clone(), &stringify!(Date).into())
         .1
         .borrow()
         .unwrap_proto("prebuild_date for Date");
-    let object = Prototype::find(mem, &stringify!(Object).into())
+    let object = Prototype::find(env.mem, &stringify!(Object).into())
         .1
         .borrow()
         .unwrap_proto("prebuild_date for Object");
@@ -151,7 +151,10 @@ pub fn prebuild_date(mem: Rc<RefCell<Prototype>>) {
         .insert("getYear".into(), get_year);
     for name in ["getFullYear", "getTime", "valueOf", "setTime", "setYear"] {
         let value = Prototype::find(date.clone(), &name.into()).1;
-        date_prototype.borrow_mut().properties.insert(name.into(), value);
+        date_prototype
+            .borrow_mut()
+            .properties
+            .insert(name.into(), value);
     }
     Prototype::find(date.clone(), &"setYear".into())
         .1
@@ -238,11 +241,7 @@ fn date_object(this: Rc<RefCell<JsValue>>) -> Option<Rc<RefCell<Prototype>>> {
     let JsValue::Prototype(object) = inline_borrow!(this) else {
         return None;
     };
-    if object
-        .borrow()
-        .properties
-        .contains_key(&DATE_VALUE.into())
-    {
+    if object.borrow().properties.contains_key(&DATE_VALUE.into()) {
         Some(object)
     } else {
         None
@@ -273,10 +272,7 @@ fn number_value(value: &Rc<RefCell<JsValue>>) -> Option<f64> {
     }
 }
 
-fn to_number(
-    mem: Rc<RefCell<Prototype>>,
-    value: Rc<RefCell<JsValue>>,
-) -> Result<f64, CodeResult> {
+fn to_number(env: Environment, value: Rc<RefCell<JsValue>>) -> Result<f64, CodeResult> {
     match inline_borrow!(value.clone()) {
         JsValue::BigInt(value) => Ok(value as f64),
         JsValue::Number(value) => Ok(value),
@@ -284,14 +280,14 @@ fn to_number(
         JsValue::Boolean(value) => Ok(if value { 1.0 } else { 0.0 }),
         JsValue::Null => Ok(0.0),
         JsValue::Undefined => Ok(f64::NAN),
-        JsValue::Symbol(_, _) => Err(type_error(mem)),
+        JsValue::Symbol(_, _) => Err(type_error(env)),
         JsValue::Prototype(object) => {
             let value_of = Prototype::find(object.clone(), &"valueOf".into()).1;
             let value_of = inline_borrow!(value_of);
             let JsValue::Prototype(value_of) = value_of else {
                 return Ok(f64::NAN);
             };
-            let result = crate::run_function_object(value_of, value.clone(), vec![]);
+            let result = crate::run_function_object(value_of, value.clone(), vec![], env.logger);
             let result = match result {
                 CodeResult::Normal(value) | CodeResult::NormalMember(value, _, _) => value,
                 CodeResult::Return(value) => value,
@@ -303,8 +299,11 @@ fn to_number(
                 JsValue::String(value) => Ok(value.trim().parse().unwrap_or(f64::NAN)),
                 JsValue::Boolean(value) => Ok(if value { 1.0 } else { 0.0 }),
                 JsValue::Null => Ok(0.0),
-                JsValue::Undefined | JsValue::Prototype(_) | JsValue::Symbol(_, _)
-                | JsValue::Function(_) | JsValue::Generator(_) => Ok(f64::NAN),
+                JsValue::Undefined
+                | JsValue::Prototype(_)
+                | JsValue::Symbol(_, _)
+                | JsValue::Function(_)
+                | JsValue::Generator(_) => Ok(f64::NAN),
             }
         }
         JsValue::Function(_) | JsValue::Generator(_) => Ok(f64::NAN),
@@ -319,8 +318,8 @@ fn time_clip(value: f64) -> f64 {
     }
 }
 
-fn type_error(mem: Rc<RefCell<Prototype>>) -> CodeResult {
-    let error = Prototype::find(mem, &stringify!(TypeError).into())
+fn type_error(env: Environment) -> CodeResult {
+    let error = Prototype::find(env.mem, &stringify!(TypeError).into())
         .1
         .borrow()
         .unwrap_proto("Date.getYear for TypeError");

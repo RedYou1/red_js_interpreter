@@ -1,11 +1,14 @@
-use crate::{CodeResult, LogLevel, handle_error, logln, prebuild::prelude::*};
+use crate::{CodeResult, LogLevel, Logger, handle_error, prebuild::prelude::*};
 
 pub fn new_array(
     array: Rc<RefCell<Prototype>>,
     content: Vec<Rc<RefCell<JsValue>>>,
+    logger: Rc<RefCell<dyn Logger>>,
 ) -> Rc<RefCell<JsValue>> {
     let len = content.len();
-    logln(LogLevel::Trace, &format!("Array::new_array length={}", len));
+    logger.borrow_mut().logln(LogLevel::Trace, &|| {
+        format!("Array::new_array length={}", len)
+    });
     let proto = Prototype::new_child(
         array,
         None,
@@ -21,11 +24,14 @@ pub fn new_array(
     Rc::new(RefCell::new(JsValue::Prototype(proto)))
 }
 
-pub fn new_array_with_length(array: Rc<RefCell<Prototype>>, length: i64) -> Rc<RefCell<JsValue>> {
-    logln(
-        LogLevel::Trace,
-        &format!("Array::new_array_with_length length={}", length),
-    );
+pub fn new_array_with_length(
+    array: Rc<RefCell<Prototype>>,
+    length: i64,
+    logger: Rc<RefCell<dyn Logger>>,
+) -> Rc<RefCell<JsValue>> {
+    logger.borrow_mut().logln(LogLevel::Trace, &|| {
+        format!("Array::new_array_with_length length={}", length)
+    });
     let proto = Prototype::new_child(array, None, []);
     proto.borrow_mut().properties.insert(
         "length".into(),
@@ -39,40 +45,41 @@ new_class! {
     Array,
     Iterator,;
     constructor, fn_direct,
-    |mem, _, arguments| {
-        let array = Prototype::find(mem.clone(), &stringify!(Array).into()).1.borrow().unwrap_proto("Array.constructor for Array");
+    |env, _, arguments| {
+        let array = Prototype::find(env.mem.clone(), &stringify!(Array).into()).1.borrow().unwrap_proto("Array.constructor for Array");
         if let [nlength] = &arguments[..] && let JsValue::BigInt(nlength) = inline_borrow!(nlength) && (0..=(u32::MAX as i64)).contains(&nlength)
         {
-            CodeResult::Return(new_array_with_length(array, nlength))
+            CodeResult::Return(new_array_with_length(array, nlength, env.logger))
         } else {
-            CodeResult::Return(new_array(array, arguments))
+            CodeResult::Return(new_array(array, arguments, env.logger))
         }
     },
     from, fn,
-    |mem, _, [items, map_fn, this_arg]| {
-        let array = Prototype::find(mem.clone(), &stringify!(Array).into()).1.borrow().unwrap_proto("Array.from for Array");
+    |env, _, [items, map_fn, this_arg]| {
+        let array = Prototype::find(env.mem.clone(), &stringify!(Array).into()).1.borrow().unwrap_proto("Array.from for Array");
         let JsValue::Symbol(_, iterator) =
-            inline_borrow!(Prototype::find(mem.clone(), &stringify!(Symbol).into()).1.borrow().find(&"iterator".into(), "Array.from get Symbol.iterator").1)
+            inline_borrow!(Prototype::find(env.mem.clone(), &stringify!(Symbol).into()).1.borrow().find(&"iterator".into(), "Array.from get Symbol.iterator").1)
         else {
             panic!("Array.from get Symbol.iterator")
         };
         let iterator = items.borrow().find(&iterator, "Array.from get iterator of items").1.borrow().unwrap_proto("Array.from for items's iterator");
         if let JsValue::Undefined = inline_borrow!(map_fn.clone()) {
-            let content = run_generator_object(iterator, Rc::new(RefCell::new(JsValue::Undefined)), vec![])
+            let content = run_generator_object(iterator, Rc::new(RefCell::new(JsValue::Undefined)), vec![], env.logger.clone())
                     .map(|f| if let CodeResult::Error(err) = f {Err(err)} else {Ok(f.unwrap_normal())})
                     .collect::<Result<Vec<Rc<_>>, Rc<_>>>();
             match content {
-                Ok(content) => CodeResult::Return(new_array(array,content)),
+                Ok(content) => CodeResult::Return(new_array(array,content, env.logger)),
                 Err(content) => CodeResult::Error(content)
             }
         } else {
-            let content = run_generator_object(iterator, Rc::new(RefCell::new(JsValue::Undefined)), vec![])
+            let content = run_generator_object(iterator, Rc::new(RefCell::new(JsValue::Undefined)), vec![], env.logger.clone())
                     .map(|value| {
                         match value {
                             CodeResult::Return(value) => run_function_object(
                                 map_fn.clone().borrow().unwrap_proto("Array.from for map_fn"),
                                 this_arg.clone(),
                                 vec![value.clone()],
+                                env.logger.clone(),
                             ),
                             CodeResult::Error(_) => value,
                             _ => panic!("array.from coderesult not handled"),
@@ -81,15 +88,15 @@ new_class! {
                     .map(|f| if let CodeResult::Error(err) = f {Err(err)} else {Ok(f.unwrap_normal())})
                     .collect::<Result<Vec<Rc<_>>, Rc<_>>>();
             match content {
-                Ok(content) => CodeResult::Return(new_array(array,content)),
+                Ok(content) => CodeResult::Return(new_array(array,content, env.logger)),
                 Err(content) => CodeResult::Error(content)
             }
         }
     },
     of, fn_direct,
-    |mem, _, arguments| {
-        let array = Prototype::find(mem, &stringify!(Array).into()).1.borrow().unwrap_proto("Array.of for Array");
-        CodeResult::Return(new_array(array, arguments))
+    |env, _, arguments| {
+        let array = Prototype::find(env.mem, &stringify!(Array).into()).1.borrow().unwrap_proto("Array.of for Array");
+        CodeResult::Return(new_array(array, arguments, env.logger))
     },
     at, fn,
     |_, this, [at]| {
@@ -129,7 +136,7 @@ new_class! {
         CodeResult::Return(value)
     },
     map, fn,
-    |mem, this, [callback, this_arg, _]| {
+    |env, this, [callback, this_arg, _]| {
         let this = this.borrow().unwrap_proto("Array.map for this");
         let JsValue::BigInt(length) = inline_borrow!(Prototype::find(this.clone(), &"length".into()).1) else { panic!("Array.length not BigInt") };
         let mut result = Vec::with_capacity(length as usize);
@@ -139,13 +146,14 @@ new_class! {
                 callback.borrow().unwrap_proto("Array.map for callback"),
                 this_arg.clone(),
                 vec![value, Rc::new(RefCell::new(JsValue::BigInt(i))), Rc::new(RefCell::new(JsValue::Prototype(this.clone())))],
+                env.logger.clone()
             );
             result.push(handle_error!(mapped));
         }
-        CodeResult::Return(new_array(mem, result))
+        CodeResult::Return(new_array(env.mem, result, env.logger))
     },
     forEach, fn,
-    |_, this, [callback, this_arg]| {
+    |env, this, [callback, this_arg]| {
         let this = this.borrow().unwrap_proto("Array.forEach for this");
         let JsValue::BigInt(length) = inline_borrow!(Prototype::find(this.clone(), &"length".into()).1) else { panic!("Array.length not BigInt") };
         for i in 0..length {
@@ -154,12 +162,13 @@ new_class! {
                 callback.borrow().unwrap_proto("Array.forEach for callback"),
                 this_arg.clone(),
                 vec![value, Rc::new(RefCell::new(JsValue::BigInt(i))), Rc::new(RefCell::new(JsValue::Prototype(this.clone())))],
+                env.logger.clone()
             );
         }
         CodeResult::Return(Rc::new(RefCell::new(JsValue::Undefined)))
     },
     filter, fn,
-    |mem, this, [callback, this_arg]| {
+    |env, this, [callback, this_arg]| {
         let this = this.borrow().unwrap_proto("Array.filter for this");
         let JsValue::BigInt(length) = inline_borrow!(Prototype::find(this.clone(), &"length".into()).1) else { panic!("Array.length not BigInt") };
         let mut result = Vec::new();
@@ -169,15 +178,16 @@ new_class! {
                 callback.borrow().unwrap_proto("Array.filter for callback"),
                 this_arg.clone(),
                 vec![value.clone(), Rc::new(RefCell::new(JsValue::BigInt(i))), Rc::new(RefCell::new(JsValue::Prototype(this.clone())))],
+                env.logger.clone()
             );
             if handle_error!(keep).borrow().is_truthy() {
                 result.push(value);
             }
         }
-        CodeResult::Return(new_array(mem, result))
+        CodeResult::Return(new_array(env.mem, result, env.logger))
     },
     reduce, fn,
-    |_, this, [callback, initial_value, _]| {
+    |env, this, [callback, initial_value, _]| {
         let this = this.borrow().unwrap_proto("Array.reduce for this");
         let JsValue::BigInt(length) = inline_borrow!(Prototype::find(this.clone(), &"length".into()).1) else { panic!("Array.length not BigInt") };
 
@@ -194,12 +204,13 @@ new_class! {
                 callback.borrow().unwrap_proto("Array.reduce for callback"),
                 Rc::new(RefCell::new(JsValue::Undefined)),
                 vec![accumulator, value, Rc::new(RefCell::new(JsValue::BigInt(i))), Rc::new(RefCell::new(JsValue::Prototype(this.clone())))],
+                env.logger.clone()
             ));
         }
         CodeResult::Return(accumulator)
     },
     find, fn,
-    |_, this, [callback, this_arg]| {
+    |env, this, [callback, this_arg]| {
         let this = this.borrow().unwrap_proto("Array.find for this");
         let JsValue::BigInt(length) = inline_borrow!(Prototype::find(this.clone(), &"length".into()).1) else { panic!("Array.length not BigInt") };
         for i in 0..length {
@@ -208,6 +219,7 @@ new_class! {
                 callback.borrow().unwrap_proto("Array.find for callback"),
                 this_arg.clone(),
                 vec![value.clone(), Rc::new(RefCell::new(JsValue::BigInt(i))), Rc::new(RefCell::new(JsValue::Prototype(this.clone())))],
+                env.logger.clone()
             );
             if handle_error!(found).borrow().is_truthy() {
                 return CodeResult::Return(value);
@@ -246,7 +258,7 @@ new_class! {
         CodeResult::Return(Rc::new(RefCell::new(JsValue::BigInt(-1))))
     },
     slice, fn,
-    |mem, this, [start, end]| {
+    |env, this, [start, end]| {
         let this = this.borrow().unwrap_proto("Array.slice for this");
         let JsValue::BigInt(length) = inline_borrow!(Prototype::find(this.clone(), &"length".into()).1) else { panic!("Array.length not BigInt") };
         let mut start_idx = 0i64;
@@ -263,7 +275,7 @@ new_class! {
         for i in start_idx..end_idx {
             result.push(Prototype::find(this.clone(), &JsValue::BigInt(i)).1);
         }
-        CodeResult::Return(new_array(mem, result))
+        CodeResult::Return(new_array(env.mem, result, env.logger))
     },
     join, fn,
     |_, this, [separator]| {
@@ -288,17 +300,17 @@ new_class! {
         CodeResult::Return(Rc::new(RefCell::new(JsValue::String(strings.join(&sep)))))
     };
     Symbol.iterator, fn_gen,
-    |proto, _| {
-        proto.borrow_mut()
+    |env, _| {
+        env.mem.borrow_mut()
             .properties
             .insert("i".into(), Rc::new(RefCell::new(JsValue::BigInt(0))));
         CodeResult::Normal(Rc::new(RefCell::new(JsValue::Undefined)))
     };
-    |proto, _| {
-        let JsValue::BigInt(i) = inline_borrow!(Prototype::find(proto.clone(), &"i".into()).1) else {
+    |env, _| {
+        let JsValue::BigInt(i) = inline_borrow!(Prototype::find(env.mem.clone(), &"i".into()).1) else {
             panic!("Array.iterator next index is not BigInt")
         };
-        let this = proto
+        let this = env.mem
             .borrow()
             .properties[&"this".into()]
             .borrow()
@@ -310,18 +322,18 @@ new_class! {
             CodeResult::YieldBreak
         } else {
             let obj = Prototype::find(this.clone(), &i.into()).1;
-            proto
+            env.mem
                 .borrow_mut()
                 .properties
                 .insert("i".into(), Rc::new(RefCell::new(JsValue::BigInt(i + 1))));
             CodeResult::Yield(obj)
         }
     };
-    |proto, ind| {
-        let JsValue::BigInt(i) = inline_borrow!(Prototype::find(proto.clone(), &"i".into()).1) else {
+    |env, ind| {
+        let JsValue::BigInt(i) = inline_borrow!(Prototype::find(env.mem.clone(), &"i".into()).1) else {
             panic!("Array.iterator return index is not BigInt")
         };
-        let this = proto
+        let this = env.mem
             .borrow()
             .properties[&"this".into()]
             .borrow()

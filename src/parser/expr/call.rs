@@ -1,8 +1,8 @@
 use std::{cell::RefCell, rc::Rc};
 
 use crate::{
-    Code, CodeIndex, CodeResult, JsValue, LogLevel, Prototype, RUNNABLE, handle_error,
-    inline_borrow, logln, parser::expr::Expr, run_function_object, run_generator_object, run_sub,
+    Code, CodeIndex, CodeResult, Environment, JsValue, LogLevel, Prototype, RUNNABLE, handle_error,
+    inline_borrow, parser::expr::Expr, run_function_object, run_generator_object, run_sub,
 };
 
 #[derive(Debug)]
@@ -12,16 +12,18 @@ pub struct Call {
 }
 
 impl Expr for Call {
-    fn compile(&self, mem: Rc<RefCell<Prototype>>) -> Vec<Code> {
-        let func = self.func.compile(mem.clone());
+    fn compile(&self, env: Environment) -> Vec<Code> {
+        let func = self.func.compile(env.clone());
         let args: Vec<Vec<Code>> = self
             .args
             .iter()
-            .map(|arg| arg.compile(mem.clone()))
+            .map(|arg| arg.compile(env.clone()))
             .collect();
-        vec![Box::new(move |proto, _| {
-            logln(LogLevel::Trace, "Entering Expr::Call");
-            let (func, this) = match run_sub(&func, proto.clone(), &mut CodeIndex::new()) {
+        vec![Box::new(move |env, _| {
+            env.logger
+                .borrow_mut()
+                .logln_str(LogLevel::Trace, "Entering Expr::Call");
+            let (func, this) = match run_sub(&func, env.clone(), &mut CodeIndex::new()) {
                 CodeResult::Normal(res) => (res, Rc::new(RefCell::new(JsValue::Undefined))),
                 CodeResult::NormalMember(res, of, _) => {
                     (res, Rc::new(RefCell::new(JsValue::Prototype(of))))
@@ -31,7 +33,7 @@ impl Expr for Call {
             let func_proto = func.borrow().unwrap_proto("expr::Call func_proto");
             let mut args_evaluated: Vec<Rc<RefCell<JsValue>>> = Vec::new();
             for arg in args.iter() {
-                match run_sub(arg, proto.clone(), &mut CodeIndex::new()) {
+                match run_sub(arg, env.clone(), &mut CodeIndex::new()) {
                     CodeResult::Normal(res) => args_evaluated.push(res),
                     CodeResult::NormalMember(res, _, _) => args_evaluated.push(res),
                     e => return e,
@@ -42,11 +44,20 @@ impl Expr for Call {
                 .1
                 .borrow()
             {
-                JsValue::Function(_) => handle_error!(run_function_object(func_proto, this, args)),
+                JsValue::Function(_) => {
+                    handle_error!(run_function_object(
+                        func_proto,
+                        this,
+                        args,
+                        env.logger.clone()
+                    ))
+                }
                 JsValue::Generator(_) => Rc::new(RefCell::new(JsValue::Prototype(
-                    run_generator_object(func_proto, this, args).into_proto(
-                        inline_borrow!(Prototype::find(proto, &stringify!(Generator).into()).1)
-                            .unwrap_proto("expr::Call Generator not proto"),
+                    run_generator_object(func_proto, this, args, env.logger.clone()).into_proto(
+                        inline_borrow!(
+                            Prototype::find(env.mem.clone(), &stringify!(Generator).into()).1
+                        )
+                        .unwrap_proto("expr::Call Generator not proto"),
                     ),
                 ))),
                 _ => {
@@ -57,7 +68,7 @@ impl Expr for Call {
                             .properties
                             .get(&"constructor".into())
                             .unwrap_or_else(|| {
-                                logln(
+                                env.logger.borrow_mut().logln_str(
                                     LogLevel::Fatal,
                                     "Expr::Call object has no constructor property",
                                 );
@@ -71,18 +82,28 @@ impl Expr for Call {
                             .borrow()
                         {
                             JsValue::Function(_) => {
-                                handle_error!(run_function_object(func_proto, this, args))
+                                handle_error!(run_function_object(
+                                    func_proto,
+                                    this,
+                                    args,
+                                    env.logger.clone()
+                                ))
                             }
                             JsValue::Generator(_) => Rc::new(RefCell::new(JsValue::Prototype(
-                                run_generator_object(func_proto, this, args).into_proto(
-                                    inline_borrow!(
-                                        Prototype::find(proto, &stringify!(Generator).into()).1
-                                    )
-                                    .unwrap_proto("expr::Call Generator not proto 2"),
-                                ),
+                                run_generator_object(func_proto, this, args, env.logger.clone())
+                                    .into_proto(
+                                        inline_borrow!(
+                                            Prototype::find(
+                                                env.mem.clone(),
+                                                &stringify!(Generator).into()
+                                            )
+                                            .1
+                                        )
+                                        .unwrap_proto("expr::Call Generator not proto 2"),
+                                    ),
                             ))),
                             _ => {
-                                logln(
+                                env.logger.borrow_mut().logln_str(
                                     LogLevel::Fatal,
                                     "Expr::Call constructor is not a function or generator",
                                 );
@@ -90,7 +111,7 @@ impl Expr for Call {
                             }
                         }
                     } else {
-                        logln(
+                        env.logger.borrow_mut().logln_str(
                             LogLevel::Fatal,
                             "Expr::Call target is not a function, generator, or constructable object",
                         );
@@ -98,10 +119,9 @@ impl Expr for Call {
                     }
                 }
             };
-            logln(
-                LogLevel::Trace,
-                &format!("Exiting Expr::Call result={:?}", out),
-            );
+            env.logger.borrow_mut().logln(LogLevel::Trace, &|| {
+                format!("Exiting Expr::Call result={:?}", out)
+            });
             CodeResult::Normal(out)
         })]
     }

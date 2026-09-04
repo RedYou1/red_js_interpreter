@@ -1,7 +1,7 @@
 use std::{cell::RefCell, rc::Rc};
 
 use crate::{
-    Code, CodeIndex, CodeResult, JsValue, LogLevel, Prototype, handle_return, inline_borrow, logln,
+    Code, CodeIndex, CodeResult, Environment, JsValue, LogLevel, handle_return, inline_borrow,
     parser::{
         expr::{self, Expr},
         lexer::Token,
@@ -18,55 +18,55 @@ pub struct SwitchExpr {
 
 impl SwitchExpr {
     pub fn parse(parser: &mut Parser) -> Self {
-        logln(LogLevel::Info, "Entering SwitchExpr::parse");
+        parser
+            .env
+            .logger
+            .borrow_mut()
+            .logln_str(LogLevel::Info, "Entering SwitchExpr::parse");
         if parser.tokens()[parser.index()] != Token::Switch {
-            logln(
-                LogLevel::Fatal,
-                &format!(
+            parser.env.logger.borrow_mut().logln(LogLevel::Fatal, &|| {
+                format!(
                     "SwitchExpr::parse expected switch at index {} but found {:?}",
                     parser.index(),
                     parser.tokens()[parser.index()]
-                ),
-            );
+                )
+            });
             panic!("expected 'switch'");
         }
         parser.bump();
 
         if parser.tokens()[parser.index()] != Token::LParen {
-            logln(
-                LogLevel::Fatal,
-                &format!(
+            parser.env.logger.borrow_mut().logln(LogLevel::Fatal, &|| {
+                format!(
                     "SwitchExpr::parse expected '(' at index {} but found {:?}",
                     parser.index(),
                     parser.tokens()[parser.index()]
-                ),
-            );
+                )
+            });
             panic!("expected '(' after switch");
         }
         parser.bump();
         let value = Box::new(parser.parse_expression(true));
         if parser.tokens()[parser.index()] != Token::RParen {
-            logln(
-                LogLevel::Fatal,
-                &format!(
+            parser.env.logger.borrow_mut().logln(LogLevel::Fatal, &|| {
+                format!(
                     "SwitchExpr::parse expected ')' at index {} but found {:?}",
                     parser.index(),
                     parser.tokens()[parser.index()]
-                ),
-            );
+                )
+            });
             panic!("expected ')' after switch condition");
         }
         parser.bump();
 
         if parser.tokens()[parser.index()] != Token::LBrace {
-            logln(
-                LogLevel::Fatal,
-                &format!(
+            parser.env.logger.borrow_mut().logln(LogLevel::Fatal, &|| {
+                format!(
                     "SwitchExpr::parse expected '{{' at index {} but found {:?}",
                     parser.index(),
                     parser.tokens()[parser.index()]
-                ),
-            );
+                )
+            });
             panic!("expected '{{' after switch condition");
         }
         parser.bump();
@@ -119,31 +119,32 @@ impl SwitchExpr {
             parser.bump();
         }
 
-        logln(
-            LogLevel::Trace,
-            &format!("Exiting SwitchExpr::parse case_count={}", cases.len()),
-        );
+        parser.env.logger.borrow_mut().logln(LogLevel::Trace, &|| {
+            format!("Exiting SwitchExpr::parse case_count={}", cases.len())
+        });
         Self { value, cases }
     }
 }
 
 impl Expr for SwitchExpr {
-    fn compile(&self, mem: Rc<RefCell<Prototype>>) -> Vec<Code> {
-        let value = self.value.compile(mem.clone());
+    fn compile(&self, env: Environment) -> Vec<Code> {
+        let value = self.value.compile(env.clone());
         let cases: Vec<(Option<Vec<Code>>, Vec<Code>)> = self
             .cases
             .iter()
             .map(|(cond, body)| {
                 (
-                    cond.as_ref().map(|c| c.compile(mem.clone())),
-                    body.compile(mem.clone()),
+                    cond.as_ref().map(|c| c.compile(env.clone())),
+                    body.compile(env.clone()),
                 )
             })
             .collect();
 
-        vec![Box::new(move |proto, _| {
-            logln(LogLevel::Trace, "Entering Expr::SwitchExpr");
-            let target = handle_return!(run_sub(&value, proto.clone(), &mut CodeIndex::new()));
+        vec![Box::new(move |env, _| {
+            env.logger
+                .borrow_mut()
+                .logln_str(LogLevel::Trace, "Entering Expr::SwitchExpr");
+            let target = handle_return!(run_sub(&value, env.clone(), &mut CodeIndex::new()));
             let mut matched = false;
 
             for (cond, body) in &cases {
@@ -151,15 +152,14 @@ impl Expr for SwitchExpr {
                     matched = match cond {
                         Some(cond) => {
                             let v =
-                                handle_return!(run_sub(cond, proto.clone(), &mut CodeIndex::new()));
+                                handle_return!(run_sub(cond, env.clone(), &mut CodeIndex::new()));
                             let matched_case = {
                                 let target_ref = target.borrow();
                                 inline_borrow!(v).eq(&target_ref)
                             };
-                            logln(
-                                LogLevel::Trace,
-                                &format!("SwitchExpr case matched={matched_case}"),
-                            );
+                            env.logger.borrow_mut().logln(LogLevel::Trace, &|| {
+                                format!("SwitchExpr case matched={matched_case}")
+                            });
                             matched_case
                         }
                         None => true,
@@ -170,7 +170,7 @@ impl Expr for SwitchExpr {
                     continue;
                 }
 
-                match run_sub(body, proto.clone(), &mut CodeIndex::new()) {
+                match run_sub(body, env.clone(), &mut CodeIndex::new()) {
                     CodeResult::Normal(_) | CodeResult::NormalMember(_, _, _) => {}
                     CodeResult::Break(None) => {
                         return CodeResult::Normal(Rc::new(RefCell::new(JsValue::Undefined)));

@@ -1,6 +1,6 @@
 use std::{cell::RefCell, collections::HashMap, rc::Rc};
 
-use crate::{JsValue, LogLevel, Prototype, inline_borrow};
+use crate::{Environment, JsValue, LogLevel, Prototype, inline_borrow};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum CodeResult {
@@ -25,10 +25,6 @@ impl CodeResult {
         } else if let CodeResult::NormalMember(res, _, _) = self {
             res
         } else {
-            crate::logln(
-                LogLevel::Fatal,
-                "CodeResult::unwrap_normal received a control-flow result",
-            );
             panic!("unwrap_normal")
         }
     }
@@ -102,19 +98,11 @@ impl CodeIndex {
         let JsValue::BigInt(i) =
             inline_borrow!(Prototype::find(proto.clone(), &format!("__{name}_current__").into()).1)
         else {
-            crate::logln(
-                LogLevel::Fatal,
-                &format!("CodeIndex.load_from missing BigInt current value for {name}"),
-            );
             panic!("CodeIndex.load_from parse current not BigInt {proto:?}")
         };
         let JsValue::Boolean(r) =
             inline_borrow!(Prototype::find(proto.clone(), &format!("__{name}_retry__").into()).1)
         else {
-            crate::logln(
-                LogLevel::Fatal,
-                &format!("CodeIndex.load_from missing Boolean retry value for {name}"),
-            );
             panic!("CodeIndex.load_from parse retry not Boolean {proto:?}")
         };
         Self {
@@ -136,7 +124,7 @@ impl CodeIndex {
     }
 }
 
-pub type Code = Box<dyn Fn(Rc<RefCell<Prototype>>, &mut CodeIndex) -> CodeResult>;
+pub type Code = Box<dyn Fn(Environment, &mut CodeIndex) -> CodeResult>;
 
 #[macro_export]
 macro_rules! handle_return {
@@ -162,41 +150,34 @@ macro_rules! handle_error {
             CodeResult::Return(res) => res,
             CodeResult::Error(_) => return __res__,
             _ => {
-                $crate::logln(
-                    LogLevel::Fatal,
-                    "handle_error received an unsupported control-flow result",
-                );
                 panic!("unhandled code result in handle_error")
             }
-      
-              }
+        }
     }};
 }
 
-pub fn run_sub(codes: &[Code], mem: Rc<RefCell<Prototype>>, i: &mut CodeIndex) -> CodeResult {
-    crate::logln(
-        LogLevel::Trace,
-        &format!(
+pub fn run_sub(codes: &[Code], env: Environment, i: &mut CodeIndex) -> CodeResult {
+    env.logger.borrow_mut().logln(LogLevel::Trace, &|| {
+        format!(
             "run_sub: {} codes starting at {} with mem: {:?}",
             codes.len(),
             i.current(),
-            mem
-        ),
-    );
+            env.mem
+        )
+    });
     let mut result = CodeResult::Normal(Rc::new(RefCell::new(JsValue::Undefined)));
     while i.current() < codes.len() {
-        result = codes[i.current()](mem.clone(), i);
+        result = codes[i.current()](env.clone(), i);
         match result {
             CodeResult::Normal(_) | CodeResult::NormalMember(_, _, _) => {}
             _ => {
-                crate::logln(
-                    LogLevel::Trace,
-                    &format!(
+                env.logger.borrow_mut().logln(LogLevel::Trace, &|| {
+                    format!(
                         "run_sub stopped at code index {} with {:?}",
                         i.current(),
                         result
-                    ),
-                );
+                    )
+                });
                 return result;
             }
         }

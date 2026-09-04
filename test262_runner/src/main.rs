@@ -1,4 +1,5 @@
 use std::{
+    cell::RefCell,
     collections::HashSet,
     env,
     fs::{self, File},
@@ -12,8 +13,8 @@ use std::{
 };
 
 use red_js_interpreter::{
-    CodeResult, JsValue, Prototype, default_console_config, new_runnable, parse,
-    prebuild_prototypes, run_function_object,
+    CodeResult, Environment, JsValue, LogLevel, Logger, Prototype, default_console_config,
+    new_runnable, parse, prebuild_prototypes, run_function_object,
 };
 use serde::Deserialize;
 
@@ -63,6 +64,12 @@ enum CaseOutcome {
     Panic,
 }
 
+struct Test262Logger;
+
+impl Logger for Test262Logger {
+    fn logln(&mut self, _level: LogLevel, _message: &dyn Fn() -> String) {}
+}
+
 const STACK_OVERFLOW_EXIT_CODE: i32 = -1_073_741_571;
 const DEFAULT_TEST_TIMEOUT: Duration = Duration::from_secs(2);
 
@@ -99,10 +106,10 @@ fn main() {
     if arguments.child {
         let outcome = run_test_in_process(&tests[0], &arguments, &harness);
         match outcome {
-            Ok(TestOutcome::Pass) => println!("__TEST262_RESULT__ PASS"),
-            Ok(TestOutcome::Fail(reason)) => println!("__TEST262_RESULT__ FAIL {reason}"),
-            Ok(TestOutcome::Skip(reason)) => println!("__TEST262_RESULT__ SKIP {reason}"),
-            Err(error) => println!("__TEST262_RESULT__ ERROR {error}"),
+            Ok(TestOutcome::Pass) => eprintln!("__TEST262_RESULT__ PASS"),
+            Ok(TestOutcome::Fail(reason)) => eprintln!("__TEST262_RESULT__ FAIL {reason}"),
+            Ok(TestOutcome::Skip(reason)) => eprintln!("__TEST262_RESULT__ SKIP {reason}"),
+            Err(error) => eprintln!("__TEST262_RESULT__ ERROR {error}"),
         }
         return;
     }
@@ -272,7 +279,7 @@ fn run_test(path: &Path, arguments: &Arguments) -> Result<TestOutcome, String> {
     }
     let child = command
         .arg(path)
-        .stdout(Stdio::piped())
+        .stdout(Stdio::null())
         .stderr(Stdio::piped())
         .spawn()
         .map_err(|error| error.to_string())?;
@@ -299,7 +306,7 @@ fn run_test(path: &Path, arguments: &Arguments) -> Result<TestOutcome, String> {
         )));
     }
 
-    parse_child_result(&output.stdout)
+    parse_child_result(&output.stderr)
 }
 
 enum ChildResult {
@@ -308,17 +315,44 @@ enum ChildResult {
 }
 
 fn wait_for_output(mut child: Child, timeout: Duration) -> io::Result<ChildResult> {
+    let stdout_reader = child.stdout.take().map(|mut stdout| {
+        thread::spawn(move || {
+            let mut output = Vec::new();
+            stdout.read_to_end(&mut output).map(|_| output)
+        })
+    });
+    let stderr_reader = child.stderr.take().map(|mut stderr| {
+        thread::spawn(move || {
+            let mut output = Vec::new();
+            stderr.read_to_end(&mut output).map(|_| output)
+        })
+    });
     let deadline = Instant::now() + timeout;
     loop {
-        if child.try_wait()?.is_some() {
-            return child.wait_with_output().map(ChildResult::Completed);
+        if let Some(status) = child.try_wait()? {
+            return Ok(ChildResult::Completed(Output {
+                status,
+                stdout: finish_reader(stdout_reader)?,
+                stderr: finish_reader(stderr_reader)?,
+            }));
         }
         if Instant::now() >= deadline {
-            child.kill()?;
-            child.wait_with_output()?;
+            let _ = child.kill();
+            child.wait()?;
+            finish_reader(stdout_reader)?;
+            finish_reader(stderr_reader)?;
             return Ok(ChildResult::TimedOut);
         }
         thread::sleep(Duration::from_millis(10));
+    }
+}
+
+fn finish_reader(reader: Option<thread::JoinHandle<io::Result<Vec<u8>>>>) -> io::Result<Vec<u8>> {
+    match reader {
+        Some(reader) => reader
+            .join()
+            .map_err(|_| io::Error::other("child output reader panicked"))?,
+        None => Ok(Vec::new()),
     }
 }
 
@@ -498,21 +532,26 @@ fn build_source(
 }
 
 fn execute_case(source: &str) -> CaseOutcome {
-    let parsed = panic::catch_unwind(AssertUnwindSafe(|| parse(source)));
+    let logger: Rc<RefCell<dyn Logger>> = Rc::new(RefCell::new(Test262Logger));
+    let env = Environment {
+        mem: prebuild_prototypes(default_console_config, logger.clone()),
+        logger,
+    };
+
+    let parsed = panic::catch_unwind(AssertUnwindSafe(|| parse(source, env.clone())));
     let program = match parsed {
         Ok(program) => program,
         Err(_) => return CaseOutcome::ParsePanic,
     };
 
-    let realm = prebuild_prototypes(default_console_config);
-    let compiled = panic::catch_unwind(AssertUnwindSafe(|| program.compile(realm.clone())));
+    let compiled = panic::catch_unwind(AssertUnwindSafe(|| program.compile(env.clone())));
     let program = match compiled {
         Ok(program) => program,
         Err(_) => return CaseOutcome::CompilePanic,
     };
 
     let executed = panic::catch_unwind(AssertUnwindSafe(|| {
-        let function = Prototype::find(realm.clone(), &JsValue::String("Function".to_owned()))
+        let function = Prototype::find(env.mem.clone(), &JsValue::String("Function".to_owned()))
             .1
             .borrow()
             .unwrap_proto("test262 Function prototype");
@@ -522,6 +561,7 @@ fn execute_case(source: &str) -> CaseOutcome {
             main,
             Rc::new(std::cell::RefCell::new(JsValue::Undefined)),
             vec![],
+            env.logger.clone(),
         )
     }));
 
@@ -584,7 +624,10 @@ fn read_file(path: &Path) -> io::Result<String> {
 
 #[cfg(test)]
 mod tests {
-    use std::{process::Command, time::Duration};
+    use std::{
+        process::{Command, Stdio},
+        time::Duration,
+    };
 
     use super::{CaseOutcome, ChildResult, execute_case, parse_metadata, wait_for_output};
 
@@ -635,5 +678,31 @@ mod tests {
         let result = wait_for_output(child, Duration::from_millis(25))
             .expect("timed-out child should be reaped");
         assert!(matches!(result, ChildResult::TimedOut));
+    }
+
+    #[test]
+    fn drains_large_child_output_before_waiting() {
+        let child = if cfg!(windows) {
+            Command::new("cmd")
+                .args(["/C", "for /L %i in (1,1,20000) do @echo test"])
+                .stdout(Stdio::piped())
+                .stderr(Stdio::piped())
+                .spawn()
+                .expect("output-producing child should start")
+        } else {
+            Command::new("sh")
+                .args(["-c", "yes test | head -n 20000"])
+                .stdout(Stdio::piped())
+                .stderr(Stdio::piped())
+                .spawn()
+                .expect("output-producing child should start")
+        };
+
+        let ChildResult::Completed(output) =
+            wait_for_output(child, Duration::from_secs(2)).expect("child should complete")
+        else {
+            panic!("output-producing child should not time out");
+        };
+        assert!(output.stdout.len() > 65_536);
     }
 }

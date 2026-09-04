@@ -1,8 +1,10 @@
 use serial_test::serial;
 pub use std::{cell::RefCell, rc::Rc};
-use std::{fs, ptr::null_mut};
+use std::{fs, num::NonZero, ptr::null_mut};
 
-use crate::prebuild::console::Loggable;
+use crate::{
+    Environment, FilterLogs, LastNLogs, Logger, StdOutLogger, prebuild::console::Loggable,
+};
 pub use crate::{
     JsValue, Prototype, new_runnable,
     prebuild::{
@@ -18,9 +20,13 @@ mod compiler;
 mod switch;
 mod try_catch;
 
-fn prebuild_prototypes_test<T>(logs: &mut Loggable<T>) -> Rc<RefCell<Prototype>> {
-    let protos = prebuild_prototypes(default_console_config);
-    let console = Prototype::find(protos.clone(), &JsValue::String("console".to_owned()))
+fn prebuild_prototypes_test<T>(logs: &mut Loggable<T>) -> Environment {
+    let logger = test_logger();
+    let env = Environment {
+        mem: prebuild_prototypes(default_console_config, logger.clone()),
+        logger,
+    };
+    let console = Prototype::find(env.mem.clone(), &JsValue::String("console".to_owned()))
         .1
         .borrow()
         .unwrap_proto("prebuild_prototypes_test for console");
@@ -30,7 +36,7 @@ fn prebuild_prototypes_test<T>(logs: &mut Loggable<T>) -> Rc<RefCell<Prototype>>
             logs as *mut Loggable<T> as i64,
         ))),
     );
-    protos
+    env
 }
 
 struct AssertResultData<'a> {
@@ -54,6 +60,13 @@ fn append(data_ptr: &mut i64, value: String) {
     data.current += 1;
 }
 
+fn test_logger() -> Rc<RefCell<dyn Logger>> {
+    Rc::new(RefCell::new(FilterLogs {
+        min_level: crate::LogLevel::Trace,
+        logger: LastNLogs::new_empty(StdOutLogger, unsafe { NonZero::new_unchecked(100) }),
+    }))
+}
+
 const NB_LOGS: usize = 10;
 #[macro_export]
 macro_rules! assert_result {
@@ -65,17 +78,17 @@ macro_rules! assert_result {
                 wanted: &wanted,
                 current: 0,
             };
-            let protos = prebuild_prototypes_test(&mut Loggable::<i64> {
+            let env =prebuild_prototypes_test(&mut Loggable::<i64> {
                 logger: &(append as fn(&mut i64, String)),
                 data: &mut data as *mut AssertResultData as i64,
             });
 
-            let program = $crate::parser::parse($src)
+            let program = $crate::parser::parse($src, env.clone())
                 //.expect("parse failed")
-                .compile(protos.clone());
+                .compile(env.clone());
             run_function_object(
                 new_runnable(
-                    Prototype::find(protos, &JsValue::String("Function".to_owned()))
+                    Prototype::find(env.mem, &JsValue::String("Function".to_owned()))
                         .1.borrow()
                         .unwrap_proto("tests::compiler::assert_result! for Function"),
                     "__main__",
@@ -84,6 +97,7 @@ macro_rules! assert_result {
                 .unwrap_proto("tests::compiler::assert_result! for Result"),
                 Rc::new(RefCell::new(JsValue::Undefined)),
                 vec![],
+                env.logger
             );
         }
     }
@@ -95,15 +109,15 @@ macro_rules! test_only_parse (
         #[serial(zzzzzzz)]
         #[ignore]
         fn $fn_name() {
-            let protos =
-                prebuild_prototypes_test(unsafe { null_mut::<Loggable<()>>().as_mut_unchecked() });
+            let env = prebuild_prototypes_test(unsafe { null_mut::<Loggable<()>>().as_mut_unchecked() });
 
             let _program = crate::parser::parse(
                 fs::read_to_string(format!("./src/tests/only_parses/{}.js", $name))
                     .unwrap()
                     .as_str(),
+                env.clone(),
             )
-            .compile(protos.clone());
+            .compile(env.clone());
         }
     }
 );

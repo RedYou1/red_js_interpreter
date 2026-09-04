@@ -1,7 +1,7 @@
 use std::{cell::RefCell, rc::Rc};
 
 use crate::{
-    Code, CodeIndex, CodeResult, JsValue, LogLevel, Prototype, handle_return, inline_borrow, logln,
+    Code, CodeIndex, CodeResult, Environment, JsValue, LogLevel, handle_return, inline_borrow,
     parser::{
         expr::{self, Expr},
         lexer::Token,
@@ -178,10 +178,10 @@ pub struct Not {
 }
 
 impl Expr for Not {
-    fn compile(&self, mem: Rc<RefCell<Prototype>>) -> Vec<Code> {
-        let expr = self.expr.compile(mem);
-        vec![Box::new(move |proto, _| {
-            let value = handle_return!(run_sub(&expr, proto, &mut CodeIndex::new()));
+    fn compile(&self, env: Environment) -> Vec<Code> {
+        let expr = self.expr.compile(env);
+        vec![Box::new(move |env, _| {
+            let value = handle_return!(run_sub(&expr, env, &mut CodeIndex::new()));
             CodeResult::Normal(Rc::new(RefCell::new(JsValue::Boolean(
                 !inline_borrow!(value).is_truthy(),
             ))))
@@ -196,23 +196,22 @@ impl Expr for Not {
 }
 
 impl Expr for Operator {
-    fn compile(&self, mem: Rc<RefCell<Prototype>>) -> Vec<Code> {
-        let left = self.left.compile(mem.clone());
-        let right = self.right.compile(mem.clone());
+    fn compile(&self, env: Environment) -> Vec<Code> {
+        let left = self.left.compile(env.clone());
+        let right = self.right.compile(env.clone());
         let op = self.op.clone();
-        vec![Box::new(move |proto, _| {
-            logln(
-                LogLevel::Trace,
-                &format!("Entering Expr::Operator op={:?}", op),
-            );
+        vec![Box::new(move |env, _| {
+            env.logger.borrow_mut().logln(LogLevel::Trace, &|| {
+                format!("Entering Expr::Operator op={:?}", op)
+            });
             let l = inline_borrow!(handle_return!(run_sub(
                 &left,
-                proto.clone(),
+                env.clone(),
                 &mut CodeIndex::new()
             )));
             let r = inline_borrow!(handle_return!(run_sub(
                 &right,
-                proto.clone(),
+                env.clone(),
                 &mut CodeIndex::new()
             )));
             let value = match op {
@@ -375,10 +374,9 @@ impl Expr for Operator {
                 BinaryOp::ShiftR => todo!(),
             };
             let out = Rc::new(RefCell::new(value));
-            logln(
-                LogLevel::Trace,
-                &format!("Exiting Expr::Operator result={:?}", out),
-            );
+            env.logger.borrow_mut().logln(LogLevel::Trace, &|| {
+                format!("Exiting Expr::Operator result={:?}", out)
+            });
             CodeResult::Normal(out)
         })]
     }
@@ -434,13 +432,15 @@ impl ConditionalOp {
 }
 
 impl Expr for ConditionalOp {
-    fn compile(&self, mem: Rc<RefCell<Prototype>>) -> Vec<Code> {
-        let cond = self.cond.compile(mem.clone());
-        let t = self.t.compile(mem.clone());
-        let f = self.f.compile(mem);
-        vec![Box::new(move |prop, _| {
-            logln(LogLevel::Trace, "Entering Expr::ConditionalOp");
-            let expr = if handle_return!(run_sub(&cond, prop.clone(), &mut CodeIndex::new()))
+    fn compile(&self, env: Environment) -> Vec<Code> {
+        let cond = self.cond.compile(env.clone());
+        let t = self.t.compile(env.clone());
+        let f = self.f.compile(env);
+        vec![Box::new(move |env, _| {
+            env.logger
+                .borrow_mut()
+                .logln_str(LogLevel::Trace, "Entering Expr::ConditionalOp");
+            let expr = if handle_return!(run_sub(&cond, env.clone(), &mut CodeIndex::new()))
                 .borrow()
                 .is_truthy()
             {
@@ -448,11 +448,10 @@ impl Expr for ConditionalOp {
             } else {
                 &f
             };
-            let res = run_sub(expr, prop, &mut CodeIndex::new());
-            logln(
-                LogLevel::Trace,
-                &format!("Exiting Expr::ConditionalOp res={:?}", res),
-            );
+            let res = run_sub(expr, env.clone(), &mut CodeIndex::new());
+            env.logger.borrow_mut().logln(LogLevel::Trace, &|| {
+                format!("Exiting Expr::ConditionalOp res={:?}", res)
+            });
             res
         })]
     }

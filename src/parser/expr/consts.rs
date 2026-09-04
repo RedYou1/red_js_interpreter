@@ -1,6 +1,6 @@
 use std::{cell::RefCell, rc::Rc};
 
-use crate::{Code, CodeResult, JsValue, LogLevel, Prototype, logln, parser::expr::Expr};
+use crate::{Code, CodeResult, Environment, JsValue, LogLevel, parser::expr::Expr};
 
 #[derive(Debug, Clone)]
 pub struct ConstBigInt {
@@ -8,13 +8,12 @@ pub struct ConstBigInt {
 }
 
 impl Expr for ConstBigInt {
-    fn compile(&self, _: Rc<RefCell<Prototype>>) -> Vec<Code> {
+    fn compile(&self, env: Environment) -> Vec<Code> {
         let num = self.num;
         vec![Box::new(move |_, _| {
-            logln(
-                LogLevel::Trace,
-                &format!("Expr::ConstBigInt num={:?}", num),
-            );
+            env.logger.borrow_mut().logln(LogLevel::Trace, &|| {
+                format!("Expr::ConstBigInt num={:?}", num)
+            });
             CodeResult::Normal(Rc::new(RefCell::new(JsValue::BigInt(num))))
         })]
     }
@@ -29,13 +28,12 @@ pub struct ConstNumber {
 }
 
 impl Expr for ConstNumber {
-    fn compile(&self, _: Rc<RefCell<Prototype>>) -> Vec<Code> {
+    fn compile(&self, env: Environment) -> Vec<Code> {
         let num = self.num;
         vec![Box::new(move |_, _| {
-            logln(
-                LogLevel::Trace,
-                &format!("Expr::ConstNumber num={:?}", num),
-            );
+            env.logger.borrow_mut().logln(LogLevel::Trace, &|| {
+                format!("Expr::ConstNumber num={:?}", num)
+            });
             CodeResult::Normal(Rc::new(RefCell::new(JsValue::Number(num))))
         })]
     }
@@ -50,13 +48,12 @@ pub struct ConstString {
 }
 
 impl Expr for ConstString {
-    fn compile(&self, _: Rc<RefCell<Prototype>>) -> Vec<Code> {
+    fn compile(&self, env: Environment) -> Vec<Code> {
         let s = self.s.clone();
         vec![Box::new(move |_, _| {
-            logln(
-                LogLevel::Trace,
-                &format!("Expr::ConstString s={:?}", s),
-            );
+            env.logger
+                .borrow_mut()
+                .logln(LogLevel::Trace, &|| format!("Expr::ConstString s={:?}", s));
             CodeResult::Normal(Rc::new(RefCell::new(JsValue::String(s.clone()))))
         })]
     }
@@ -71,13 +68,12 @@ pub struct ConstBoolean {
 }
 
 impl Expr for ConstBoolean {
-    fn compile(&self, _: Rc<RefCell<Prototype>>) -> Vec<Code> {
+    fn compile(&self, env: Environment) -> Vec<Code> {
         let b = self.b;
         vec![Box::new(move |_, _| {
-            logln(
-                LogLevel::Trace,
-                &format!("Expr::ConstBoolean b={:?}", b),
-            );
+            env.logger
+                .borrow_mut()
+                .logln(LogLevel::Trace, &|| format!("Expr::ConstBoolean b={:?}", b));
             CodeResult::Normal(Rc::new(RefCell::new(JsValue::Boolean(b))))
         })]
     }
@@ -92,13 +88,12 @@ pub struct ConstObj {
 }
 
 impl Expr for ConstObj {
-    fn compile(&self, _: Rc<RefCell<Prototype>>) -> Vec<Code> {
+    fn compile(&self, env: Environment) -> Vec<Code> {
         let obj = self.obj.clone();
         vec![Box::new(move |_, _| {
-            logln(
-                LogLevel::Trace,
-                &format!("Expr::ConstObj obj={:?}", obj),
-            );
+            env.logger
+                .borrow_mut()
+                .logln(LogLevel::Trace, &|| format!("Expr::ConstObj obj={:?}", obj));
             CodeResult::Normal(Rc::new(RefCell::new(obj.clone())))
         })]
     }

@@ -1,20 +1,19 @@
 use std::{cell::RefCell, fmt::Debug, mem::MaybeUninit, rc::Rc};
 
 use crate::{
-    Code, CodeIndex, CodeResult, JsValue, LogLevel, Prototype, handle_return, inline_borrow, logln,
-    parser::parser::Parser,
-    run_sub,
+    Code, CodeIndex, CodeResult, Environment, JsValue, LogLevel, Prototype, handle_return,
+    inline_borrow, parser::parser::Parser, run_sub,
 };
 
 pub trait Expr: Debug {
-    fn compile(&self, mem: Rc<RefCell<Prototype>>) -> Vec<Code>;
+    fn compile(&self, env: Environment) -> Vec<Code>;
     fn duplicate(&self) -> Box<dyn Expr>;
 }
 
 impl Expr for Option<Box<dyn Expr>> {
-    fn compile(&self, mem: Rc<RefCell<Prototype>>) -> Vec<Code> {
+    fn compile(&self, env: Environment) -> Vec<Code> {
         if let Some(e) = self {
-            e.compile(mem)
+            e.compile(env)
         } else {
             vec![Box::new(|_, _| {
                 CodeResult::Normal(Rc::new(RefCell::new(JsValue::Undefined)))
@@ -27,9 +26,9 @@ impl Expr for Option<Box<dyn Expr>> {
 }
 
 impl<const LEN: usize> Expr for [Box<dyn Expr>; LEN] {
-    fn compile(&self, mem: Rc<RefCell<Prototype>>) -> Vec<Code> {
+    fn compile(&self, env: Environment) -> Vec<Code> {
         self.iter()
-            .flat_map(|code| code.compile(mem.clone()))
+            .flat_map(|code| code.compile(env.clone()))
             .collect()
     }
     fn duplicate(&self) -> Box<dyn Expr> {
@@ -42,9 +41,9 @@ impl<const LEN: usize> Expr for [Box<dyn Expr>; LEN] {
 }
 
 impl Expr for Vec<Box<dyn Expr>> {
-    fn compile(&self, mem: Rc<RefCell<Prototype>>) -> Vec<Code> {
+    fn compile(&self, env: Environment) -> Vec<Code> {
         self.iter()
-            .flat_map(|stmt| stmt.compile(mem.clone()))
+            .flat_map(|stmt| stmt.compile(env.clone()))
             .collect()
     }
 
@@ -86,20 +85,18 @@ pub struct Identifier {
 }
 
 impl Expr for Identifier {
-    fn compile(&self, _: Rc<RefCell<Prototype>>) -> Vec<Code> {
+    fn compile(&self, _: Environment) -> Vec<Code> {
         let name = self.name.clone();
-        vec![Box::new(move |proto, _| {
-            logln(
-                LogLevel::Trace,
-                &format!("Entering Expr::Identifier name={}", name),
-            );
-            let res = Prototype::find(proto.clone(), &name.as_str().into()).1;
+        vec![Box::new(move |env, _| {
+            env.logger.borrow_mut().logln(LogLevel::Trace, &|| {
+                format!("Entering Expr::Identifier name={}", name)
+            });
+            let res = Prototype::find(env.mem.clone(), &name.as_str().into()).1;
             if name == "super" {
-                let this = Prototype::find(proto, &"this".into()).1;
-                logln(
-                    LogLevel::Trace,
-                    &format!("Exiting Expr::Identifier {name:?} result={res:?} of {this:?}"),
-                );
+                let this = Prototype::find(env.mem, &"this".into()).1;
+                env.logger.borrow_mut().logln(LogLevel::Trace, &|| {
+                    format!("Exiting Expr::Identifier {name:?} result={res:?} of {this:?}")
+                });
                 CodeResult::NormalMember(
                     res,
                     inline_borrow!(this)
@@ -107,11 +104,10 @@ impl Expr for Identifier {
                     Rc::new(RefCell::new("this".into())),
                 )
             } else {
-                logln(
-                    LogLevel::Trace,
-                    &format!("Exiting Expr::Identifier {name:?} result={res:?}"),
-                );
-                CodeResult::NormalMember(res, proto, Rc::new(RefCell::new(name.as_str().into())))
+                env.logger.borrow_mut().logln(LogLevel::Trace, &|| {
+                    format!("Exiting Expr::Identifier {name:?} result={res:?}")
+                });
+                CodeResult::NormalMember(res, env.mem, Rc::new(RefCell::new(name.as_str().into())))
             }
         })]
     }
@@ -133,17 +129,17 @@ impl Typeof {
 }
 
 impl Expr for Typeof {
-    fn compile(&self, mem: Rc<RefCell<Prototype>>) -> Vec<Code> {
-        let obj = self.obj.compile(mem);
-        vec![Box::new(move |prop, _| {
+    fn compile(&self, env: Environment) -> Vec<Code> {
+        let obj = self.obj.compile(env);
+        vec![Box::new(move |env, _| {
             if obj.len() > 1 {
                 handle_return!(run_sub(
                     &obj[..(obj.len() - 1)],
-                    prop.clone(),
+                    env.clone(),
                     &mut CodeIndex::new()
                 ));
             }
-            let t = handle_return!(obj[obj.len() - 1](prop, &mut CodeIndex::new()));
+            let t = handle_return!(obj[obj.len() - 1](env, &mut CodeIndex::new()));
             CodeResult::Normal(Rc::new(RefCell::new(JsValue::String(
                 match inline_borrow!(t) {
                     JsValue::Function(_) => "function",
@@ -180,11 +176,11 @@ pub struct Label {
 }
 
 impl Expr for Label {
-    fn compile(&self, mem: Rc<RefCell<Prototype>>) -> Vec<Code> {
-        let codes = self.code.compile(mem);
+    fn compile(&self, env: Environment) -> Vec<Code> {
+        let codes = self.code.compile(env);
         let wanted_name = self.name.clone();
-        vec![Box::new(move |proto, _| {
-            match run_sub(&codes, proto, &mut CodeIndex::new()) {
+        vec![Box::new(move |env, _| {
+            match run_sub(&codes, env, &mut CodeIndex::new()) {
                 CodeResult::Break(None) => {
                     CodeResult::Normal(Rc::new(RefCell::new(JsValue::Undefined)))
                 }

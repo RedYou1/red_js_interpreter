@@ -1,5 +1,5 @@
 use crate::{
-    CodeIndex, CodeResult, LogLevel, Prototype, logln,
+    CodeIndex, CodeResult, Environment, LogLevel, Prototype,
     parser::{expr::Expr, lexer::Token, parser::Parser},
     run_sub,
 };
@@ -13,7 +13,11 @@ pub struct Try {
 
 impl Try {
     pub fn parse(parser: &mut Parser) -> Self {
-        logln(LogLevel::Info, "Entering Try::parse");
+        parser
+            .env
+            .logger
+            .borrow_mut()
+            .logln_str(LogLevel::Info, "Entering Try::parse");
         let block = parser.parse_block();
         let catch = if let Token::Catch = &parser.tokens()[parser.index()] {
             parser.bump();
@@ -34,14 +38,13 @@ impl Try {
         } else {
             None
         };
-        logln(
-            LogLevel::Trace,
-            &format!(
+        parser.env.logger.borrow_mut().logln(LogLevel::Trace, &|| {
+            format!(
                 "Exiting Try::parse has_catch={} has_finally={}",
                 catch.is_some(),
                 finally.is_some()
-            ),
-        );
+            )
+        });
         Self {
             block,
             catch,
@@ -51,31 +54,32 @@ impl Try {
 }
 
 impl Expr for Try {
-    fn compile(&self, mem: std::rc::Rc<std::cell::RefCell<crate::Prototype>>) -> Vec<crate::Code> {
-        let block = self.block.compile(mem.clone());
+    fn compile(&self, env: Environment) -> Vec<crate::Code> {
+        let block = self.block.compile(env.clone());
         let catch = self.catch.as_ref().map(|m| {
             (
                 m.0.as_ref().map(|l| l.first().unwrap().clone()),
-                m.1.compile(mem.clone()),
+                m.1.compile(env.clone()),
             )
         });
-        let finally = self.finally.as_ref().map(|m| m.compile(mem.clone()));
-        vec![Box::new(move |proto, _| {
-            logln(LogLevel::Trace, "Entering Expr::Try block");
+        let finally = self.finally.as_ref().map(|m| m.compile(env.clone()));
+        vec![Box::new(move |env, _| {
+            env.logger
+                .borrow_mut()
+                .logln_str(LogLevel::Trace, "Entering Expr::Try block");
             let mut res = run_sub(
                 block.as_ref(),
-                Prototype::new_child(proto.clone(), None, []),
+                env.with_mem(Prototype::new_child(env.mem.clone(), None, [])),
                 &mut CodeIndex::new(),
             );
             if let Some((param, catch)) = catch.as_ref()
                 && let CodeResult::Error(ref err) = res
             {
-                logln(
-                    LogLevel::Trace,
-                    &format!("Entering Expr::Try catch after block error {err:?}"),
-                );
+                env.logger.borrow_mut().logln(LogLevel::Trace, &|| {
+                    format!("Entering Expr::Try catch after block error {err:?}")
+                });
                 let child = Prototype::new_child(
-                    proto.clone(),
+                    env.mem.clone(),
                     None,
                     if let Some(name) = param {
                         vec![(name.as_str().into(), err.clone())]
@@ -83,14 +87,16 @@ impl Expr for Try {
                         vec![]
                     },
                 );
-                let t = run_sub(catch.as_ref(), child, &mut CodeIndex::new());
+                let t = run_sub(catch.as_ref(), env.with_mem(child), &mut CodeIndex::new());
                 res = t;
             }
             if let Some(finally) = finally.as_ref() {
-                logln(LogLevel::Trace, "Entering Expr::Try finally");
+                env.logger
+                    .borrow_mut()
+                    .logln_str(LogLevel::Trace, "Entering Expr::Try finally");
                 let t = run_sub(
                     finally.as_ref(),
-                    Prototype::new_child(proto.clone(), None, []),
+                    env.with_mem(Prototype::new_child(env.mem.clone(), None, [])),
                     &mut CodeIndex::new(),
                 );
                 if matches!(t, CodeResult::Return(_) | CodeResult::Error(_)) {

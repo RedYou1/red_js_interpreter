@@ -155,7 +155,7 @@ impl Token {
     }
 }
 
-use crate::{LogLevel::Trace, logln, parser::expr::BinaryOp};
+use crate::parser::expr::BinaryOp;
 
 pub struct Lexer<'a> {
     chars: std::str::Chars<'a>,

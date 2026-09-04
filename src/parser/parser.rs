@@ -6,16 +6,17 @@ use std::rc::Rc;
 use crate::parser::ast::*;
 use crate::parser::expr::{self, Expr};
 use crate::parser::lexer::{Lexer, Token};
-use crate::{JsValue, LogLevel, Prototype, logln};
+use crate::{Environment, JsValue, LogLevel, Prototype};
 
 pub struct Parser {
+    pub env: Environment,
     tokens: Vec<Token>,
     index: usize,
     can_multi: bool,
 }
 
 impl Parser {
-    pub fn new(input: &str) -> Self {
+    pub fn new(input: &str, env: Environment) -> Self {
         let mut lexer = Lexer::new(input);
         let mut tokens = Vec::with_capacity(input.len());
         loop {
@@ -30,10 +31,10 @@ impl Parser {
             tokens,
             index: 0,
             can_multi: true,
+            env,
         };
-        logln(
-            LogLevel::Trace,
-            &format!(
+        parser.env.logger.borrow_mut().logln(LogLevel::Trace, &|| {
+            format!(
                 "Parser::new input_len={} token_len={} first_5={:?}",
                 input.len(),
                 parser.tokens.len(),
@@ -41,8 +42,8 @@ impl Parser {
                     .iter()
                     .take(5)
                     .collect::<Vec<_>>(),
-            ),
-        );
+            )
+        });
         parser
     }
 
@@ -50,10 +51,9 @@ impl Parser {
         let prev = &self.tokens[self.index];
         assert_ne!(*prev, Token::Eof);
         self.index += 1;
-        logln(
-            LogLevel::Trace,
-            &format!("Parser::bump {:?} -> {:?}", prev, self.tokens[self.index]),
-        );
+        self.env.logger.borrow_mut().logln(LogLevel::Trace, &|| {
+            format!("Parser::bump {:?} -> {:?}", prev, self.tokens[self.index])
+        });
     }
 
     pub const fn index(&self) -> usize {
@@ -71,13 +71,12 @@ impl Parser {
                 name
             }
             t => {
-                logln(
-                    LogLevel::Error,
-                    &format!(
+                self.env.logger.borrow_mut().logln(LogLevel::Error, &|| {
+                    format!(
                         "Parser::expect_ident expected identifier at index {} but found {:?}",
                         self.index, t
-                    ),
-                );
+                    )
+                });
                 panic!("expected identifier, got {:?}", t);
             }
         }
@@ -107,13 +106,12 @@ impl Parser {
             return params;
         }
         if self.tokens[self.index] != Token::RParen {
-            logln(
-                LogLevel::Fatal,
-                &format!(
+            self.env.logger.borrow_mut().logln(LogLevel::Fatal, &|| {
+                format!(
                     "Parser::parse_param_list expected ')' at index {} but found {:?}",
                     self.index, self.tokens[self.index]
-                ),
-            );
+                )
+            });
             panic!("expected ')'");
         }
         self.bump();
@@ -141,13 +139,12 @@ impl Parser {
                     self.bump();
                     continue;
                 }
-                logln(
-                    LogLevel::Error,
-                    &format!(
+                self.env.logger.borrow_mut().logln(LogLevel::Error, &|| {
+                    format!(
                         "Parser::parse_block made no progress at index {} token {:?}",
                         self.index, self.tokens[self.index]
-                    ),
-                );
+                    )
+                });
                 panic!(
                     "parser made no progress inside block at token {:?}",
                     self.tokens[self.index]
@@ -162,7 +159,10 @@ impl Parser {
     }
 
     pub fn parse_program(&mut self) -> Program {
-        logln(LogLevel::Info, "Entering Parser::parse_program");
+        self.env
+            .logger
+            .borrow_mut()
+            .logln_str(LogLevel::Info, "Entering Parser::parse_program");
         let mut body = Vec::new();
         while self.tokens[self.index] != Token::Eof {
             let current = self.tokens[self.index].clone();
@@ -174,10 +174,9 @@ impl Parser {
                 self.bump();
             }
         }
-        logln(
-            LogLevel::Info,
-            &format!("Exiting Parser::parse_program body_size={}", body.len()),
-        );
+        self.env.logger.borrow_mut().logln(LogLevel::Info, &|| {
+            format!("Exiting Parser::parse_program body_size={}", body.len())
+        });
         Program { body }
     }
 
@@ -185,9 +184,9 @@ impl Parser {
         let mut res: Vec<Box<dyn Expr>> = Vec::new();
         while !matches!(self.tokens[self.index], Token::Eof) {
             if !self.can_multi {
-                logln(
+                self.env.logger.borrow_mut().logln(
                     LogLevel::Fatal,
-                    &format!(
+                    &||format!(
                         "Parser::parse_all_expressions entered with can_multi=false at index {} token {:?}",
                         self.index, self.tokens[self.index]
                     ),
@@ -200,10 +199,9 @@ impl Parser {
             }
             res.append(&mut exprs);
             if let Err(error) = stdout().flush() {
-                logln(
-                    LogLevel::Fatal,
-                    &format!("Parser::parse_all_expressions failed to flush stdout: {error}"),
-                );
+                self.env.logger.borrow_mut().logln(LogLevel::Fatal, &|| {
+                    format!("Parser::parse_all_expressions failed to flush stdout: {error}")
+                });
                 panic!("failed to flush stdout: {error}");
             }
         }
@@ -221,13 +219,12 @@ impl Parser {
     fn parse_expression_inner(&mut self) -> Vec<Box<dyn Expr>> {
         let mut res: Vec<Box<dyn Expr>> = Vec::new();
         loop {
-            logln(
-                LogLevel::Trace,
-                &format!(
+            self.env.logger.borrow_mut().logln(LogLevel::Trace, &|| {
+                format!(
                     "parse_expression can_multi={} current_token={:?} expressions={:?}",
                     self.can_multi, self.tokens[self.index], res
-                ),
-            );
+                )
+            });
             match &self.tokens[self.index] {
                 Token::Try => {
                     self.bump();
@@ -257,20 +254,19 @@ impl Parser {
                     let body = self.parse_block();
 
                     if self.tokens[self.index] != Token::While {
-                        logln(
-                            LogLevel::Error,
-                            &format!(
+                        self.env.logger.borrow_mut().logln(LogLevel::Error, &|| {
+                            format!(
                                 "Parser::parse_expression expected while after do body at index {}",
                                 self.index
-                            ),
-                        );
+                            )
+                        });
                         panic!("expected 'while' after do body");
                     }
                     self.bump();
                     if self.tokens[self.index] != Token::LParen {
-                        logln(
+                        self.env.logger.borrow_mut().logln(
                             LogLevel::Fatal,
-                            &format!(
+                            &||format!(
                                 "Parser::parse_expression expected '(' after while at index {} but found {:?}",
                                 self.index, self.tokens[self.index]
                             ),
@@ -281,13 +277,12 @@ impl Parser {
                     let condition: Option<Box<dyn Expr>> =
                         Some(Box::new(self.parse_expression(true)));
                     if self.tokens[self.index] != Token::RParen {
-                        logln(
-                            LogLevel::Error,
-                            &format!(
+                        self.env.logger.borrow_mut().logln(LogLevel::Error, &|| {
+                            format!(
                                 "Parser::parse_expression expected ')' after do-while at index {}",
                                 self.index
-                            ),
-                        );
+                            )
+                        });
                         panic!("expected ')' after while condition");
                     }
                     self.bump();
@@ -341,10 +336,7 @@ impl Parser {
                             params.iter().all(|t| {
                                 matches!(
                                     *t,
-                                    Token::LParen
-                                        | Token::RParen
-                                        | Token::Ident(_)
-                                        | Token::Comma
+                                    Token::LParen | Token::RParen | Token::Ident(_) | Token::Comma
                                 )
                             })
                         }))
@@ -421,13 +413,12 @@ impl Parser {
     }
 
     pub fn parse_primary(&mut self) -> Box<dyn Expr> {
-        logln(
-            LogLevel::Trace,
-            &format!(
+        self.env.logger.borrow_mut().logln(LogLevel::Trace, &|| {
+            format!(
                 "Entering Parser::parse_primary cur={:?}",
                 self.tokens[self.index]
-            ),
-        );
+            )
+        });
         match &self.tokens[self.index] {
             Token::Typeof => {
                 self.bump();
@@ -454,9 +445,9 @@ impl Parser {
                     let before = self.index;
                     let mut exprs = self.parse_expression(true);
                     if exprs.is_empty() && self.index == before {
-                        logln(
+                        self.env.logger.borrow_mut().logln(
                             LogLevel::Fatal,
-                            &format!(
+                            &||format!(
                                 "Parser::parse_primary grouped expression made no progress at index {} token {:?}",
                                 self.index, self.tokens[self.index]
                             ),
@@ -469,13 +460,12 @@ impl Parser {
                     elements.append(&mut exprs);
                 }
                 if self.tokens[self.index] != end {
-                    logln(
-                        LogLevel::Fatal,
-                        &format!(
+                    self.env.logger.borrow_mut().logln(LogLevel::Fatal, &|| {
+                        format!(
                             "Parser::parse_primary expected {:?} at index {} but found {:?}",
                             end, self.index, self.tokens[self.index]
-                        ),
-                    );
+                        )
+                    });
                     panic!("expected ']' at end of array literal");
                 }
                 self.bump();
@@ -578,13 +568,12 @@ impl Parser {
     }
 
     pub fn parse_call_or_primary(&mut self, root: bool) -> Box<dyn Expr> {
-        logln(
-            LogLevel::Trace,
-            &format!(
+        self.env.logger.borrow_mut().logln(LogLevel::Trace, &|| {
+            format!(
                 "Entering Parser::parse_call_or_primary cur={:?} root={:?}",
                 self.tokens[self.index], root
-            ),
-        );
+            )
+        });
         let expr = self.parse_primary();
         self.parse_postfix(expr, root)
     }
@@ -608,9 +597,9 @@ impl Parser {
                     self.bump();
                     let index = Box::new(self.parse_expression(true));
                     if self.tokens[self.index] != Token::RBracket {
-                        logln(
+                        self.env.logger.borrow_mut().logln(
                             LogLevel::Fatal,
-                            &format!(
+                            &||format!(
                                 "Parser::parse_call_or_primary expected ']' at index {} but found {:?}",
                                 self.index, self.tokens[self.index]
                             ),
@@ -648,7 +637,7 @@ impl Parser {
     }
 }
 
-pub fn parse(input: &str) -> Program {
-    let mut p = Parser::new(input);
+pub fn parse(input: &str, env: Environment) -> Program {
+    let mut p = Parser::new(input, env);
     p.parse_program()
 }

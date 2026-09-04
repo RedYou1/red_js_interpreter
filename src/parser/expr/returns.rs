@@ -1,7 +1,5 @@
-use std::{cell::RefCell, rc::Rc};
-
 use crate::{
-    Code, CodeIndex, CodeResult, LogLevel, Prototype, handle_return, logln,
+    Code, CodeIndex, CodeResult, Environment, LogLevel, handle_return,
     parser::{expr::Expr, lexer::Token, parser::Parser},
     run_sub,
 };
@@ -40,7 +38,11 @@ impl Return {
         } else {
             None
         };
-        logln(LogLevel::Info, "Entering Return::parse");
+        parser
+            .env
+            .logger
+            .borrow_mut()
+            .logln_str(LogLevel::Info, "Entering Return::parse");
         let expr = Box::new(parser.parse_expression(false));
         if let Token::Semicolon = parser.tokens()[parser.index()] {
             parser.bump();
@@ -61,49 +63,51 @@ impl Return {
 }
 
 impl Expr for Return {
-    fn compile(&self, mem: Rc<RefCell<Prototype>>) -> Vec<Code> {
+    fn compile(&self, env: Environment) -> Vec<Code> {
         let rtype = self.rtype.clone();
-        let codes = self.expr.compile(mem);
-        vec![Box::new(move |_proto, _i| {
-            logln(
-                LogLevel::Trace,
-                &format!("Entering Expr::Return rtype={:?}", rtype),
-            );
+        let codes = self.expr.compile(env);
+        vec![Box::new(move |env, _i| {
+            env.logger.borrow_mut().logln(LogLevel::Trace, &|| {
+                format!("Entering Expr::Return rtype={:?}", rtype)
+            });
             match rtype.clone() {
                 ReturnType::Return => {
-                    let v = handle_return!(run_sub(&codes, _proto, &mut CodeIndex::new()));
-                    logln(
-                        LogLevel::Trace,
-                        &format!("Exiting Expr::Return Return value={:?}", v),
-                    );
+                    let v = handle_return!(run_sub(&codes, env.clone(), &mut CodeIndex::new()));
+                    env.logger.borrow_mut().logln(LogLevel::Trace, &|| {
+                        format!("Exiting Expr::Return Return value={:?}", v)
+                    });
                     CodeResult::Return(v)
                 }
                 ReturnType::Yield => {
-                    let v = handle_return!(run_sub(&codes, _proto, &mut CodeIndex::new()));
-                    logln(
-                        LogLevel::Trace,
-                        &format!("Exiting Expr::Return Yield value={:?}", v),
-                    );
+                    let v = handle_return!(run_sub(&codes, env.clone(), &mut CodeIndex::new()));
+                    env.logger.borrow_mut().logln(LogLevel::Trace, &|| {
+                        format!("Exiting Expr::Return Yield value={:?}", v)
+                    });
                     CodeResult::Yield(v)
                 }
                 ReturnType::Break(name) => {
-                    logln(LogLevel::Trace, "Exiting Expr::Return Break");
+                    env.logger
+                        .borrow_mut()
+                        .logln_str(LogLevel::Trace, "Exiting Expr::Return Break");
                     CodeResult::Break(name)
                 }
                 ReturnType::YieldBreak => {
-                    logln(LogLevel::Trace, "Exiting Expr::Return YieldBreak");
+                    env.logger
+                        .borrow_mut()
+                        .logln_str(LogLevel::Trace, "Exiting Expr::Return YieldBreak");
                     CodeResult::YieldBreak
                 }
                 ReturnType::Continue(name) => {
-                    logln(LogLevel::Trace, "Exiting Expr::Return Continue");
+                    env.logger
+                        .borrow_mut()
+                        .logln_str(LogLevel::Trace, "Exiting Expr::Return Continue");
                     CodeResult::Continue(name)
                 }
                 ReturnType::Error => {
-                    let v = handle_return!(run_sub(&codes, _proto, &mut CodeIndex::new()));
-                    logln(
-                        LogLevel::Trace,
-                        &format!("Exiting Expr::Return Error value={:?}", v),
-                    );
+                    let v = handle_return!(run_sub(&codes, env.clone(), &mut CodeIndex::new()));
+                    env.logger.borrow_mut().logln(LogLevel::Trace, &|| {
+                        format!("Exiting Expr::Return Error value={:?}", v)
+                    });
                     CodeResult::Error(v)
                 }
             }

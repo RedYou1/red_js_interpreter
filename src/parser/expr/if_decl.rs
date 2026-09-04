@@ -1,7 +1,7 @@
 use std::{cell::RefCell, rc::Rc};
 
 use crate::{
-    Code, CodeIndex, CodeResult, JsValue, LogLevel, Prototype, handle_return, logln,
+    Code, CodeIndex, CodeResult, Environment, JsValue, LogLevel, handle_return,
     parser::{
         expr::{self, Expr},
         lexer::Token,
@@ -17,29 +17,31 @@ pub struct IfExpr {
 
 impl IfExpr {
     pub fn parse(parser: &mut Parser) -> Self {
-        logln(LogLevel::Info, "Entering IfExpr::parse");
+        parser
+            .env
+            .logger
+            .borrow_mut()
+            .logln_str(LogLevel::Info, "Entering IfExpr::parse");
         if !matches!(parser.tokens()[parser.index()], Token::LParen) {
-            logln(
-                LogLevel::Fatal,
-                &format!(
+            parser.env.logger.borrow_mut().logln(LogLevel::Fatal, &|| {
+                format!(
                     "IfExpr::parse expected '(' at index {} but found {:?}",
                     parser.index(),
                     parser.tokens()[parser.index()]
-                ),
-            );
+                )
+            });
             panic!("expected '(' after 'if'");
         }
         parser.bump();
         let condition = Box::new(parser.parse_expression(true));
         if !matches!(parser.tokens()[parser.index()], Token::RParen) {
-            logln(
-                LogLevel::Fatal,
-                &format!(
+            parser.env.logger.borrow_mut().logln(LogLevel::Fatal, &|| {
+                format!(
                     "IfExpr::parse expected ')' at index {} but found {:?}",
                     parser.index(),
                     parser.tokens()[parser.index()]
-                ),
-            );
+                )
+            });
             panic!("expected ')' after if condition, {condition:?}");
         }
         parser.bump();
@@ -52,27 +54,25 @@ impl IfExpr {
             let condition: Box<dyn Expr> = if let Token::If = parser.tokens()[parser.index()] {
                 parser.bump();
                 if !matches!(parser.tokens()[parser.index()], Token::LParen) {
-                    logln(
-                        LogLevel::Fatal,
-                        &format!(
+                    parser.env.logger.borrow_mut().logln(LogLevel::Fatal, &|| {
+                        format!(
                             "IfExpr::parse expected else-if '(' at index {} but found {:?}",
                             parser.index(),
                             parser.tokens()[parser.index()]
-                        ),
-                    );
+                        )
+                    });
                     panic!("expected '(' after 'if'");
                 }
                 parser.bump();
                 let condition = parser.parse_expression(true);
                 if !matches!(parser.tokens()[parser.index()], Token::RParen) {
-                    logln(
-                        LogLevel::Fatal,
-                        &format!(
+                    parser.env.logger.borrow_mut().logln(LogLevel::Fatal, &|| {
+                        format!(
                             "IfExpr::parse expected else-if ')' at index {} but found {:?}",
                             parser.index(),
                             parser.tokens()[parser.index()]
-                        ),
-                    );
+                        )
+                    });
                     panic!("expected ')' after if condition");
                 }
                 parser.bump();
@@ -89,15 +89,14 @@ impl IfExpr {
 }
 
 impl Expr for IfExpr {
-    fn compile(&self, mem: Rc<RefCell<Prototype>>) -> Vec<Code> {
-        logln(
-            LogLevel::Info,
-            &format!("Entering IfExpr::compile blocks={}", self.blocks.len()),
-        );
+    fn compile(&self, env: Environment) -> Vec<Code> {
+        env.logger.borrow_mut().logln(LogLevel::Info, &|| {
+            format!("Entering IfExpr::compile blocks={}", self.blocks.len())
+        });
         let blocks: Vec<(Vec<Code>, Vec<Code>)> = self
             .blocks
             .iter()
-            .map(|(k, v)| (k.compile(mem.clone()), v.compile(mem.clone())))
+            .map(|(k, v)| (k.compile(env.clone()), v.compile(env.clone())))
             .collect();
         let total: usize = blocks.iter().map(|(_, v)| v.len() + 2).sum();
         let mut current: usize = 0;
@@ -109,14 +108,20 @@ impl Expr for IfExpr {
                 let len = v.len();
                 v.insert(
                     0,
-                    Box::new(move |proto, i| {
-                        let cond = handle_return!(run_sub(&k, proto, &mut CodeIndex::new()));
+                    Box::new(move |env, i| {
+                        let cond = handle_return!(run_sub(&k, env.clone(), &mut CodeIndex::new()));
                         if cond.borrow().is_fasly() {
-                            logln(LogLevel::Trace, "IfExpr condition false; skipping branch");
+                            env.logger.borrow_mut().logln_str(
+                                LogLevel::Trace,
+                                "IfExpr condition false; skipping branch",
+                            );
                             i.move_amount(true, len + 1);
                             i.reset_retry();
                         } else {
-                            logln(LogLevel::Trace, "IfExpr condition true; executing branch");
+                            env.logger.borrow_mut().logln_str(
+                                LogLevel::Trace,
+                                "IfExpr condition true; executing branch",
+                            );
                         }
                         CodeResult::Normal(Rc::new(RefCell::new(JsValue::Undefined)))
                     }),

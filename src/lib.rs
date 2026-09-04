@@ -1,6 +1,12 @@
 #![feature(maybe_uninit_array_assume_init)]
 
-use std::{cell::RefCell, collections::HashMap, fmt::Debug, rc::Rc};
+use std::{
+    cell::RefCell,
+    collections::{HashMap, VecDeque},
+    fmt::Debug,
+    num::NonZero,
+    rc::Rc,
+};
 
 mod code_manipulation;
 mod generator;
@@ -20,7 +26,7 @@ pub use runnable::*;
 
 pub use parser::ast as parser_ast;
 
-#[derive(Debug, PartialEq, PartialOrd)]
+#[derive(Debug, PartialEq, PartialOrd, Clone, Copy)]
 pub enum LogLevel {
     Trace = 0,
     Info = 1,
@@ -28,14 +34,109 @@ pub enum LogLevel {
     Error = 3,
     Fatal = 4,
 }
-#[cfg(test)]
-pub const LOGLEVEL: LogLevel = LogLevel::Trace;
-#[cfg(not(test))]
-pub const LOGLEVEL: LogLevel = LogLevel::Info;
 
-pub fn logln(level: LogLevel, message: &str) {
-    if level >= LOGLEVEL {
-        println!("{level:?}: {message}");
+pub trait Logger {
+    fn logln(&mut self, level: LogLevel, message: &dyn Fn() -> String);
+    fn logln_str(&mut self, level: LogLevel, message: &str) {
+        self.logln(level, &|| message.to_owned());
+    }
+}
+
+pub trait DataLogger: Logger {
+    type LogData;
+    fn prepare(&self, level: LogLevel, message: &dyn Fn() -> String) -> Self::LogData;
+    fn logln_data(&mut self, data: Self::LogData);
+}
+
+impl<T: DataLogger> Logger for T {
+    fn logln(&mut self, level: LogLevel, message: &dyn Fn() -> String) {
+        self.logln_data(self.prepare(level, message));
+    }
+}
+
+pub struct StdOutLogger;
+impl DataLogger for StdOutLogger {
+    type LogData = String;
+    fn prepare(&self, level: LogLevel, message: &dyn Fn() -> String) -> Self::LogData {
+        format!("{level:?}: {}", message())
+    }
+    fn logln_data(&mut self, data: Self::LogData) {
+        println!("{data}");
+    }
+}
+
+pub struct FilterLogs<T: DataLogger> {
+    logger: T,
+    min_level: LogLevel,
+}
+impl<T: DataLogger> FilterLogs<T> {
+    pub const fn new(logger: T, min_level: LogLevel) -> Self {
+        Self { logger, min_level }
+    }
+}
+impl<T: DataLogger> DataLogger for FilterLogs<T> {
+    type LogData = Option<T::LogData>;
+    fn prepare(&self, level: LogLevel, message: &dyn Fn() -> String) -> Self::LogData {
+        if level >= self.min_level {
+            Some(self.logger.prepare(level, message))
+        } else {
+            None
+        }
+    }
+    fn logln_data(&mut self, data: Self::LogData) {
+        if let Some(data) = data {
+            self.logger.logln_data(data);
+        }
+    }
+}
+
+pub struct LastNLogs<T: DataLogger> {
+    logger: T,
+    logs: VecDeque<T::LogData>,
+    max_amount: NonZero<usize>,
+}
+impl<T: DataLogger> LastNLogs<T> {
+    pub const fn new_empty(logger: T, max_amount: NonZero<usize>) -> Self {
+        Self {
+            logger,
+            logs: VecDeque::new(),
+            max_amount,
+        }
+    }
+    pub const fn new_custom(
+        logger: T,
+        max_amount: NonZero<usize>,
+        logs: VecDeque<T::LogData>,
+    ) -> Self {
+        Self {
+            logger,
+            logs,
+            max_amount,
+        }
+    }
+}
+impl<T: DataLogger> DataLogger for LastNLogs<T> {
+    type LogData = T::LogData;
+    fn prepare(&self, level: LogLevel, message: &dyn Fn() -> String) -> Self::LogData {
+        self.logger.prepare(level, message)
+    }
+    fn logln_data(&mut self, data: Self::LogData) {
+        if self.logs.len() == self.max_amount.get() {
+            self.logs.pop_front();
+        }
+        self.logs.push_back(data);
+    }
+}
+impl<T: DataLogger> LastNLogs<T> {
+    pub fn flush(&mut self) {
+        for data in self.logs.drain(..) {
+            self.logger.logln_data(data);
+        }
+    }
+}
+impl<T: DataLogger> Drop for LastNLogs<T> {
+    fn drop(&mut self) {
+        self.flush();
     }
 }
 
@@ -63,19 +164,27 @@ macro_rules! inline_borrow {
     }};
 }
 
-/*
-https://miro.medium.com/v2/resize:fit:2000/1*rGkuqfPZUEQw9hvJLV0Gig.png
-https://i.sstatic.net/uy5ce.png
-
-https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/Function
-*/
+#[derive(Clone)]
+pub struct Environment {
+    pub mem: Rc<RefCell<Prototype>>,
+    pub logger: Rc<RefCell<dyn Logger>>,
+}
+impl Environment {
+    pub fn with_mem(&self, mem: Rc<RefCell<Prototype>>) -> Self {
+        Self {
+            mem,
+            logger: self.logger.clone(),
+        }
+    }
+}
 
 const PROTO_NAME: &str = "__proto__";
 const PROTOTYPE_NAME: &str = "prototype";
 const CONSTRUCTOR_NAME: &str = "constructor";
 
 pub fn prebuild_prototypes(
-    console_config: impl Fn(Rc<RefCell<Prototype>>) -> Rc<RefCell<Prototype>>,
+    console_config: impl Fn(Environment) -> Rc<RefCell<Prototype>>,
+    logger: Rc<RefCell<dyn Logger>>,
 ) -> Rc<RefCell<Prototype>> {
     let object = Rc::new(RefCell::new(Prototype {
         name: Some("Object"),
@@ -85,20 +194,23 @@ pub fn prebuild_prototypes(
 
     let function = Prototype::new_child(object.clone(), Some("Function"), []);
 
-    let prototypes = Rc::new(RefCell::new(Prototype {
-        name: None,
-        properties: HashMap::from([
-            (
-                stringify!(Object).into(),
-                Rc::new(RefCell::new(JsValue::Prototype(object.clone()))),
-            ),
-            (
-                stringify!(Function).into(),
-                Rc::new(RefCell::new(JsValue::Prototype(function.clone()))),
-            ),
-        ]),
-        formating: false,
-    }));
+    let env = Environment {
+        mem: Rc::new(RefCell::new(Prototype {
+            name: None,
+            properties: HashMap::from([
+                (
+                    stringify!(Object).into(),
+                    Rc::new(RefCell::new(JsValue::Prototype(object.clone()))),
+                ),
+                (
+                    stringify!(Function).into(),
+                    Rc::new(RefCell::new(JsValue::Prototype(function.clone()))),
+                ),
+            ]),
+            formating: false,
+        })),
+        logger,
+    };
 
     let obj = object.clone();
     object.borrow_mut().properties.insert(
@@ -108,7 +220,7 @@ pub fn prebuild_prototypes(
             object.clone(),
             "Object.constructor",
             prebuild_runnable(
-                prototypes.clone(),
+                env.clone(),
                 Box::new(move |_mem, _this, [value]| {
                     if let JsValue::Undefined | JsValue::Null = inline_borrow!(value.clone()) {
                         CodeResult::Return(Rc::new(RefCell::new(JsValue::Prototype(
@@ -139,7 +251,7 @@ pub fn prebuild_prototypes(
             object.clone(),
             "Reflect.construct",
             prebuild_runnable(
-                prototypes.clone(),
+                env.clone(),
                 Box::new(|mem, _, [_target, _arguments, new_target]| {
                     if !is_constructor(&new_target) {
                         return type_error(mem);
@@ -149,7 +261,7 @@ pub fn prebuild_prototypes(
             ),
         ),
     );
-    prototypes.borrow_mut().properties.insert(
+    env.mem.borrow_mut().properties.insert(
         "Reflect".into(),
         Rc::new(RefCell::new(JsValue::Prototype(reflect))),
     );
@@ -161,7 +273,7 @@ pub fn prebuild_prototypes(
             object.clone(),
             "Object.create",
             prebuild_runnable_direct(
-                prototypes.clone(),
+                env.clone(),
                 Box::new(|_mem, _this, arguments| {
                     CodeResult::Return(Rc::new(RefCell::new(
                         if let Some(proto) = arguments.first() {
@@ -190,8 +302,8 @@ pub fn prebuild_prototypes(
             object.clone(),
             "Function.call",
             prebuild_runnable_direct(
-                prototypes.clone(),
-                Box::new(|_, this, arguments| {
+                env.clone(),
+                Box::new(|env, this, arguments| {
                     if let JsValue::Prototype(ref func_proto) = inline_borrow!(this) {
                         let this_arg = arguments
                             .first()
@@ -199,7 +311,12 @@ pub fn prebuild_prototypes(
                             .unwrap_or_else(|| Rc::new(RefCell::new(JsValue::Undefined)));
                         let params: Vec<Rc<RefCell<JsValue>>> =
                             arguments.iter().skip(1).cloned().collect();
-                        crate::run_function_object(func_proto.clone(), this_arg, params)
+                        crate::run_function_object(
+                            func_proto.clone(),
+                            this_arg,
+                            params,
+                            env.logger.clone(),
+                        )
                     } else {
                         CodeResult::Return(Rc::new(RefCell::new(JsValue::Undefined)))
                     }
@@ -208,8 +325,8 @@ pub fn prebuild_prototypes(
         ),
     );
 
-    prebuild_symbol(prototypes.clone());
-    let symbol = Prototype::find(prototypes.clone(), &stringify!(Symbol).into())
+    prebuild_symbol(env.clone());
+    let symbol = Prototype::find(env.mem.clone(), &stringify!(Symbol).into())
         .1
         .borrow()
         .unwrap_proto("prebuild_prototypes for Symbol");
@@ -218,7 +335,7 @@ pub fn prebuild_prototypes(
         function.clone(),
         "Function.[hasInstance]",
         prebuild_runnable(
-            prototypes.clone(),
+            env.clone(),
             Box::new(|_, this, [instance]| {
                 let JsValue::Prototype(function) = inline_borrow!(this) else {
                     return CodeResult::Return(Rc::new(RefCell::new(JsValue::Boolean(false))));
@@ -238,9 +355,7 @@ pub fn prebuild_prototypes(
                         break;
                     };
                     if Rc::ptr_eq(&parent, &prototype) {
-                        return CodeResult::Return(Rc::new(RefCell::new(
-                            JsValue::Boolean(true),
-                        )));
+                        return CodeResult::Return(Rc::new(RefCell::new(JsValue::Boolean(true))));
                     }
                     instance = parent;
                 }
@@ -252,16 +367,16 @@ pub fn prebuild_prototypes(
         .borrow_mut()
         .properties
         .insert(has_instance, has_instance_function);
-    prebuild_iterator(prototypes.clone());
-    prebuild_array(prototypes.clone());
-    prebuild_date(prototypes.clone());
-    prebuild_string(prototypes.clone());
-    prebuild_number(prototypes.clone());
-    prebuild_math(prototypes.clone());
-    prebuild_console(prototypes.clone());
-    prebuild_error(prototypes.clone());
-    prebuild_type_error(prototypes.clone());
-    prototypes.borrow().properties[&JsValue::String("console".to_owned())]
+    prebuild_iterator(env.clone());
+    prebuild_array(env.clone());
+    prebuild_date(env.clone());
+    prebuild_string(env.clone());
+    prebuild_number(env.clone());
+    prebuild_math(env.clone());
+    prebuild_console(env.clone());
+    prebuild_error(env.clone());
+    prebuild_type_error(env.clone());
+    env.mem.borrow().properties[&JsValue::String("console".to_owned())]
         .borrow()
         .unwrap_proto("prebuild_prototypes adding config to console")
         .borrow_mut()
@@ -269,19 +384,19 @@ pub fn prebuild_prototypes(
         .insert(
             JsValue::String("__config__".to_owned()),
             Rc::new(RefCell::new(JsValue::Prototype(console_config(
-                prototypes.clone(),
+                env.clone(),
             )))),
         );
-    prebuild_itergen(prototypes.clone());
-    prototypes.borrow_mut().properties.insert(
+    prebuild_itergen(env.clone());
+    env.mem.borrow_mut().properties.insert(
         "NaN".into(),
         Rc::new(RefCell::new(JsValue::Number(f64::NAN))),
     );
-    prototypes.borrow_mut().properties.insert(
+    env.mem.borrow_mut().properties.insert(
         "Infinity".into(),
         Rc::new(RefCell::new(JsValue::Number(f64::INFINITY))),
     );
-    prototypes
+    env.mem
 }
 
 fn is_constructor(value: &Rc<RefCell<JsValue>>) -> bool {
@@ -298,8 +413,8 @@ fn is_constructor(value: &Rc<RefCell<JsValue>>) -> bool {
     )
 }
 
-fn type_error(mem: Rc<RefCell<Prototype>>) -> CodeResult {
-    let error = Prototype::find(mem, &stringify!(TypeError).into())
+fn type_error(env: Environment) -> CodeResult {
+    let error = Prototype::find(env.mem, &stringify!(TypeError).into())
         .1
         .borrow()
         .unwrap_proto("Reflect.construct for TypeError");

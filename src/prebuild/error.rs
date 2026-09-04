@@ -5,8 +5,8 @@ new_class! {
     Error,
     Object,;
     constructor, fn,
-    |mem, _, [arg]| {
-        let error = Prototype::find(mem.clone(), &stringify!(Error).into()).1.borrow().unwrap_proto("Error.constructor for Error");
+    |env, _, [arg]| {
+        let error = Prototype::find(env.mem.clone(), &stringify!(Error).into()).1.borrow().unwrap_proto("Error.constructor for Error");
         let proto = Prototype::new_child(
             error,
             None,
@@ -21,8 +21,8 @@ new_class! {
     TypeError,
     Error,;
     constructor, fn,
-    |mem, _, [arg]| {
-        let error = Prototype::find(mem.clone(), &stringify!(TypeError).into()).1.borrow().unwrap_proto("TypeError.constructor for TypeError");
+    |env, _, [arg]| {
+        let error = Prototype::find(env.mem.clone(), &stringify!(TypeError).into()).1.borrow().unwrap_proto("TypeError.constructor for TypeError");
         let proto = Prototype::new_child(
             error,
             None,

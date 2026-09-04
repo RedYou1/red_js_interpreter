@@ -1,7 +1,8 @@
 use std::{cell::RefCell, rc::Rc};
 
 use crate::{
-    Code, CodeIndex, CodeResult, JsValue, LogLevel, Prototype, inline_borrow, logln, new_array,
+    Code, CodeIndex, CodeResult, Environment, JsValue, LogLevel, Prototype, inline_borrow,
+    new_array,
     parser::{
         expr::{self, Expr},
         lexer::Token,
@@ -46,14 +47,13 @@ impl Object {
                     properties.push((key, Box::new(func)));
                 }
                 _ => {
-                    logln(
-                        LogLevel::Fatal,
-                        &format!(
+                    parser.env.logger.borrow_mut().logln(LogLevel::Fatal, &|| {
+                        format!(
                             "Object::parse expected ':' or '(' at index {} but found {:?}",
                             parser.index(),
                             parser.tokens()[parser.index()]
-                        ),
-                    );
+                        )
+                    });
                     panic!(
                         "expected ':' or '(' in object literal, got {:?}",
                         parser.tokens()[parser.index()]
@@ -65,14 +65,13 @@ impl Object {
             }
         }
         if parser.tokens()[parser.index()] != Token::RBrace {
-            logln(
-                LogLevel::Fatal,
-                &format!(
+            parser.env.logger.borrow_mut().logln(LogLevel::Fatal, &|| {
+                format!(
                     "Object::parse expected '}}' at index {} but found {:?}",
                     parser.index(),
                     parser.tokens()[parser.index()]
-                ),
-            );
+                )
+            });
             panic!("expected '}}' at end of object literal");
         }
         parser.bump();
@@ -81,26 +80,28 @@ impl Object {
 }
 
 impl Expr for Object {
-    fn compile(&self, mem: Rc<RefCell<Prototype>>) -> Vec<Code> {
+    fn compile(&self, env: Environment) -> Vec<Code> {
         let elems: Vec<(Vec<Code>, Vec<Code>)> = self
             .properties
             .iter()
-            .map(|(key, value)| (key.compile(mem.clone()), value.compile(mem.clone())))
+            .map(|(key, value)| (key.compile(env.clone()), value.compile(env.clone())))
             .collect();
-        vec![Box::new(move |proto, _| {
-            logln(LogLevel::Trace, "Entering Expr::Object");
-            let object_proto = Prototype::find(mem.clone(), &stringify!(Object).into())
+        vec![Box::new(move |env, _| {
+            env.logger
+                .borrow_mut()
+                .logln_str(LogLevel::Trace, "Entering Expr::Object");
+            let object_proto = Prototype::find(env.mem.clone(), &stringify!(Object).into())
                 .1
                 .borrow()
                 .unwrap_proto("expr::Object for Object");
             let mut props: Vec<(JsValue, Rc<RefCell<JsValue>>)> = Vec::new();
             for (key, value) in elems.iter() {
-                let key_val = match run_sub(key, proto.clone(), &mut CodeIndex::new()) {
+                let key_val = match run_sub(key, env.clone(), &mut CodeIndex::new()) {
                     CodeResult::Normal(res) => inline_borrow!(res),
                     CodeResult::NormalMember(res, _, _) => inline_borrow!(res),
                     e => return e,
                 };
-                let value_val = match run_sub(value, proto.clone(), &mut CodeIndex::new()) {
+                let value_val = match run_sub(value, env.clone(), &mut CodeIndex::new()) {
                     CodeResult::Normal(res) => res,
                     CodeResult::NormalMember(res, _, _) => res,
                     e => return e,
@@ -112,10 +113,9 @@ impl Expr for Object {
                 None,
                 props,
             ))));
-            logln(
-                LogLevel::Trace,
-                &format!("Exiting Expr::Object result={:?}", out),
-            );
+            env.logger.borrow_mut().logln(LogLevel::Trace, &|| {
+                format!("Exiting Expr::Object result={:?}", out)
+            });
             CodeResult::Normal(out)
         })]
     }
@@ -136,31 +136,32 @@ pub struct Array {
 }
 
 impl Expr for Array {
-    fn compile(&self, mem: Rc<RefCell<Prototype>>) -> Vec<Code> {
+    fn compile(&self, env: Environment) -> Vec<Code> {
         let elems: Vec<Vec<Code>> = self
             .elems
             .iter()
-            .map(|elem| elem.compile(mem.clone()))
+            .map(|elem| elem.compile(env.clone()))
             .collect();
-        vec![Box::new(move |proto, _| {
-            logln(LogLevel::Trace, "Entering Expr::Array");
-            let array_proto = Prototype::find(mem.clone(), &stringify!(Array).into())
+        vec![Box::new(move |env, _| {
+            env.logger
+                .borrow_mut()
+                .logln_str(LogLevel::Trace, "Entering Expr::Array");
+            let array_proto = Prototype::find(env.mem.clone(), &stringify!(Array).into())
                 .1
                 .borrow()
                 .unwrap_proto("expr::Array for Array");
             let mut values: Vec<Rc<RefCell<JsValue>>> = Vec::new();
             for elem in elems.iter() {
-                match run_sub(elem, proto.clone(), &mut CodeIndex::new()) {
+                match run_sub(elem, env.clone(), &mut CodeIndex::new()) {
                     CodeResult::Normal(res) => values.push(res),
                     CodeResult::NormalMember(res, _, _) => values.push(res),
                     e => return e,
                 }
             }
-            let out = new_array(array_proto, values);
-            logln(
-                LogLevel::Trace,
-                &format!("Exiting Expr::Array result={:?}", out),
-            );
+            let out = new_array(array_proto, values, env.logger.clone());
+            env.logger.borrow_mut().logln(LogLevel::Trace, &|| {
+                format!("Exiting Expr::Array result={:?}", out)
+            });
             CodeResult::Normal(out)
         })]
     }

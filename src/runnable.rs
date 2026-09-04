@@ -1,8 +1,8 @@
 use std::{cell::RefCell, fmt::Debug, rc::Rc};
 
 use crate::{
-    ARGUMENTS, CONSTRUCTOR_NAME, Code, CodeIndex, CodeResult, JsValue, LogLevel, PROTO_NAME,
-    PROTOTYPE_NAME, Prototype, RUNNABLE, inline_borrow, new_array, run_sub,
+    ARGUMENTS, CONSTRUCTOR_NAME, Code, CodeIndex, CodeResult, JsValue, LogLevel, Logger,
+    PROTO_NAME, PROTOTYPE_NAME, Prototype, RUNNABLE, inline_borrow, new_array, run_sub,
 };
 
 pub struct Runnable {
@@ -72,24 +72,23 @@ pub fn run_function_object(
     func: Rc<RefCell<Prototype>>,
     this: Rc<RefCell<JsValue>>,
     params: Vec<Rc<RefCell<JsValue>>>,
+    logger: Rc<RefCell<dyn Logger>>,
 ) -> CodeResult {
     let JsValue::Function(ref runnable) =
         inline_borrow!(inline_borrow!(func.clone()).properties[&RUNNABLE.into()].clone())
     else {
-        crate::logln(
-            LogLevel::Fatal,
-            &format!("run_function_object received a non-runnable function object: {func:?}"),
-        );
+        logger.borrow_mut().logln(LogLevel::Fatal, &|| {
+            format!("run_function_object received a non-runnable function object: {func:?}")
+        });
         panic!("func not runnable")
     };
-    crate::logln(
-        LogLevel::Trace,
-        &format!(
+    logger.borrow_mut().logln(LogLevel::Trace, &|| {
+        format!(
             "run_function_object: {}({:?})",
             func.borrow().name.unwrap_or("anonymous"),
             params
-        ),
-    );
+        )
+    });
     let mem = runnable.mem.clone();
 
     let proto = Rc::new(RefCell::new(Prototype {
@@ -109,7 +108,7 @@ pub fn run_function_object(
     let JsValue::Prototype(array) =
         inline_borrow!(Prototype::find(mem.clone(), &stringify!(Array).into()).1)
     else {
-        crate::logln(
+        logger.borrow_mut().logln_str(
             LogLevel::Fatal,
             "run_function_object could not locate the Array prototype",
         );
@@ -121,6 +120,7 @@ pub fn run_function_object(
             new_array(
                 array,
                 params.iter().skip(runnable.params.len()).cloned().collect(),
+                logger.clone(),
             ),
         );
     }
@@ -132,6 +132,7 @@ pub fn run_function_object(
                 .borrow()
                 .unwrap_proto("run_function_object get Array"),
             params,
+            logger.clone(),
         ),
     );
     proto
@@ -152,7 +153,11 @@ pub fn run_function_object(
         );
     }
 
-    let res = run_sub(&runnable.code, proto, &mut CodeIndex::new());
+    let res = run_sub(
+        &runnable.code,
+        crate::Environment { mem: proto, logger },
+        &mut CodeIndex::new(),
+    );
     match res {
         CodeResult::Return(_) | CodeResult::Error(_) => res,
         _ => CodeResult::Return(Rc::new(RefCell::new(JsValue::Undefined))),

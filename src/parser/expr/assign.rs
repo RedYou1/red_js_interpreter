@@ -1,7 +1,8 @@
 use std::{cell::RefCell, rc::Rc};
 
 use crate::{
-    Code, CodeIndex, CodeResult, JsValue, LogLevel, Prototype, handle_return, inline_borrow, logln,
+    Code, CodeIndex, CodeResult, Environment, JsValue, LogLevel, Prototype, handle_return,
+    inline_borrow,
     parser::{
         expr::{BinaryOp, Expr},
         lexer::Token,
@@ -17,27 +18,29 @@ pub struct Assign {
 }
 
 impl Expr for Assign {
-    fn compile(&self, mem: Rc<RefCell<Prototype>>) -> Vec<Code> {
-        let target = self.target.compile(mem.clone());
-        let value = self.value.compile(mem.clone());
-        vec![Box::new(move |proto, _| {
-            logln(LogLevel::Trace, "Entering Expr::Assign");
-            let value = handle_return!(run_sub(&value, proto.clone(), &mut CodeIndex::new()));
-            let (obj, key) = match run_sub(&target, proto.clone(), &mut CodeIndex::new()) {
+    fn compile(&self, env: Environment) -> Vec<Code> {
+        let target = self.target.compile(env.clone());
+        let value = self.value.compile(env.clone());
+        vec![Box::new(move |env, _| {
+            env.logger
+                .borrow_mut()
+                .logln_str(LogLevel::Trace, "Entering Expr::Assign");
+            let value = handle_return!(run_sub(&value, env.clone(), &mut CodeIndex::new()));
+            let (obj, key) = match run_sub(&target, env.clone(), &mut CodeIndex::new()) {
                 CodeResult::Normal(key) => {
                     let key_clone = key.clone();
                     let key_val = inline_borrow!(key_clone.clone());
-                    if let Some((found_proto, _)) = Prototype::opt_find(proto.clone(), &key_val) {
+                    if let Some((found_proto, _)) = Prototype::opt_find(env.mem.clone(), &key_val) {
                         (found_proto, key_clone)
                     } else {
-                        (proto, key_clone)
+                        (env.mem.clone(), key_clone)
                     }
                 }
                 CodeResult::NormalMember(_, obj, key) => {
                     // Distinguish identifier targets (obj == current proto) from member targets.
                     let key_clone = key.clone();
                     let key_val = inline_borrow!(key_clone.clone());
-                    if std::rc::Rc::ptr_eq(&obj, &proto) {
+                    if std::rc::Rc::ptr_eq(&obj, &env.mem) {
                         // Identifier: update nearest binding on the prototype chain.
                         if let Some((found_proto, _)) = Prototype::opt_find(obj.clone(), &key_val) {
                             (found_proto, key_clone)
@@ -50,17 +53,16 @@ impl Expr for Assign {
                     }
                 }
                 _ => {
-                    logln(
+                    env.logger.borrow_mut().logln_str(
                         LogLevel::Error,
                         "Expr::Assign target did not resolve to a member",
                     );
                     panic!("asign not a member")
                 }
             };
-            logln(
-                LogLevel::Trace,
-                &format!("Exiting Expr::Assign {obj:?}[{key:?}] = {value:?}"),
-            );
+            env.logger.borrow_mut().logln(LogLevel::Trace, &|| {
+                format!("Exiting Expr::Assign {obj:?}[{key:?}] = {value:?}")
+            });
             obj.borrow_mut()
                 .properties
                 .insert(inline_borrow!(key), value.clone());
@@ -84,10 +86,9 @@ pub struct VarDecl {
 impl VarDecl {
     pub fn parse(parser: &mut Parser) -> Self {
         let name = parser.expect_ident();
-        logln(
-            LogLevel::Info,
-            &format!("Entering VarDecl::parse name={}", name),
-        );
+        parser.env.logger.borrow_mut().logln(LogLevel::Info, &|| {
+            format!("Entering VarDecl::parse name={}", name)
+        });
         let initializer: Option<Box<dyn Expr>> =
             if let Token::Assign(t) = &parser.tokens()[parser.index()] {
                 assert_eq!(*t, Option::<BinaryOp>::None);
@@ -104,23 +105,21 @@ impl VarDecl {
 }
 
 impl Expr for VarDecl {
-    fn compile(&self, mem: Rc<RefCell<Prototype>>) -> Vec<Code> {
+    fn compile(&self, env: Environment) -> Vec<Code> {
         let name = self.name.clone();
-        let code = self.initializer.compile(mem);
-        vec![Box::new(move |proto, _| {
-            logln(
-                LogLevel::Trace,
-                &format!("Entering Expr::VarDecl name={}", name),
-            );
-            let value = handle_return!(run_sub(&code, proto.clone(), &mut CodeIndex::new()));
-            proto
+        let code = self.initializer.compile(env);
+        vec![Box::new(move |env, _| {
+            env.logger.borrow_mut().logln(LogLevel::Trace, &|| {
+                format!("Entering Expr::VarDecl name={}", name)
+            });
+            let value = handle_return!(run_sub(&code, env.clone(), &mut CodeIndex::new()));
+            env.mem
                 .borrow_mut()
                 .properties
                 .insert(name.clone().into(), value.clone());
-            logln(
-                LogLevel::Trace,
-                &format!("Exiting Expr::VarDecl name={} value={:?}", name, value),
-            );
+            env.logger.borrow_mut().logln(LogLevel::Trace, &|| {
+                format!("Exiting Expr::VarDecl name={} value={:?}", name, value)
+            });
             CodeResult::Normal(Rc::new(RefCell::new(JsValue::Undefined)))
         })]
     }

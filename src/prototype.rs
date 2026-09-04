@@ -6,7 +6,7 @@ use std::{
     rc::Rc,
 };
 
-use crate::{JsValue, LogLevel, PROTO_NAME, inline_borrow, logln};
+use crate::{JsValue, PROTO_NAME, inline_borrow};
 
 #[derive(Clone, Eq, PartialEq)]
 pub struct Prototype {
@@ -58,16 +58,16 @@ impl Prototype {
         this: Rc<RefCell<Self>>,
         key: &JsValue,
     ) -> (Option<Rc<RefCell<Prototype>>>, Rc<RefCell<JsValue>>) {
-        let receiver_name = this.borrow().name;
+        // let receiver_name = this.borrow().name;
         let result = Self::inner_find(this, key)
             .map(|(a, b)| (Some(a), b))
             .unwrap_or((None, Rc::new(RefCell::new(JsValue::Undefined))));
-        if result.0.is_none() {
-            logln(
-                LogLevel::Trace,
-                &format!("Prototype::find miss receiver={receiver_name:?} key={key:?}"),
-            );
-        }
+        // if result.0.is_none() {
+        //     logln(
+        //         LogLevel::Trace,
+        //         &format!("Prototype::find miss receiver={receiver_name:?} key={key:?}"),
+        //     );
+        // }
         result
     }
 
