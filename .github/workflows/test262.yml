@@ -104,7 +104,7 @@ jobs:
       - name: Coordinate actionable failures
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          TEST262_MAX_OPEN_TASKS: "8"
+          TEST262_MAX_OPEN_TASKS: "32"
         run: |
           python3 scripts/test262_triage.py \
             --output artifacts/test262-output.txt \

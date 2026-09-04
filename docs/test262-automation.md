@@ -13,7 +13,7 @@ dependency uses an unstable language feature.
 The coordinator is `scripts/test262_triage.py`. It parses only `FAIL` records,
 groups them by directory, feature metadata, and failure category, and compares
 the current sweep with cached state. Actionable groups are created or updated
-as issues labeled `test262-failure`; at most eight open task issues are created
+as issues labeled `test262-failure`; at most 32 open task issues are created
 at once. Skips, unsupported results, infrastructure failures, and duplicate
 failures are not delegated. A group absent from a later sweep is closed with a
 comment after the rerun.
