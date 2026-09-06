@@ -1,0 +1,99 @@
+name: Test262 passed baseline
+
+on:
+  pull_request:
+    branches:
+      - master
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  baseline:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out interpreter
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.head_ref || github.ref_name }}
+
+      - name: Check out Test262
+        uses: actions/checkout@v4
+        with:
+          repository: tc39/test262
+          path: test262
+          fetch-depth: 1
+
+      - name: Install nightly Rust
+        run: rustup toolchain install nightly --profile minimal
+
+      - name: Build runner
+        run: cargo +nightly build --release --manifest-path test262_runner/Cargo.toml
+
+      - name: Run supported Test262 tests
+        id: test262
+        shell: bash
+        run: |
+          mkdir -p artifacts
+          set +e
+          mapfile -t annex_b_tests < <(
+            find test262/test/annexB -type f -name '*.js' \
+              ! -path '*/legacy-accessors/*' \
+              ! -path '*/built-ins/String/prototype/big/*' \
+              ! -path '*/built-ins/String/prototype/blink/*' \
+              ! -path '*/built-ins/String/prototype/bold/*' \
+              ! -path '*/built-ins/String/prototype/fixed/*' \
+              ! -path '*/built-ins/String/prototype/fontcolor/*' \
+              ! -path '*/built-ins/String/prototype/fontsize/*' \
+              ! -path '*/built-ins/String/prototype/italics/*' \
+              ! -path '*/built-ins/String/prototype/link/*' \
+              ! -path '*/built-ins/String/prototype/small/*' \
+              ! -path '*/built-ins/String/prototype/strike/*' \
+              ! -path '*/built-ins/Function/createdynfn-html-close-comment-body.js' \
+              ! -path '*/built-ins/Function/createdynfn-html-close-comment-params.js' \
+              ! -path '*/built-ins/Function/createdynfn-html-open-comment-body.js' \
+              ! -path '*/built-ins/Function/createdynfn-html-open-comment-params.js' \
+              ! -path '*/built-ins/Function/createdynfn-no-line-terminator-html-close-comment-body.js' \
+              ! -path '*/built-ins/Function/createdynfn-no-line-terminator-html-close-comment-params.js'
+          )
+          cargo +nightly run --release --manifest-path test262_runner/Cargo.toml -- \
+            --test262-dir test262 \
+            --skip-feature IsHTMLDDA \
+            "${annex_b_tests[@]}" \
+            test262/test/built-ins \
+            test262/test/language > artifacts/test262-output.txt 2>&1
+          status=$?
+          echo "exit_code=$status" >> "$GITHUB_OUTPUT"
+          cat artifacts/test262-output.txt
+          exit 0
+
+      - name: Preserve runner output
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test262-baseline-run-${{ github.run_id }}
+          path: artifacts/
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Fail workflow on runner infrastructure errors
+        if: steps.test262.outputs.exit_code == '2'
+        run: |
+          echo "The Test262 runner hit an infrastructure error; see the test262 output artifact for details."
+          exit 1
+
+      - name: Check for pass regressions and refresh baseline
+        id: baseline
+        run: |
+          python3 scripts/test262_pass_regression.py \
+            --runner-output artifacts/test262-output.txt \
+            --baseline passed_test262.txt \
+            --github-output "$GITHUB_OUTPUT"
+
+      - name: Commit updated passed_test262 baseline
+        if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && steps.baseline.outputs.new_pass_count != '0'
+        uses: stefanzweifel/git-auto-commit-action@v5
+        with:
+          commit_message: "Update passed Test262 baseline"
+          file_pattern: passed_test262.txt

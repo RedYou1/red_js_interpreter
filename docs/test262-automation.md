@@ -32,3 +32,16 @@ state is available without committing generated files to the repository.
 Artifacts and issues are the durable record for each run; supported-test
 failures are surfaced as warnings, while runner infrastructure errors fail the
 workflow.
+
+## Passed-test baseline workflow
+
+`.github/workflows/test262-passed-baseline.yml` is a separate pull-request
+workflow that runs the same supported Test262 sweep and compares the `PASS`
+results against `passed_test262.txt`.
+
+- If a previously listed passing test is missing, the check fails and logs the
+  missing tests.
+- If there are no regressions and no new passing tests, the check passes.
+- If there are no regressions and new passing tests are found, the check passes
+  and commits an updated `passed_test262.txt` on pull requests from this
+  repository.
