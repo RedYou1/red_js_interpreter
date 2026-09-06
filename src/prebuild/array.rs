@@ -59,11 +59,7 @@ fn callback_result(
     )
 }
 
-fn flatten_value(
-    item: Rc<RefCell<JsValue>>,
-    depth: i64,
-    output: &mut Vec<Rc<RefCell<JsValue>>>,
-) {
+fn flatten_value(item: Rc<RefCell<JsValue>>, depth: i64, output: &mut Vec<Rc<RefCell<JsValue>>>) {
     if depth > 0
         && let JsValue::Prototype(array) = inline_borrow!(item.clone())
         && Prototype::opt_find(array.clone(), &"length".into()).is_some()
