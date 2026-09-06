@@ -91,23 +91,32 @@ def parse_failures(output: str, test262_dir: Path) -> list[dict[str, object]]:
 def group_failures(failures: list[dict[str, object]]) -> dict[str, dict[str, object]]:
     groups: dict[str, dict[str, object]] = {}
     for failure in failures:
-        features = ",".join(failure["features"]) or "none"
-        group_name = "|".join(
-            (str(failure["directory"]), features, str(failure["error_type"]))
-        )
-        group_id = hashlib.sha256(group_name.encode()).hexdigest()[:12]
+        title = issue_title(str(failure["directory"]))
+        group_id = hashlib.sha256(title.encode()).hexdigest()[:12]
         group = groups.setdefault(
             group_id,
             {
-                "name": group_name,
+                "name": title,
+                "title": title,
                 "directory": failure["directory"],
-                "features": failure["features"],
-                "error_type": failure["error_type"],
+                "features": [],
+                "error_types": [],
                 "failures": [],
             },
         )
+        group["features"] = sorted(
+            set(group["features"]) | set(failure["features"])
+        )
+        group["error_types"] = sorted(
+            set(group["error_types"]) | {failure["error_type"]}
+        )
+        group["error_type"] = ", ".join(group["error_types"])
         group["failures"].append(failure)
     return groups
+
+
+def issue_title(directory: str) -> str:
+    return f"Test262 failures: {directory}"
 
 
 class GitHub:
@@ -139,13 +148,17 @@ class GitHub:
                 raise
 
     def open_issue_count(self) -> int:
+        return len(self.open_failure_issues())
+
+    def open_failure_issues(self) -> list[dict[str, object]]:
         query = parse.urlencode({"state": "open", "labels": LABEL, "per_page": 100})
         issues = self.request("GET", f"/issues?{query}")
-        return len(issues)
+        return [issue for issue in issues if isinstance(issue, dict)]
 
 
 def issue_body(group: dict[str, object], run_url: str, new_count: int) -> str:
     failures = group["failures"]
+    error_types = group.get("error_types", [group["error_type"]])
     rows = "\n".join(
         f"- `{failure['path']}` — {failure['reason']}" for failure in failures
     )
@@ -157,7 +170,7 @@ in `{group['directory']}`. This report contains {new_count} failure(s) not seen
 in the preceding run.
 
 - Feature metadata: `{', '.join(group['features']) or 'none'}`
-- Failure category: `{group['error_type']}`
+- Failure category: `{', '.join(error_types)}`
 - Run: {run_url or 'local run'}
 
 ### Coordinator checklist
@@ -195,34 +208,89 @@ def sync_issues(
         failure["key"]: failure for group in groups.values() for failure in group["failures"]
     }
     updated_groups: dict[str, object] = {}
-    open_count = github.open_issue_count() if github else 0
+    existing_issues: dict[str, list[dict[str, object]]] = {}
     if github:
         github.ensure_label()
+        for issue in github.open_failure_issues():
+            title = issue.get("title")
+            if isinstance(title, str):
+                existing_issues.setdefault(title, []).append(issue)
+    open_count = sum(len(issues) for issues in existing_issues.values())
+    handled_issue_numbers: set[int] = set()
+
+    def previous_issue_numbers(group_id: str, group: dict[str, object]) -> list[int]:
+        current_title = group["title"]
+        current_failures = {failure["key"] for failure in group["failures"]}
+        numbers = []
+        for old_id, old_group in previous_groups.items():
+            if not isinstance(old_group, dict):
+                continue
+            old_title = old_group.get("title")
+            old_failures = set(old_group.get("failures", []))
+            if old_id == group_id or old_title == current_title or current_failures & old_failures:
+                issue_number = old_group.get("issue")
+                if isinstance(issue_number, int) and issue_number not in numbers:
+                    numbers.append(issue_number)
+        return numbers
 
     for group_id, group in groups.items():
-        if group["error_type"] in {"unsupported", "infrastructure"}:
+        actionable_failures = [
+            failure
+            for failure in group["failures"]
+            if failure["error_type"] not in {"unsupported", "infrastructure"}
+        ]
+        if not actionable_failures:
             continue
-        old_group = previous_groups.get(group_id, {})
-        new_count = sum(
-            failure["key"] not in previous_failures for failure in group["failures"]
+        actionable_group = dict(group)
+        actionable_group["failures"] = actionable_failures
+        actionable_group["features"] = sorted(
+            {
+                feature
+                for failure in actionable_failures
+                for feature in failure["features"]
+            }
         )
-        issue_number = old_group.get("issue") if isinstance(old_group, dict) else None
+        actionable_group["error_types"] = sorted(
+            {failure["error_type"] for failure in actionable_failures}
+        )
+        actionable_group["error_type"] = ", ".join(actionable_group["error_types"])
+        new_count = sum(
+            failure["key"] not in previous_failures for failure in actionable_failures
+        )
+        issue_numbers = previous_issue_numbers(group_id, actionable_group)
+        issue_numbers.extend(
+            issue["number"]
+            for issue in existing_issues.get(actionable_group["title"], [])
+            if isinstance(issue.get("number"), int) and issue["number"] not in issue_numbers
+        )
+        handled_issue_numbers.update(issue_numbers)
+        issue_number = issue_numbers[0] if issue_numbers else None
+        if github and issue_number:
+            for duplicate in issue_numbers[1:]:
+                github.request(
+                    "POST",
+                    f"/issues/{duplicate}/comments",
+                    {"body": f"Consolidated into #{issue_number} because it has the same title."},
+                )
+                github.request("PATCH", f"/issues/{duplicate}", {"state": "closed"})
+                open_count -= 1
+
         if github and (new_count or not issue_number):
             if not issue_number and open_count >= max_open_tasks:
                 continue
-            body = issue_body(group, run_url, new_count)
+            body = issue_body(actionable_group, run_url, new_count)
             if issue_number:
                 github.request(
                     "PATCH",
                     f"/issues/{issue_number}",
-                    {"title": f"Test262 failures: {group['directory']}", "body": body, "state": "open"},
+                    {"title": actionable_group["title"], "body": body, "state": "open"},
                 )
             else:
                 issue = github.request(
                     "POST",
                     "/issues",
                     {
-                        "title": f"Test262 failures: {group['directory']}",
+                        "title": actionable_group["title"],
                         "body": body,
                         "labels": [LABEL],
                     },
@@ -231,7 +299,8 @@ def sync_issues(
                 open_count += 1
         updated_groups[group_id] = {
             "issue": issue_number,
-            "failures": [failure["key"] for failure in group["failures"]],
+            "title": actionable_group["title"],
+            "failures": [failure["key"] for failure in actionable_failures],
         }
 
     if github:
@@ -239,7 +308,7 @@ def sync_issues(
             if group_id in updated_groups or not isinstance(old_group, dict):
                 continue
             issue_number = old_group.get("issue")
-            if issue_number:
+            if issue_number and issue_number not in handled_issue_numbers:
                 github.request(
                     "POST",
                     f"/issues/{issue_number}/comments",
