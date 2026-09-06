@@ -300,7 +300,7 @@ pub fn prebuild_prototypes(
                         .properties
                         .keys()
                         .filter_map(|key| match key {
-                            JsValue::String(key) => {
+                            JsValue::String(key) if key != PROTO_NAME => {
                                 Some(Rc::new(RefCell::new(JsValue::String(key.clone()))))
                             }
                             _ => None,

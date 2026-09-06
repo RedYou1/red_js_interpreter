@@ -967,6 +967,32 @@ assert_result!(
 );
 
 assert_result!(
+    test_object_get_own_property_names_starts_at_zero,
+    r#"
+    let names = Object.getOwnPropertyNames({prop1: 1001});
+    console.log(names.hasOwnProperty(0));
+    console.log(names[0]);
+    "#,
+    "true",
+    "prop1"
+);
+
+assert_result!(
+    test_arrow_this_cannot_be_overridden,
+    r#"
+    let calls = 0;
+    let usurper = {};
+    [1].forEach(value => {
+        calls++;
+        console.log(this === usurper);
+    }, usurper);
+    console.log(calls);
+    "#,
+    "false",
+    "1"
+);
+
+assert_result!(
     test_function_arguments_binding,
     r#"
     function count(first) {

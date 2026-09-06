@@ -12,6 +12,7 @@ pub struct FunctionDecl {
     pub body: Rc<[Box<dyn Expr>]>,
     pub generator: bool,
     pub insert: bool,
+    pub lexical_this: bool,
 }
 
 impl FunctionDecl {
@@ -54,6 +55,7 @@ impl FunctionDecl {
             body,
             generator,
             insert,
+            lexical_this: false,
         }
     }
 }
@@ -69,6 +71,11 @@ impl Expr for FunctionDecl {
         let params = self.params.clone();
         let body = self.body.clone();
         let insert = self.insert;
+        let lexical_this = if self.lexical_this {
+            Some(Prototype::find(env.mem.clone(), &"this".into()).1)
+        } else {
+            None
+        };
 
         env.logger.borrow_mut().logln(LogLevel::Info, &|| {
             format!(
@@ -116,6 +123,7 @@ impl Expr for FunctionDecl {
                         excess: None,
                         code,
                         mem: my_mem.clone(),
+                        lexical_this: lexical_this.clone(),
                     },
                 )
             };
@@ -136,6 +144,7 @@ impl Expr for FunctionDecl {
             body: self.body.iter().map(|t| t.duplicate()).collect(),
             generator: self.generator,
             insert: self.insert,
+            lexical_this: self.lexical_this,
         })
     }
 }

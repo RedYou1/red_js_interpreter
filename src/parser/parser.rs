@@ -377,6 +377,7 @@ impl Parser {
                         body,
                         generator: false,
                         insert: false,
+                        lexical_this: true,
                     }))
                 }
                 _ => {
