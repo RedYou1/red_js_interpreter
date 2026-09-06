@@ -10,13 +10,16 @@ machine-readable triage summary are retained as artifacts.
 The runner is built with the nightly Rust toolchain because the interpreter's
 dependency uses an unstable language feature.
 
-The coordinator is `scripts/test262_triage.py`. It parses only `FAIL` records,
-groups them by directory, feature metadata, and failure category, and compares
-the current sweep with cached state. Actionable groups are created or updated
-as issues labeled `test262-failure`; at most 32 open task issues are created
-at once. Skips, unsupported results, infrastructure failures, and duplicate
-failures are not delegated. A group absent from a later sweep is closed with a
-comment after the rerun.
+The coordinator is `scripts/test262_triage.py`. It parses only `FAIL` records
+and groups them by the issue title (currently the failing test directory), so
+all failures that would receive the same title share one issue. It compares the
+current sweep with cached state and consolidates existing open
+`test262-failure` issues with duplicate titles, keeping one issue and closing
+the duplicates with a link to the retained issue. Actionable groups are
+created or updated as issues labeled `test262-failure`; at most 32 open task
+issues are created at once. Skips, unsupported results, infrastructure
+failures, and duplicate failures are not delegated. A group absent from a
+later sweep is closed with a comment after the rerun.
 
 Each issue contains the coordinator and fixer-agent checklists. A coordinator
 must verify supported scope before delegating work, split unrelated cases into
