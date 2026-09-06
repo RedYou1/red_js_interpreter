@@ -10,6 +10,7 @@ pub struct Runnable {
     pub excess: Option<String>,
     pub code: Vec<Code>,
     pub mem: Rc<RefCell<Prototype>>,
+    pub lexical_this: Option<Rc<RefCell<JsValue>>>,
 }
 
 pub fn new_runnable_with_object(
@@ -135,6 +136,7 @@ pub fn run_function_object(
             logger.clone(),
         ),
     );
+    let this = runnable.lexical_this.clone().unwrap_or(this);
     proto
         .borrow_mut()
         .properties
