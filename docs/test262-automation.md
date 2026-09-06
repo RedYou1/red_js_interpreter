@@ -43,4 +43,5 @@ results against `passed_test262.txt`.
   missing tests.
 - If there are no regressions and no new passing tests, the check passes.
 - If there are no regressions and new passing tests are found, the check passes
-  and commits an updated `passed_test262.txt`.
+  and commits an updated `passed_test262.txt` on pull requests from this
+  repository.
