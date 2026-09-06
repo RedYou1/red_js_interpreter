@@ -4,8 +4,10 @@
 and Annex B suites every
 Monday and can also be started with **Run workflow**. The workflow checks out a
 shallow Test262 copy, builds the release runner, and passes only the explicitly
-unsupported `BigInt` and `Symbol` features as skips. Runner output and the
-machine-readable triage summary are retained as artifacts.
+unsupported `BigInt` and `Symbol` features as skips. Tests listed in
+`passed_test262.txt` are excluded from this recurring conformance sweep; the
+separate baseline workflow still runs the full supported suite. Runner output
+and the machine-readable triage summary are retained as artifacts.
 
 The runner is built with the nightly Rust toolchain because the interpreter's
 dependency uses an unstable language feature.

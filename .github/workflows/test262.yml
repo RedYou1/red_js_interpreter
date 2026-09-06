@@ -62,12 +62,33 @@ jobs:
               ! -path '*/built-ins/Function/createdynfn-no-line-terminator-html-close-comment-body.js' \
               ! -path '*/built-ins/Function/createdynfn-no-line-terminator-html-close-comment-params.js'
           )
+          mapfile -t remaining_tests < <(
+            {
+              printf '%s\n' "${annex_b_tests[@]}"
+              find test262/test/built-ins -type f -name '*.js'
+              find test262/test/language -type f -name '*.js'
+            } | python3 -c '
+          import sys
+
+          passed = {
+              line.strip()
+              for line in open("passed_test262.txt", encoding="utf-8")
+              if line.strip()
+          }
+          for line in sys.stdin:
+              path = line.strip()
+              if path.removeprefix("test262/") not in passed:
+                  print(path)
+          '
+          )
+          if ((${#remaining_tests[@]} == 0)); then
+            echo "No Test262 tests remain after filtering passed_test262.txt."
+            exit 2
+          fi
           cargo +nightly run --release --manifest-path test262_runner/Cargo.toml -- \
             --test262-dir test262 \
             --skip-feature IsHTMLDDA \
-            "${annex_b_tests[@]}" \
-            test262/test/built-ins \
-            test262/test/language > artifacts/test262-output.txt 2>&1
+            "${remaining_tests[@]}" > artifacts/test262-output.txt 2>&1
           status=$?
           echo "exit_code=$status" >> "$GITHUB_OUTPUT"
           echo "runner_exit_code=$status" > artifacts/runner-status.txt
