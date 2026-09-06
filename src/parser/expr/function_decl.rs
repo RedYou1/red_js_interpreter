@@ -71,11 +71,7 @@ impl Expr for FunctionDecl {
         let params = self.params.clone();
         let body = self.body.clone();
         let insert = self.insert;
-        let lexical_this = if self.lexical_this {
-            Some(Prototype::find(env.mem.clone(), &"this".into()).1)
-        } else {
-            None
-        };
+        let lexical_this = self.lexical_this;
 
         env.logger.borrow_mut().logln(LogLevel::Info, &|| {
             format!(
@@ -93,6 +89,11 @@ impl Expr for FunctionDecl {
             });
 
             let my_mem = Prototype::new_child(env.mem.clone(), None, []);
+            let lexical_this = if lexical_this {
+                Some(Prototype::find(env.mem.clone(), &"this".into()).1)
+            } else {
+                None
+            };
             let code: Vec<Code> = body
                 .iter()
                 .flat_map(|stmt| {
