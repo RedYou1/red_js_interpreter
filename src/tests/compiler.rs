@@ -126,6 +126,50 @@ assert_result!(
 );
 
 assert_result!(
+    test_array_prototype_methods,
+    r#"
+    let values = [1, 2, 3];
+    console.log(values.at(-1));
+    console.log(values.join("-"));
+    console.log(values.includes(2));
+    console.log(values.indexOf(2));
+    console.log(values.lastIndexOf(2));
+    function double(value) { return value * 2; }
+    console.log(values.map(double).join(","));
+    console.log(values.filter(value => value > 1).join(","));
+    console.log(values.every(value => value > 0));
+    console.log(values.some(value => value === 3));
+    console.log(values.findLast(value => value > 1));
+    console.log(values.findLastIndex(value => value > 1));
+    console.log(values.reduceRight((left, right) => left - right));
+    console.log([1, [2, [3]]].flat(2).join(","));
+    console.log([1, 2].flatMap(value => [value, value]).join(","));
+    console.log(values.copyWithin(0, 1).join(","));
+    console.log(values.fill(0, 1).join(","));
+    console.log(values.shift());
+    console.log(values.join(","));
+    "#,
+    "3",
+    "1-2-3",
+    "true",
+    "1",
+    "1",
+    "2,4,6",
+    "2,3",
+    "true",
+    "true",
+    "3",
+    "2",
+    "0",
+    "1,2,3",
+    "1,1,2,2",
+    "2,3,3",
+    "2,0,0",
+    "2",
+    "0,0"
+);
+
+assert_result!(
     test_compile_iterator_array,
     r#"
     for (message of [5, 'allo', {a: true}]) {
