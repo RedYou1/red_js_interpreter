@@ -1,8 +1,8 @@
 use std::{cell::RefCell, rc::Rc};
 
 use crate::{
-    Code, CodeIndex, CodeResult, Environment, JsValue, LogLevel, Prototype, handle_return,
-    inline_borrow,
+    Code, CodeIndex, CodeResult, Environment, JsValue, LogLevel, PROTO_NAME, Prototype,
+    handle_return, inline_borrow, new_array,
     parser::{
         expr::{self, BinaryOp, Expr},
         lexer::Token,
@@ -18,6 +18,7 @@ pub struct LoopExpr {
     pub update: Option<Box<dyn Expr>>,
     pub body: Vec<Box<dyn Expr>>,
     pub do_first: bool,
+    pub for_in: Option<(String, Box<dyn Expr>)>,
 }
 
 impl LoopExpr {
@@ -44,6 +45,7 @@ impl LoopExpr {
 
         // Parse init
         let mut of = false;
+        let mut for_in = None;
         let (init, of_cond): (Option<Box<dyn Expr>>, Option<Box<dyn Expr>>) =
             if !matches!(t, Token::For) {
                 (None, None)
@@ -53,9 +55,15 @@ impl LoopExpr {
             } else if matches!(
                 parser.tokens()[parser.index()],
                 Token::Let | Token::Const | Token::Var
-            ) || matches!(parser.tokens()[parser.index() + 1], Token::Of)
+            ) || matches!(
+                parser.tokens()[parser.index() + 1],
+                Token::In | Token::Of
+            )
             {
-                if !matches!(parser.tokens()[parser.index() + 1], Token::Of) {
+                if !matches!(
+                    parser.tokens()[parser.index() + 1],
+                    Token::In | Token::Of
+                ) {
                     parser.bump();
                 }
                 let name = parser.expect_ident();
@@ -68,6 +76,10 @@ impl LoopExpr {
                         parser.bump();
                         of = true;
                         Some(Box::new(parser.parse_expression(true)))
+                    } else if let Token::In = parser.tokens()[parser.index()] {
+                        parser.bump();
+                        for_in = Some((name.clone(), Box::new(parser.parse_expression(true))));
+                        None
                     } else {
                         None
                     };
@@ -134,6 +146,8 @@ impl LoopExpr {
         // Parse condition
         let condition: Option<Box<dyn Expr>> = if of {
             of_cond
+        } else if for_in.is_some() {
+            None
         } else {
             Some(if let Token::Semicolon = parser.tokens()[parser.index()] {
                 Box::new(expr::ConstBoolean { b: true })
@@ -147,7 +161,7 @@ impl LoopExpr {
 
         // Parse update
         let update: Option<Box<dyn Expr>> =
-            if of || matches!(parser.tokens()[parser.index()], Token::RParen) {
+            if of || for_in.is_some() || matches!(parser.tokens()[parser.index()], Token::RParen) {
                 None
             } else {
                 Some(Box::new(parser.parse_expression(true)))
@@ -173,8 +187,40 @@ impl LoopExpr {
             update,
             body,
             do_first: false,
+            for_in,
         }
     }
+}
+
+fn for_in_property_names(value: Rc<RefCell<JsValue>>) -> Vec<String> {
+    let JsValue::Prototype(mut current) = inline_borrow!(value) else {
+        return Vec::new();
+    };
+    let mut names = Vec::new();
+
+    loop {
+        let parent = {
+            let current_ref = current.borrow();
+            if current_ref.name.is_none() {
+                names.extend(current_ref.properties.keys().filter_map(|key| match key {
+                    JsValue::String(key) if key != PROTO_NAME => Some(key.clone()),
+                    _ => None,
+                }));
+            }
+            current_ref.parent()
+        };
+        let Some(parent) = parent else {
+            break;
+        };
+        if Rc::ptr_eq(&parent, &current) {
+            break;
+        }
+        current = parent;
+    }
+
+    names.sort();
+    names.dedup();
+    names
 }
 
 impl Expr for LoopExpr {
@@ -192,6 +238,133 @@ impl Expr for LoopExpr {
                 "LoopExpr::compile received a loop with no init, condition, or update",
             );
             panic!("loop has no executable clauses");
+        }
+        if let Some((for_in_name, for_in_expr)) = &self.for_in {
+            let init: Vec<Code> = self.init.compile(env.clone());
+            let target: Vec<Code> = for_in_expr.compile(env.clone());
+            let body: Vec<Code> = self.body.compile(env.clone());
+            let for_in_name = for_in_name.clone();
+
+            return vec![
+                Box::new(move |env, _i| {
+                    handle_return!(run_sub(&init, env.clone(), &mut CodeIndex::new()));
+                    let target =
+                        handle_return!(run_sub(&target, env.clone(), &mut CodeIndex::new()));
+                    let names = for_in_property_names(target)
+                        .into_iter()
+                        .map(|name| Rc::new(RefCell::new(JsValue::String(name))))
+                        .collect();
+                    let array = Prototype::find(env.mem.clone(), &"Array".into())
+                        .1
+                        .borrow()
+                        .unwrap_proto("for-in keys Array prototype");
+                    env.mem.borrow_mut().properties.insert(
+                        "__forin_keys__".into(),
+                        new_array(array, names, env.logger.clone()),
+                    );
+
+                    let sub = Prototype::new_child(env.mem.clone(), None, []);
+                    sub.borrow_mut().properties.insert(
+                        "__forin_i__".into(),
+                        Rc::new(RefCell::new(JsValue::BigInt(0))),
+                    );
+                    CodeIndex::new().save_into(sub.clone(), "forloop_i");
+                    env.mem.borrow_mut().properties.insert(
+                        "__forloop_sub__".into(),
+                        Rc::new(RefCell::new(JsValue::Prototype(sub))),
+                    );
+
+                    let keys = Prototype::find(env.mem.clone(), &"__forin_keys__".into())
+                        .1
+                        .borrow()
+                        .unwrap_proto("for-in keys");
+                    let JsValue::BigInt(length) =
+                        inline_borrow!(Prototype::find(keys, &"length".into()).1)
+                    else {
+                        panic!("for-in keys length is not BigInt");
+                    };
+                    if length == 0 {
+                        _i.skip(2);
+                    }
+                    CodeResult::Normal(Rc::new(RefCell::new(JsValue::Undefined)))
+                }),
+                Box::new(move |env, _i| {
+                    let sub =
+                        inline_borrow!(env.mem.borrow().properties[&"__forloop_sub__".into()].clone())
+                            .unwrap_proto("for-in sub not proto");
+                    let JsValue::BigInt(index) =
+                        inline_borrow!(Prototype::find(sub.clone(), &"__forin_i__".into()).1)
+                    else {
+                        panic!("for-in index is not BigInt");
+                    };
+                    let keys = Prototype::find(env.mem.clone(), &"__forin_keys__".into())
+                        .1
+                        .borrow()
+                        .unwrap_proto("for-in keys");
+                    let key = Prototype::find(keys, &index).1;
+                    env.mem
+                        .borrow_mut()
+                        .properties
+                        .insert(for_in_name.clone().into(), key);
+
+                    sub.borrow_mut().properties.insert(
+                        "__forin_i__".into(),
+                        Rc::new(RefCell::new(JsValue::BigInt(index + 1))),
+                    );
+
+                    let mut i = CodeIndex::load_from(sub.clone(), "forloop_i");
+                    if i.current < body.len() {
+                        let res = run_sub(&body, env.with_mem(sub.clone()), &mut i);
+                        match &res {
+                            CodeResult::Normal(_)
+                            | CodeResult::NormalMember(_, _, _)
+                            | CodeResult::Continue(_) => {}
+                            CodeResult::Break(_) | CodeResult::YieldBreak => {
+                                _i.move_iamount(1);
+                                _i.reset_retry();
+                                i.reset();
+                                i.save_into(sub, "forloop_i");
+                                return CodeResult::Normal(Rc::new(RefCell::new(
+                                    JsValue::Undefined,
+                                )));
+                            }
+                            CodeResult::Return(_) | CodeResult::Error(_) => return res,
+                            CodeResult::Yield(res) => {
+                                i.next();
+                                i.set_retry();
+                                i.save_into(sub, "forloop_i");
+                                _i.set_retry();
+                                return CodeResult::Yield(res.clone());
+                            }
+                        }
+                    }
+                    CodeResult::Normal(Rc::new(RefCell::new(JsValue::Undefined)))
+                }),
+                Box::new(move |env, _i| {
+                    let sub =
+                        inline_borrow!(env.mem.borrow().properties[&"__forloop_sub__".into()].clone())
+                            .unwrap_proto("for-in sub not proto");
+                    let JsValue::BigInt(index) =
+                        inline_borrow!(Prototype::find(sub, &"__forin_i__".into()).1)
+                    else {
+                        panic!("for-in index is not BigInt");
+                    };
+                    let keys = Prototype::find(env.mem, &"__forin_keys__".into())
+                        .1
+                        .borrow()
+                        .unwrap_proto("for-in keys");
+                    let JsValue::BigInt(length) =
+                        inline_borrow!(Prototype::find(keys, &"length".into()).1)
+                    else {
+                        panic!("for-in keys length is not BigInt");
+                    };
+                    if index < length {
+                        _i.move_iamount(-1);
+                        _i.set_retry();
+                    }
+                    CodeResult::Normal(Rc::new(RefCell::new(JsValue::Undefined)))
+                }),
+            ];
         }
         let do_first = self.do_first;
         let init: Vec<Code> = self.init.compile(env.clone());
@@ -281,6 +454,10 @@ impl Expr for LoopExpr {
             update: self.update.as_ref().map(|a| a.duplicate()),
             body: self.body.iter().map(|a| a.duplicate()).collect(),
             do_first: self.do_first,
+            for_in: self
+                .for_in
+                .as_ref()
+                .map(|(name, expr)| (name.clone(), expr.duplicate())),
         })
     }
 }
