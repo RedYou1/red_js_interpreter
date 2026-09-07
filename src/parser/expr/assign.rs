@@ -121,6 +121,7 @@ impl Expr for VarDecl {
             let value = handle_return!(run_sub(&code, env.clone(), &mut CodeIndex::new()));
             let target = if function_scoped {
                 let mut current = env.mem.clone();
+                println!("VAR {} start {:?}", name, current.borrow().properties.keys().collect::<Vec<_>>());
                 loop {
                     let is_loop_scope = current
                         .borrow()
@@ -128,6 +129,7 @@ impl Expr for VarDecl {
                         .contains_key(&"__forloop_scope__".into());
                     if is_loop_scope {
                         let parent = current.borrow().parent();
+                        println!("VAR {} loop parent {:?}", name, parent.as_ref().map(|p| p.borrow().properties.keys().collect::<Vec<_>>()));
                         break parent.unwrap_or_else(|| current.clone());
                     }
                     let parent = current.borrow().parent();

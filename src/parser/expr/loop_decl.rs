@@ -63,6 +63,7 @@ impl LoopExpr {
                 Token::Let | Token::Const | Token::Var
             ) || matches!(parser.tokens()[parser.index() + 1], Token::In | Token::Of)
             {
+                let function_scoped = matches!(parser.tokens()[parser.index()], Token::Var);
                 if !matches!(parser.tokens()[parser.index() + 1], Token::In | Token::Of) {
                     parser.bump();
                 }
@@ -95,7 +96,7 @@ impl LoopExpr {
                 Some(Box::new(expr::VarDecl {
                     name,
                     initializer,
-                    function_scoped: false,
+                    function_scoped,
                 }))
             } else {
                 let expr = Box::new(parser.parse_expression(true));
