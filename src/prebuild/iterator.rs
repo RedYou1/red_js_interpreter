@@ -43,22 +43,38 @@ new_class! {
         let this = this.borrow().unwrap_proto("Generator.next this not proto");
         let JsValue::Prototype(proto) = inline_borrow!(Prototype::find(this.clone(), &"__mem__".into()).1) else {panic!("Generator.next parse __mem__ not proto {this:?}")};
         let JsValue::BigInt(code_len) = inline_borrow!(Prototype::find(this.clone(), &"__code__len".into()).1) else {panic!("Generator.next parse __code__len not BigInt {this:?}")};
+        let release_code = || {
+            let JsValue::BigInt(ptr) =
+                inline_borrow!(Prototype::find(this.clone(), &"__code__".into()).1)
+            else {
+                return;
+            };
+            if ptr == 0 {
+                return;
+            }
+            let code = ptr::slice_from_raw_parts(ptr as *const Code, code_len as usize);
+            drop(unsafe { Rc::from_raw(code) });
+            this.borrow_mut().properties.insert(
+                "__code__".into(),
+                Rc::new(RefCell::new(JsValue::BigInt(0))),
+            );
+        };
+        let mut code_index = CodeIndex::load_from(this.clone(), "Generator_CodeIndex");
+        if code_index.current >= code_len as usize {
+            release_code();
+            return CodeResult::Return(Rc::new(RefCell::new(JsValue::Undefined)));
+        }
         let code = if let JsValue::BigInt(ptr) = inline_borrow!(Prototype::find(this.clone(), &"__code__".into()).1) {
             unsafe { ptr::slice_from_raw_parts(ptr as *const Code, code_len as usize).as_ref_unchecked()}
         } else {panic!("Generator.next parse __code__ not BigInt {this:?}")};
-        let mut code_index = CodeIndex::load_from(this.clone(), "Generator_CodeIndex");
-        if code_index.current >= code.len() {
-            drop(unsafe{ Rc::from_raw(code) });
-            return CodeResult::Return(Rc::new(RefCell::new(JsValue::Undefined)));
-        }
         let res = run_sub(code, env.with_mem(proto.clone()), &mut code_index);
         match res {
             CodeResult::Normal(r) | CodeResult::Return(r) => {
-                drop(unsafe{ Rc::from_raw(code) });
+                release_code();
                 CodeResult::Return(r)
             },
             CodeResult::YieldBreak => {
-                drop(unsafe{ Rc::from_raw(code) });
+                release_code();
                 CodeResult::Return(Rc::new(RefCell::new(JsValue::Undefined)))
             },
             CodeResult::Yield(r) => {
@@ -67,7 +83,7 @@ new_class! {
                 CodeResult::Return(r)
             },
             CodeResult::Error(_) => {
-                drop(unsafe{ Rc::from_raw(code) });
+                release_code();
                 res
             }
             _ => {
