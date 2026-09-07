@@ -148,6 +148,30 @@ assert_result!(
 );
 
 assert_result!(
+    test_compile_for_in_function_prototype,
+    r#"
+    function __func() {}
+    for (var key in __func.prototype) {
+        console.log(key);
+    }
+    "#,
+);
+
+assert_result!(
+    test_array_index_of_object_identity,
+    r#"
+    var obj1 = { toString: function() { return "false"; } };
+    var obj2 = { toString: function() { return "false"; } };
+    var obj3 = obj1;
+    var a = new Array(false, undefined, 0, false, null,
+        { toString: function() { return "false"; } },
+        "false", obj2, obj1, obj3);
+    console.log(a.indexOf(obj3));
+    "#,
+    "8"
+);
+
+assert_result!(
     test_array_prototype_methods,
     r#"
     let values = [1, 2, 3];

@@ -24,7 +24,7 @@ impl Eq for JsValue {}
 impl PartialEq for JsValue {
     fn eq(&self, other: &Self) -> bool {
         match (self, other) {
-            (Self::Prototype(l0), Self::Prototype(r0)) => l0.eq(r0),
+            (Self::Prototype(l0), Self::Prototype(r0)) => Rc::ptr_eq(l0, r0),
             (Self::RedGex(l0), Self::RedGex(r0)) => Rc::ptr_eq(l0, r0),
             (Self::Symbol(l0, l1), Self::Symbol(r0, r1)) => *l0 == *r0 && l1.eq(r1),
             (Self::String(l0), Self::String(r0)) => l0.eq(r0),

@@ -190,6 +190,7 @@ pub fn prebuild_prototypes(
     let object = Rc::new(RefCell::new(Prototype {
         name: Some("Object"),
         properties: HashMap::from([(PROTO_NAME.into(), Rc::new(RefCell::new(JsValue::Null)))]),
+        non_enumerable: std::collections::HashSet::new(),
         formating: false,
     }));
 
@@ -212,6 +213,7 @@ pub fn prebuild_prototypes(
                     Rc::new(RefCell::new(JsValue::Prototype(function.clone()))),
                 ),
             ]),
+            non_enumerable: std::collections::HashSet::new(),
             formating: false,
         })),
         logger,

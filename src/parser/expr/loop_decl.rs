@@ -201,16 +201,24 @@ fn for_in_property_names(value: Rc<RefCell<JsValue>>) -> Vec<String> {
             let is_array =
                 current_ref.parent().and_then(|parent| parent.borrow().name) == Some("Array");
             if current_ref.name.is_none() {
-                names.extend(current_ref.properties.keys().filter_map(|key| match key {
-                    JsValue::String(key) if key != PROTO_NAME && (!is_array || key != "length") => {
-                        Some(key.clone())
-                    }
-                    JsValue::BigInt(key) => Some(key.to_string()),
-                    JsValue::Number(key) if key.is_finite() && key.fract() == 0.0 => {
-                        Some((*key as i64).to_string())
-                    }
-                    _ => None,
-                }));
+                names.extend(
+                    current_ref
+                        .properties
+                        .keys()
+                        .filter(|key| !current_ref.non_enumerable.contains(*key))
+                        .filter_map(|key| match key {
+                            JsValue::String(key)
+                                if key != PROTO_NAME && (!is_array || key != "length") =>
+                            {
+                                Some(key.clone())
+                            }
+                            JsValue::BigInt(key) => Some(key.to_string()),
+                            JsValue::Number(key) if key.is_finite() && key.fract() == 0.0 => {
+                                Some((*key as i64).to_string())
+                            }
+                            _ => None,
+                        }),
+                );
             }
             current_ref.parent()
         };
