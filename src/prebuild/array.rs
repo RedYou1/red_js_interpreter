@@ -4,6 +4,13 @@ fn value(value: JsValue) -> Rc<RefCell<JsValue>> {
     Rc::new(RefCell::new(value))
 }
 
+fn same_value(left: &JsValue, right: &JsValue) -> bool {
+    match (left, right) {
+        (JsValue::Prototype(left), JsValue::Prototype(right)) => Rc::ptr_eq(left, right),
+        _ => left == right,
+    }
+}
+
 fn integer(value: &Rc<RefCell<JsValue>>) -> i64 {
     match inline_borrow!(value) {
         JsValue::BigInt(value) => value,
@@ -327,7 +334,10 @@ new_class! {
             {
                 left == right || (left.is_nan() && right.is_nan())
             } else {
-                inline_borrow!(current.clone()) == inline_borrow!(search_element.clone())
+                same_value(
+                    &inline_borrow!(current.clone()),
+                    &inline_borrow!(search_element.clone()),
+                )
             };
             if same_value {
                 return CodeResult::Return(value(JsValue::Boolean(true)));
@@ -342,7 +352,10 @@ new_class! {
         let from = integer(&from_index);
         let start = if from < 0 { (length + from).max(0) } else { from };
         for i in start..length {
-            if inline_borrow!(array_element(&this, i)) == inline_borrow!(search_element.clone()) {
+            if same_value(
+                &inline_borrow!(array_element(&this, i)),
+                &inline_borrow!(search_element.clone()),
+            ) {
                 return CodeResult::Return(value(JsValue::BigInt(i)));
             }
         }
@@ -581,7 +594,10 @@ new_class! {
         };
         let start = if from < 0 { length + from } else { from.min(length - 1) };
         for index in (0..=start).rev() {
-            if inline_borrow!(array_element(&this, index)) == inline_borrow!(search_element.clone()) {
+            if same_value(
+                &inline_borrow!(array_element(&this, index)),
+                &inline_borrow!(search_element.clone()),
+            ) {
                 return CodeResult::Return(value(JsValue::BigInt(index)));
             }
         }
