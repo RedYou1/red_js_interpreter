@@ -366,10 +366,10 @@ fn finish_reader(
                 }
                 thread::sleep((deadline - now).min(Duration::from_millis(10)));
             }
-            reader
-                .join()
-                .map(Some)
-                .map_err(|_| io::Error::other("child output reader panicked"))?
+            match reader.join() {
+                Ok(result) => result.map(Some),
+                Err(_) => Err(io::Error::other("child output reader panicked")),
+            }
         }
         None => Ok(Some(Vec::new())),
     }
