@@ -32,6 +32,7 @@ pub fn new_runnable_with_object(
                 Rc::new(RefCell::new(JsValue::BigInt(runnable.params.len() as i64))),
             ),
         ]),
+        non_enumerable: std::collections::HashSet::new(),
         formating: false,
     }));
     let prototype_obj = Prototype::new_child(
@@ -42,6 +43,10 @@ pub fn new_runnable_with_object(
             Rc::new(RefCell::new(JsValue::Prototype(function_obj.clone()))),
         )],
     );
+    prototype_obj
+        .borrow_mut()
+        .non_enumerable
+        .insert(CONSTRUCTOR_NAME.into());
     function_obj.borrow_mut().properties.insert(
         PROTO_NAME.into(),
         Rc::new(RefCell::new(JsValue::Prototype(function.clone()))),
@@ -100,6 +105,7 @@ pub fn run_function_object(
             .enumerate()
             .map(|(i, param)| (runnable.params[i].as_str().into(), param.clone()))
             .collect(),
+        non_enumerable: std::collections::HashSet::new(),
         formating: false,
     }));
     proto.borrow_mut().properties.insert(

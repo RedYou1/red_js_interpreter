@@ -294,6 +294,7 @@ impl Parser {
                         condition,
                         update: None,
                         do_first: true,
+                        for_in: None,
                     }));
                 }
                 Token::Break | Token::Continue | Token::Return | Token::Yield | Token::Throw => {

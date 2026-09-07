@@ -12,6 +12,7 @@ use crate::{JsValue, PROTO_NAME, inline_borrow};
 pub struct Prototype {
     pub name: Option<&'static str>,
     pub properties: HashMap<JsValue, Rc<RefCell<JsValue>>>,
+    pub non_enumerable: std::collections::HashSet<JsValue>,
     pub formating: bool,
 }
 
@@ -94,6 +95,7 @@ impl Prototype {
         Rc::new(RefCell::new(Prototype {
             name,
             properties,
+            non_enumerable: std::collections::HashSet::new(),
             formating: false,
         }))
     }

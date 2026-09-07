@@ -460,6 +460,7 @@ test/built-ins/Array/prototype/includes/length-zero-returns-false.js
 test/built-ins/Array/prototype/includes/no-arg.js
 test/built-ins/Array/prototype/includes/samevaluezero.js
 test/built-ins/Array/prototype/includes/search-found-returns-true.js
+test/built-ins/Array/prototype/includes/search-not-found-returns-false.js
 test/built-ins/Array/prototype/includes/using-fromindex.js
 test/built-ins/Array/prototype/indexOf/15.4.4.14-1-10.js
 test/built-ins/Array/prototype/indexOf/15.4.4.14-1-11.js
@@ -548,6 +549,7 @@ test/built-ins/Array/prototype/indexOf/15.4.4.14-9-b-i-4.js
 test/built-ins/Array/prototype/indexOf/15.4.4.14-9-b-i-8.js
 test/built-ins/Array/prototype/indexOf/15.4.4.14-9-b-ii-1.js
 test/built-ins/Array/prototype/indexOf/15.4.4.14-9-b-ii-10.js
+test/built-ins/Array/prototype/indexOf/15.4.4.14-9-b-ii-11.js
 test/built-ins/Array/prototype/indexOf/15.4.4.14-9-b-ii-2.js
 test/built-ins/Array/prototype/indexOf/15.4.4.14-9-b-ii-3.js
 test/built-ins/Array/prototype/indexOf/15.4.4.14-9-b-ii-4.js
@@ -572,6 +574,7 @@ test/built-ins/Array/prototype/lastIndexOf/15.4.4.15-1-15.js
 test/built-ins/Array/prototype/lastIndexOf/15.4.4.15-1-6.js
 test/built-ins/Array/prototype/lastIndexOf/15.4.4.15-1-9.js
 test/built-ins/Array/prototype/lastIndexOf/15.4.4.15-2-14.js
+test/built-ins/Array/prototype/lastIndexOf/15.4.4.15-2-17.js
 test/built-ins/Array/prototype/lastIndexOf/15.4.4.15-2-19.js
 test/built-ins/Array/prototype/lastIndexOf/15.4.4.15-2-2.js
 test/built-ins/Array/prototype/lastIndexOf/15.4.4.15-2-3.js
@@ -626,6 +629,7 @@ test/built-ins/Array/prototype/lastIndexOf/15.4.4.15-8-10.js
 test/built-ins/Array/prototype/lastIndexOf/15.4.4.15-8-2.js
 test/built-ins/Array/prototype/lastIndexOf/15.4.4.15-8-3.js
 test/built-ins/Array/prototype/lastIndexOf/15.4.4.15-8-4.js
+test/built-ins/Array/prototype/lastIndexOf/15.4.4.15-8-5.js
 test/built-ins/Array/prototype/lastIndexOf/15.4.4.15-8-6.js
 test/built-ins/Array/prototype/lastIndexOf/15.4.4.15-8-7.js
 test/built-ins/Array/prototype/lastIndexOf/15.4.4.15-8-a-5.js
@@ -640,6 +644,7 @@ test/built-ins/Array/prototype/lastIndexOf/15.4.4.15-8-b-i-3.js
 test/built-ins/Array/prototype/lastIndexOf/15.4.4.15-8-b-i-4.js
 test/built-ins/Array/prototype/lastIndexOf/15.4.4.15-8-b-ii-1.js
 test/built-ins/Array/prototype/lastIndexOf/15.4.4.15-8-b-ii-10.js
+test/built-ins/Array/prototype/lastIndexOf/15.4.4.15-8-b-ii-11.js
 test/built-ins/Array/prototype/lastIndexOf/15.4.4.15-8-b-ii-2.js
 test/built-ins/Array/prototype/lastIndexOf/15.4.4.15-8-b-ii-3.js
 test/built-ins/Array/prototype/lastIndexOf/15.4.4.15-8-b-ii-4.js
@@ -1036,6 +1041,7 @@ test/built-ins/Error/prototype/toString/S15.11.4.4_A2.js
 test/built-ins/Function/S10.1.1_A1_T3.js
 test/built-ins/Function/S15.3.3_A1.js
 test/built-ins/Function/S15.3.3_A2_T2.js
+test/built-ins/Function/prototype/S15.3.3.1_A2.js
 test/built-ins/Function/prototype/S15.3.4_A1.js
 test/built-ins/Function/prototype/S15.3.4_A3_T2.js
 test/built-ins/Function/prototype/Symbol.hasInstance/this-val-not-callable.js
@@ -1072,11 +1078,13 @@ test/built-ins/Function/prototype/bind/S15.3.4.5_A16.js
 test/built-ins/Function/prototype/bind/S15.3.4.5_A4.js
 test/built-ins/Function/prototype/call/15.3.4.4-1-s.js
 test/built-ins/Function/prototype/call/15.3.4.4-2-s.js
+test/built-ins/Function/prototype/call/S15.3.4.4_A11.js
 test/built-ins/Function/prototype/call/S15.3.4.4_A16.js
 test/built-ins/Function/prototype/call/S15.3.4.4_A5_T5.js
 test/built-ins/Function/prototype/call/S15.3.4.4_A5_T6.js
 test/built-ins/Function/prototype/call/S15.3.4.4_A9.js
 test/built-ins/Function/prototype/toString/S15.3.4.2_A11.js
+test/built-ins/Function/prototype/toString/S15.3.4.2_A8.js
 test/built-ins/Function/prototype/toString/S15.3.4.2_A9.js
 test/built-ins/Function/prototype/toString/line-terminator-normalisation-CR.js
 test/built-ins/GeneratorPrototype/next/context-method-invocation.js
@@ -1184,6 +1192,8 @@ test/built-ins/NativeErrors/SyntaxError/constructor.js
 test/built-ins/NativeErrors/SyntaxError/prototype/not-error-object.js
 test/built-ins/NativeErrors/TypeError/constructor.js
 test/built-ins/NativeErrors/TypeError/prototype/not-error-object.js
+test/built-ins/Number/MAX_VALUE/S15.7.3.2_A4.js
+test/built-ins/Number/MIN_VALUE/S15.7.3.3_A4.js
 test/built-ins/Number/S15.7.1.1_A2.js
 test/built-ins/Number/S15.7.2.1_A1.js
 test/built-ins/Number/S15.7.3_A2.js
@@ -1228,6 +1238,10 @@ test/built-ins/Object/create/15.2.3.5-1-2.js
 test/built-ins/Object/create/15.2.3.5-2-1.js
 test/built-ins/Object/create/15.2.3.5-4-18.js
 test/built-ins/Object/create/15.2.3.5-4-232.js
+test/built-ins/Object/create/15.2.3.5-4-39.js
+test/built-ins/Object/create/15.2.3.5-4-47.js
+test/built-ins/Object/create/15.2.3.5-4-72.js
+test/built-ins/Object/create/15.2.3.5-4-73.js
 test/built-ins/Object/defineProperty/S15.2.3.6_A1.js
 test/built-ins/Object/getOwnPropertyDescriptor/15.2.3.3-0-1.js
 test/built-ins/Object/getOwnPropertyDescriptor/15.2.3.3-1-3.js
@@ -1272,11 +1286,15 @@ test/built-ins/Object/getOwnPropertyDescriptor/15.2.3.3-4-184.js
 test/built-ins/Object/getOwnPropertyDescriptor/15.2.3.3-4-2.js
 test/built-ins/Object/getOwnPropertyDescriptor/15.2.3.3-4-223.js
 test/built-ins/Object/getOwnPropertyDescriptor/15.2.3.3-4-224.js
+test/built-ins/Object/getOwnPropertyDescriptor/15.2.3.3-4-225.js
 test/built-ins/Object/getOwnPropertyDescriptor/15.2.3.3-4-227.js
 test/built-ins/Object/getOwnPropertyDescriptor/15.2.3.3-4-228.js
+test/built-ins/Object/getOwnPropertyDescriptor/15.2.3.3-4-229.js
 test/built-ins/Object/getOwnPropertyDescriptor/15.2.3.3-4-232.js
+test/built-ins/Object/getOwnPropertyDescriptor/15.2.3.3-4-233.js
 test/built-ins/Object/getOwnPropertyDescriptor/15.2.3.3-4-235.js
 test/built-ins/Object/getOwnPropertyDescriptor/15.2.3.3-4-236.js
+test/built-ins/Object/getOwnPropertyDescriptor/15.2.3.3-4-237.js
 test/built-ins/Object/getOwnPropertyDescriptor/15.2.3.3-4-27.js
 test/built-ins/Object/getOwnPropertyDescriptor/15.2.3.3-4-28.js
 test/built-ins/Object/getOwnPropertyDescriptor/15.2.3.3-4-31.js
@@ -1313,11 +1331,15 @@ test/built-ins/Object/getOwnPropertyNames/15.2.3.4-1.js
 test/built-ins/Object/getOwnPropertyNames/15.2.3.4-2-2.js
 test/built-ins/Object/getOwnPropertyNames/15.2.3.4-2-3.js
 test/built-ins/Object/getOwnPropertyNames/15.2.3.4-3-1.js
+test/built-ins/Object/getOwnPropertyNames/15.2.3.4-4-36.js
 test/built-ins/Object/getOwnPropertyNames/15.2.3.4-4-38.js
+test/built-ins/Object/getOwnPropertyNames/15.2.3.4-4-40.js
 test/built-ins/Object/getOwnPropertyNames/15.2.3.4-4-44.js
+test/built-ins/Object/getOwnPropertyNames/15.2.3.4-4-45.js
 test/built-ins/Object/getOwnPropertyNames/15.2.3.4-4-49.js
 test/built-ins/Object/getOwnPropertyNames/15.2.3.4-4-b-4.js
 test/built-ins/Object/getOwnPropertyNames/S15.2.3.4_A1_T1.js
+test/built-ins/Object/prototype/S15.2.3.1_A2.js
 test/built-ins/Object/prototype/S15.2.4_A2.js
 test/built-ins/Object/prototype/hasOwnProperty/8.12.1-1_1.js
 test/built-ins/Object/prototype/hasOwnProperty/8.12.1-1_2.js
@@ -1327,6 +1349,7 @@ test/built-ins/Object/prototype/hasOwnProperty/S15.2.4.5_A1_T2.js
 test/built-ins/Object/prototype/hasOwnProperty/S15.2.4.5_A1_T3.js
 test/built-ins/Object/prototype/hasOwnProperty/symbol_own_property.js
 test/built-ins/Object/prototype/propertyIsEnumerable/S15.2.4.7_A2_T1.js
+test/built-ins/Object/prototype/propertyIsEnumerable/S15.2.4.7_A8.js
 test/built-ins/Object/prototype/propertyIsEnumerable/S15.2.4.7_A9.js
 test/built-ins/Object/prototype/toString/Object.prototype.toString.call-null.js
 test/built-ins/Object/prototype/toString/Object.prototype.toString.call-object.js
@@ -1663,6 +1686,7 @@ test/built-ins/RegExp/named-groups/non-unicode-property-names-invalid.js
 test/built-ins/RegExp/named-groups/unicode-property-names-invalid.js
 test/built-ins/RegExp/nullable-quantifier.js
 test/built-ins/RegExp/prototype/S15.10.5.1_A1.js
+test/built-ins/RegExp/prototype/S15.10.5.1_A2.js
 test/built-ins/RegExp/prototype/S15.10.6_A1_T2.js
 test/built-ins/RegExp/prototype/Symbol.match/builtin-coerce-lastindex.js
 test/built-ins/RegExp/prototype/Symbol.match/builtin-failure-g-set-lastindex-err.js
@@ -1812,6 +1836,7 @@ test/built-ins/RegExp/prototype/exec/S15.10.6.2_A3_T4.js
 test/built-ins/RegExp/prototype/exec/S15.10.6.2_A3_T5.js
 test/built-ins/RegExp/prototype/exec/S15.10.6.2_A3_T6.js
 test/built-ins/RegExp/prototype/exec/S15.10.6.2_A3_T7.js
+test/built-ins/RegExp/prototype/exec/S15.10.6.2_A8.js
 test/built-ins/RegExp/prototype/exec/S15.10.6.2_A9.js
 test/built-ins/RegExp/prototype/exec/failure-g-lastindex-reset.js
 test/built-ins/RegExp/prototype/exec/failure-lastindex-access.js
@@ -1846,6 +1871,7 @@ test/built-ins/RegExp/prototype/test/S15.10.6.3_A1_T5.js
 test/built-ins/RegExp/prototype/test/S15.10.6.3_A1_T7.js
 test/built-ins/RegExp/prototype/test/S15.10.6.3_A1_T8.js
 test/built-ins/RegExp/prototype/test/S15.10.6.3_A1_T9.js
+test/built-ins/RegExp/prototype/test/S15.10.6.3_A8.js
 test/built-ins/RegExp/prototype/test/S15.10.6.3_A9.js
 test/built-ins/RegExp/prototype/test/y-fail-lastindex-no-write.js
 test/built-ins/RegExp/prototype/test/y-fail-lastindex.js
@@ -1853,6 +1879,7 @@ test/built-ins/RegExp/prototype/test/y-fail-return.js
 test/built-ins/RegExp/prototype/test/y-init-lastindex.js
 test/built-ins/RegExp/prototype/test/y-set-lastindex.js
 test/built-ins/RegExp/prototype/toString/S15.10.6.4_A11.js
+test/built-ins/RegExp/prototype/toString/S15.10.6.4_A8.js
 test/built-ins/RegExp/prototype/toString/S15.10.6.4_A9.js
 test/built-ins/RegExp/prototype/unicode/this-val-regexp.js
 test/built-ins/RegExp/prototype/unicodeSets/this-val-regexp.js
@@ -2232,9 +2259,11 @@ test/language/arguments-object/10.6-6-4-s.js
 test/language/arguments-object/10.6-6-4.js
 test/language/arguments-object/S10.1.6_A1_T2.js
 test/language/arguments-object/S10.6_A1.js
+test/language/arguments-object/S10.6_A3_T2.js
 test/language/arguments-object/S10.6_A3_T3.js
 test/language/arguments-object/S10.6_A3_T4.js
 test/language/arguments-object/S10.6_A5_T1.js
+test/language/arguments-object/S10.6_A5_T2.js
 test/language/arguments-object/S10.6_A5_T3.js
 test/language/arguments-object/S10.6_A5_T4.js
 test/language/arguments-object/S10.6_A6.js
@@ -2334,6 +2363,8 @@ test/language/block-scope/leave/finally-block-let-declaration-only-shadows-outer
 test/language/block-scope/shadowing/catch-parameter-shadowing-catch-parameter.js
 test/language/block-scope/shadowing/catch-parameter-shadowing-function-parameter-name.js
 test/language/block-scope/shadowing/catch-parameter-shadowing-var-variable.js
+test/language/block-scope/syntax/for-in/acquire-properties-from-array.js
+test/language/block-scope/syntax/for-in/acquire-properties-from-object.js
 test/language/block-scope/syntax/function-declarations/in-statement-position-case-expression-statement-list.js
 test/language/block-scope/syntax/function-declarations/in-statement-position-default-statement-list.js
 test/language/block-scope/syntax/function-declarations/in-statement-position-do-statement-while-expression.js
@@ -2612,6 +2643,7 @@ test/language/expressions/arrow-function/syntax/early-errors/arrowparameters-cov
 test/language/expressions/arrow-function/syntax/early-errors/arrowparameters-cover-no-duplicates-rest.js
 test/language/expressions/arrow-function/syntax/early-errors/arrowparameters-cover-no-yield.js
 test/language/expressions/arrow-function/syntax/early-errors/use-strict-with-non-simple-param.js
+test/language/expressions/assignment/8.12.5-3-b_1.js
 test/language/expressions/assignment/S11.13.1_A3.1.js
 test/language/expressions/assignment/S11.13.1_A3.2.js
 test/language/expressions/assignment/S11.13.1_A4_T1.js
@@ -3512,6 +3544,7 @@ test/language/expressions/conditional/S11.12_A3_T2.js
 test/language/expressions/conditional/S11.12_A3_T3.js
 test/language/expressions/conditional/S11.12_A3_T4.js
 test/language/expressions/conditional/S11.12_A4_T4.js
+test/language/expressions/conditional/in-condition.js
 test/language/expressions/conditional/symbol-conditional-evaluation.js
 test/language/expressions/delete/11.4.1-0-1.js
 test/language/expressions/delete/11.4.1-2-2.js
@@ -4447,6 +4480,7 @@ test/language/identifiers/val-if-via-escape-hex.js
 test/language/identifiers/val-if.js
 test/language/identifiers/val-import-via-escape-hex.js
 test/language/identifiers/val-in-via-escape-hex.js
+test/language/identifiers/val-in.js
 test/language/identifiers/val-instanceof-via-escape-hex.js
 test/language/identifiers/val-instanceof.js
 test/language/identifiers/val-new-via-escape-hex.js
@@ -5423,6 +5457,7 @@ test/language/statements/for-await-of/head-let-init.js
 test/language/statements/for-await-of/head-using-init.js
 test/language/statements/for-await-of/head-var-init.js
 test/language/statements/for-await-of/let-array-with-newline.js
+test/language/statements/for-in/12.6.4-1.js
 test/language/statements/for-in/S12.6.4_A1.js
 test/language/statements/for-in/S12.6.4_A15.js
 test/language/statements/for-in/S12.6.4_A2.js
@@ -5453,10 +5488,16 @@ test/language/statements/for-in/dstr/obj-rest-not-last-element-invalid.js
 test/language/statements/for-in/head-const-bound-names-dup.js
 test/language/statements/for-in/head-const-bound-names-let.js
 test/language/statements/for-in/head-const-fresh-binding-per-iteration.js
+test/language/statements/for-in/head-decl-expr.js
+test/language/statements/for-in/head-expr-expr.js
 test/language/statements/for-in/head-let-bound-names-dup.js
 test/language/statements/for-in/head-let-bound-names-let.js
+test/language/statements/for-in/head-var-expr.js
 test/language/statements/for-in/let-array-with-newline.js
 test/language/statements/for-in/let-identifier-with-newline.js
+test/language/statements/for-in/order-enumerable-shadowed.js
+test/language/statements/for-in/order-property-added.js
+test/language/statements/for-in/order-simple-object.js
 test/language/statements/for-in/return-from-catch.js
 test/language/statements/for-in/return-from-finally.js
 test/language/statements/for-in/return-from-try.js
@@ -5574,6 +5615,9 @@ test/language/statements/for/S12.6.3_A15.js
 test/language/statements/for/S12.6.3_A2.1.js
 test/language/statements/for/S12.6.3_A2.2.js
 test/language/statements/for/S12.6.3_A2.js
+test/language/statements/for/S12.6.3_A4.1.js
+test/language/statements/for/S12.6.3_A4_T1.js
+test/language/statements/for/S12.6.3_A4_T2.js
 test/language/statements/for/S12.6.3_A7.1_T1.js
 test/language/statements/for/S12.6.3_A7.1_T2.js
 test/language/statements/for/S12.6.3_A7_T1.js
@@ -5610,6 +5654,10 @@ test/language/statements/for/head-var-bound-names-in-stmt.js
 test/language/statements/for/let-array-with-newline.js
 test/language/statements/for/let-identifier-with-newline.js
 test/language/statements/function/13.2-1-s.js
+test/language/statements/function/13.2-23-s.js
+test/language/statements/function/13.2-24-s.js
+test/language/statements/function/13.2-27-s.js
+test/language/statements/function/13.2-28-s.js
 test/language/statements/function/13.2-3-s.js
 test/language/statements/function/S10.1.1_A1_T1.js
 test/language/statements/function/S13.2.1_A4_T1.js
@@ -5777,6 +5825,7 @@ test/language/statements/if/S12.5_A6_T2.js
 test/language/statements/if/empty-statement.js
 test/language/statements/if/let-array-with-newline.js
 test/language/statements/if/let-identifier-with-newline.js
+test/language/statements/labeled/S12.12_A1_T1.js
 test/language/statements/labeled/let-array-with-newline.js
 test/language/statements/labeled/let-identifier-with-newline.js
 test/language/statements/labeled/static-init-invalid-await.js
@@ -5793,6 +5842,7 @@ test/language/statements/let/dstr/ary-ptrn-rest-not-final-obj.js
 test/language/statements/let/redeclaration-error-from-within-strict-mode-function.js
 test/language/statements/let/static-init-await-binding-invalid.js
 test/language/statements/let/static-init-await-binding-valid.js
+test/language/statements/let/syntax/identifier-let-allowed-as-lefthandside-expression-strict.js
 test/language/statements/let/syntax/identifier-let-disallowed-as-boundname.js
 test/language/statements/let/syntax/let-let-declaration-split-across-two-lines.js
 test/language/statements/let/syntax/let-let-declaration-with-initializer-split-across-two-lines.js
