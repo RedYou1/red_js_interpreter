@@ -330,29 +330,48 @@ fn wait_for_output(mut child: Child, timeout: Duration) -> io::Result<ChildResul
     let deadline = Instant::now() + timeout;
     loop {
         if let Some(status) = child.try_wait()? {
+            let stdout = match finish_reader(stdout_reader, deadline)? {
+                Some(output) => output,
+                None => return Ok(ChildResult::TimedOut),
+            };
+            let stderr = match finish_reader(stderr_reader, deadline)? {
+                Some(output) => output,
+                None => return Ok(ChildResult::TimedOut),
+            };
             return Ok(ChildResult::Completed(Output {
                 status,
-                stdout: finish_reader(stdout_reader)?,
-                stderr: finish_reader(stderr_reader)?,
+                stdout,
+                stderr,
             }));
         }
         if Instant::now() >= deadline {
             let _ = child.kill();
             child.wait()?;
-            finish_reader(stdout_reader)?;
-            finish_reader(stderr_reader)?;
             return Ok(ChildResult::TimedOut);
         }
         thread::sleep(Duration::from_millis(10));
     }
 }
 
-fn finish_reader(reader: Option<thread::JoinHandle<io::Result<Vec<u8>>>>) -> io::Result<Vec<u8>> {
+fn finish_reader(
+    reader: Option<thread::JoinHandle<io::Result<Vec<u8>>>>,
+    deadline: Instant,
+) -> io::Result<Option<Vec<u8>>> {
     match reader {
-        Some(reader) => reader
-            .join()
-            .map_err(|_| io::Error::other("child output reader panicked"))?,
-        None => Ok(Vec::new()),
+        Some(reader) => {
+            while !reader.is_finished() {
+                let now = Instant::now();
+                if now >= deadline {
+                    return Ok(None);
+                }
+                thread::sleep((deadline - now).min(Duration::from_millis(10)));
+            }
+            reader
+                .join()
+                .map(Some)
+                .map_err(|_| io::Error::other("child output reader panicked"))?
+        }
+        None => Ok(Some(Vec::new())),
     }
 }
 
@@ -704,5 +723,25 @@ mod tests {
             panic!("output-producing child should not time out");
         };
         assert!(output.stdout.len() > 65_536);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn does_not_wait_for_inherited_child_output_pipes() {
+        use std::time::Instant;
+
+        let child = Command::new("sh")
+            .args(["-c", "sleep 5 & exit 0"])
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()
+            .expect("shell child should start");
+        let started = Instant::now();
+
+        let result = wait_for_output(child, Duration::from_millis(100))
+            .expect("child with inherited pipes should be reaped");
+
+        assert!(matches!(result, ChildResult::TimedOut));
+        assert!(started.elapsed() < Duration::from_secs(1));
     }
 }
