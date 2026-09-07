@@ -81,10 +81,11 @@ impl Expr for Assign {
 pub struct VarDecl {
     pub name: String,
     pub initializer: Option<Box<dyn Expr>>,
+    pub function_scoped: bool,
 }
 
 impl VarDecl {
-    pub fn parse(parser: &mut Parser) -> Self {
+    pub fn parse(parser: &mut Parser, function_scoped: bool) -> Self {
         let name = parser.expect_ident();
         parser.env.logger.borrow_mut().logln(LogLevel::Info, &|| {
             format!("Entering VarDecl::parse name={}", name)
@@ -100,20 +101,47 @@ impl VarDecl {
         if let Token::Semicolon = parser.tokens()[parser.index()] {
             parser.bump();
         }
-        Self { name, initializer }
+        Self {
+            name,
+            initializer,
+            function_scoped,
+        }
     }
 }
 
 impl Expr for VarDecl {
     fn compile(&self, env: Environment) -> Vec<Code> {
         let name = self.name.clone();
+        let function_scoped = self.function_scoped;
         let code = self.initializer.compile(env);
         vec![Box::new(move |env, _| {
             env.logger.borrow_mut().logln(LogLevel::Trace, &|| {
                 format!("Entering Expr::VarDecl name={}", name)
             });
             let value = handle_return!(run_sub(&code, env.clone(), &mut CodeIndex::new()));
-            env.mem
+            let target = if function_scoped {
+                let mut current = env.mem.clone();
+                println!("VAR {} start {:?}", name, current.borrow().properties.keys().collect::<Vec<_>>());
+                loop {
+                    let is_loop_scope = current
+                        .borrow()
+                        .properties
+                        .contains_key(&"__forloop_scope__".into());
+                    if is_loop_scope {
+                        let parent = current.borrow().parent();
+                        println!("VAR {} loop parent {:?}", name, parent.as_ref().map(|p| p.borrow().properties.keys().collect::<Vec<_>>()));
+                        break parent.unwrap_or_else(|| current.clone());
+                    }
+                    let parent = current.borrow().parent();
+                    let Some(parent) = parent else {
+                        break current;
+                    };
+                    current = parent;
+                }
+            } else {
+                env.mem.clone()
+            };
+            target
                 .borrow_mut()
                 .properties
                 .insert(name.clone().into(), value.clone());
@@ -127,6 +155,7 @@ impl Expr for VarDecl {
         Box::new(Self {
             name: self.name.clone(),
             initializer: self.initializer.as_ref().map(|a| a.as_ref().duplicate()),
+            function_scoped: self.function_scoped,
         })
     }
 }

@@ -228,6 +228,108 @@ assert_result!(
 );
 
 assert_result!(
+    test_labeled_continue,
+    r#"
+    var count = 0;
+    label: for (let x = 0; x < 10;) {
+        while (true) {
+            x++;
+            count++;
+            continue label;
+        }
+    }
+    console.log(count);
+    "#,
+    "10"
+);
+
+assert_result!(
+    test_labeled_and_unlabeled_break,
+    r#"
+    do_out: while (true) {
+        if (__before) break;
+        var __before = "before";
+        do_in: while (true) {
+            var __inner = "inner";
+            break do_in;
+        }
+        var __after = "after";
+    }
+    console.log(__before, __inner, __after);
+    "#,
+    "before inner after"
+);
+
+assert_result!(
+    test_var_decl_in_loop_scope,
+    r#"
+    try {
+        while (x != 1) {
+            var x = 1;
+        }
+        console.log(x);
+    } catch (e) {
+        console.log("unexpected");
+    }
+    "#,
+    "1"
+);
+
+assert_result!(
+    test_throw_from_loop_is_caught,
+    r#"
+    var i = 0;
+    try {
+        while (i < 10) {
+            if (i === 5) throw i;
+            i++;
+        }
+    } catch (e) {
+        console.log(e);
+    }
+    "#,
+    "5"
+);
+
+assert_result!(
+    test_throw_from_do_while_is_caught,
+    r#"
+    var i = 0;
+    try {
+        do {
+            if (i === 5) throw i;
+            i++;
+        } while (i < 10);
+    } catch (e) {
+        console.log(e);
+    }
+    "#,
+    "5"
+);
+
+assert_result!(
+    test_for_of_iterator_result_objects,
+    r#"
+    var iterable = {};
+    iterable[Symbol.iterator] = function() {
+        var nextResult = { value: 23, done: false };
+        var finalResult = { value: 0, done: true };
+        return {
+            next: function() {
+                var result = nextResult;
+                nextResult = finalResult;
+                return result;
+            }
+        };
+    };
+    for (var value of iterable) {
+        console.log(value);
+    }
+    "#,
+    "23"
+);
+
+assert_result!(
     test_compile_iterator_generator,
     r#"
     function* t1(){
