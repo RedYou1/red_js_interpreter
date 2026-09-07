@@ -55,15 +55,9 @@ impl LoopExpr {
             } else if matches!(
                 parser.tokens()[parser.index()],
                 Token::Let | Token::Const | Token::Var
-            ) || matches!(
-                parser.tokens()[parser.index() + 1],
-                Token::In | Token::Of
-            )
+            ) || matches!(parser.tokens()[parser.index() + 1], Token::In | Token::Of)
             {
-                if !matches!(
-                    parser.tokens()[parser.index() + 1],
-                    Token::In | Token::Of
-                ) {
+                if !matches!(parser.tokens()[parser.index() + 1], Token::In | Token::Of) {
                     parser.bump();
                 }
                 let name = parser.expect_ident();
@@ -78,7 +72,10 @@ impl LoopExpr {
                         Some(Box::new(parser.parse_expression(true)))
                     } else if let Token::In = parser.tokens()[parser.index()] {
                         parser.bump();
-                        for_in = Some((name.clone(), Box::new(parser.parse_expression(true))));
+                        for_in = Some((
+                            name.clone(),
+                            Box::new(parser.parse_expression(true)) as Box<dyn Expr>,
+                        ));
                         None
                     } else {
                         None
@@ -201,9 +198,17 @@ fn for_in_property_names(value: Rc<RefCell<JsValue>>) -> Vec<String> {
     loop {
         let parent = {
             let current_ref = current.borrow();
+            let is_array =
+                current_ref.parent().and_then(|parent| parent.borrow().name) == Some("Array");
             if current_ref.name.is_none() {
                 names.extend(current_ref.properties.keys().filter_map(|key| match key {
-                    JsValue::String(key) if key != PROTO_NAME => Some(key.clone()),
+                    JsValue::String(key) if key != PROTO_NAME && (!is_array || key != "length") => {
+                        Some(key.clone())
+                    }
+                    JsValue::BigInt(key) => Some(key.to_string()),
+                    JsValue::Number(key) if key.is_finite() && key.fract() == 0.0 => {
+                        Some((*key as i64).to_string())
+                    }
                     _ => None,
                 }));
             }
@@ -289,9 +294,10 @@ impl Expr for LoopExpr {
                     CodeResult::Normal(Rc::new(RefCell::new(JsValue::Undefined)))
                 }),
                 Box::new(move |env, _i| {
-                    let sub =
-                        inline_borrow!(env.mem.borrow().properties[&"__forloop_sub__".into()].clone())
-                            .unwrap_proto("for-in sub not proto");
+                    let sub = inline_borrow!(
+                        env.mem.borrow().properties[&"__forloop_sub__".into()].clone()
+                    )
+                    .unwrap_proto("for-in sub not proto");
                     let JsValue::BigInt(index) =
                         inline_borrow!(Prototype::find(sub.clone(), &"__forin_i__".into()).1)
                     else {
@@ -301,7 +307,7 @@ impl Expr for LoopExpr {
                         .1
                         .borrow()
                         .unwrap_proto("for-in keys");
-                    let key = Prototype::find(keys, &index).1;
+                    let key = Prototype::find(keys, &JsValue::BigInt(index)).1;
                     env.mem
                         .borrow_mut()
                         .properties
@@ -341,9 +347,10 @@ impl Expr for LoopExpr {
                     CodeResult::Normal(Rc::new(RefCell::new(JsValue::Undefined)))
                 }),
                 Box::new(move |env, _i| {
-                    let sub =
-                        inline_borrow!(env.mem.borrow().properties[&"__forloop_sub__".into()].clone())
-                            .unwrap_proto("for-in sub not proto");
+                    let sub = inline_borrow!(
+                        env.mem.borrow().properties[&"__forloop_sub__".into()].clone()
+                    )
+                    .unwrap_proto("for-in sub not proto");
                     let JsValue::BigInt(index) =
                         inline_borrow!(Prototype::find(sub, &"__forin_i__".into()).1)
                     else {

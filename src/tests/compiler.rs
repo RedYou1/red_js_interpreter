@@ -126,6 +126,28 @@ assert_result!(
 );
 
 assert_result!(
+    test_compile_for_in,
+    r#"
+    var object = {a: 1, b: 2};
+    for (var key in object) {
+        console.log(key + ":" + object[key]);
+    }
+    for (var index in [10, 20]) {
+        console.log(index);
+    }
+    for (var key in Array.prototype.at) {
+        console.log("unexpected:" + key);
+    }
+    console.log("done");
+    "#,
+    "a:1",
+    "b:2",
+    "0",
+    "1",
+    "done"
+);
+
+assert_result!(
     test_array_prototype_methods,
     r#"
     let values = [1, 2, 3];
