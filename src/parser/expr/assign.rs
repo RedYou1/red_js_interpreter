@@ -127,10 +127,8 @@ impl Expr for VarDecl {
                         .properties
                         .contains_key(&"__forloop_scope__".into());
                     if is_loop_scope {
-                        current = current
-                            .borrow()
-                            .parent()
-                            .unwrap_or_else(|| current.clone());
+                        let parent = current.borrow().parent();
+                        current = parent.unwrap_or_else(|| current.clone());
                         continue;
                     }
                     if current
