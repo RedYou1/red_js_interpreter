@@ -160,9 +160,15 @@ impl LoopExpr {
     pub fn parse_do(parser: &mut Parser, label: Option<String>) -> Self {
         assert_eq!(parser.tokens()[parser.index()], Token::Do);
         parser.bump();
+        let mut statement_index = parser.index();
+        while matches!(parser.tokens()[statement_index], Token::Ident(_))
+            && parser.tokens()[statement_index + 1] == Token::Colon
+        {
+            statement_index += 2;
+        }
         if !matches!(parser.tokens()[parser.index()], Token::LBrace)
             && matches!(
-                parser.tokens()[parser.index()],
+                parser.tokens()[statement_index],
                 Token::Let | Token::Const | Token::Function | Token::Class
             )
         {

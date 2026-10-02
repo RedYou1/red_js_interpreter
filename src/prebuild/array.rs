@@ -41,6 +41,22 @@ fn integer(value: &Rc<RefCell<JsValue>>) -> i64 {
     }
 }
 
+fn integer_with_env(
+    env: &Environment,
+    value: &Rc<RefCell<JsValue>>,
+) -> i64 {
+    if let JsValue::Prototype(object) = inline_borrow!(value.clone())
+        && let Some((_, method)) = Prototype::opt_find(object.clone(), &"valueOf".into())
+        && let JsValue::Prototype(method) = inline_borrow!(method)
+        && Prototype::opt_find(method.clone(), &RUNNABLE.into()).is_some()
+        && let CodeResult::Return(result) =
+            run_function_object(method, value.clone(), vec![], env.logger.clone())
+    {
+        return integer(&result);
+    }
+    integer(value)
+}
+
 fn string_value(value: &Rc<RefCell<JsValue>>) -> String {
     match inline_borrow!(value) {
         JsValue::Undefined => "undefined".to_owned(),
@@ -460,14 +476,14 @@ new_class! {
         CodeResult::Return(new_array(array, result, env.logger))
     },
     copyWithin, fn,
-    |_, this, [target, start, end]| {
+    |env, this, [target, start, end]| {
         let this = this.borrow().unwrap_proto("Array.copyWithin for this");
         let length = array_length(&this);
         let normalize = |argument: &Rc<RefCell<JsValue>>, default: i64| {
             if matches!(inline_borrow!(argument), JsValue::Undefined) {
                 default
             } else {
-                let index = integer(argument);
+                let index = integer_with_env(&env, argument);
                 if index < 0 {
                     (length + index).max(0)
                 } else {

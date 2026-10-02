@@ -393,11 +393,12 @@ impl Parser {
             }
             Token::Void => {
                 self.bump();
-                let mut expr = self.parse_expression(true);
-                expr.push(Box::new(expr::ConstObj {
-                    obj: JsValue::Undefined,
-                }));
-                Box::new(expr)
+                Box::new(vec![
+                    self.parse_call_or_primary(false),
+                    Box::new(expr::ConstObj {
+                        obj: JsValue::Undefined,
+                    }),
+                ])
             }
             Token::Delete => {
                 self.bump();
@@ -407,7 +408,8 @@ impl Parser {
             }
             Token::LBrace => Box::new(expr::Object::parse(self)),
             Token::LBracket | Token::LParen => {
-                let end = if let Token::LBracket = self.tokens[self.index] {
+                let is_array = matches!(self.tokens[self.index], Token::LBracket);
+                let end = if is_array {
                     Token::RBracket
                 } else {
                     Token::RParen
@@ -415,8 +417,15 @@ impl Parser {
                 self.bump();
                 let mut elements: Vec<Box<dyn Expr>> = Vec::new();
                 while self.tokens[self.index] != Token::Eof && self.tokens[self.index] != end {
+                    if is_array && self.tokens[self.index] == Token::Comma {
+                        self.bump();
+                        elements.push(Box::new(expr::ConstObj {
+                            obj: JsValue::Undefined,
+                        }));
+                        continue;
+                    }
                     let before = self.index;
-                    let mut exprs = self.parse_expression(true);
+                    let mut exprs = self.parse_expression(!is_array);
                     if exprs.is_empty() && self.index == before {
                         self.env.logger.borrow_mut().logln(
                             LogLevel::Fatal,
@@ -431,6 +440,9 @@ impl Parser {
                         );
                     }
                     elements.append(&mut exprs);
+                    if is_array && self.tokens[self.index] == Token::Comma {
+                        self.bump();
+                    }
                 }
                 if self.tokens[self.index] != end {
                     self.env.logger.borrow_mut().logln(LogLevel::Fatal, &|| {

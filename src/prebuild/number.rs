@@ -4,6 +4,8 @@ new_class! {
     prebuild_number,
     Number,
     Object,
+    POSITIVE_INFINITY, JsValue::Number(f64::INFINITY),
+    NEGATIVE_INFINITY, JsValue::Number(f64::NEG_INFINITY),
     MAX_VALUE, JsValue::BigInt(i64::MAX),
     MIN_VALUE, JsValue::BigInt(i64::MIN),
     MAX_SAFE_INTEGER, JsValue::BigInt(9007199254740991),
