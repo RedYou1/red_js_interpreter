@@ -1,4 +1,4 @@
-use crate::{CodeResult, LogLevel, Logger, handle_error, prebuild::prelude::*};
+use crate::{CodeResult, LogLevel, Logger, RUNNABLE, handle_error, prebuild::prelude::*};
 
 fn value(value: JsValue) -> Rc<RefCell<JsValue>> {
     Rc::new(RefCell::new(value))
@@ -54,8 +54,17 @@ fn callback_result(
     index: i64,
     array: Rc<RefCell<Prototype>>,
 ) -> CodeResult {
+    let callback = callback.borrow().unwrap_proto("Array callback");
+    let callback = if Prototype::opt_find(callback.clone(), &RUNNABLE.into()).is_some() {
+        callback
+    } else {
+        Prototype::find(callback, &"constructor".into())
+            .1
+            .borrow()
+            .unwrap_proto("Array callback constructor")
+    };
     run_function_object(
-        callback.borrow().unwrap_proto("Array callback"),
+        callback,
         this_arg,
         vec![
             value,

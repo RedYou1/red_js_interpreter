@@ -160,6 +160,14 @@ impl LoopExpr {
     pub fn parse_do(parser: &mut Parser, label: Option<String>) -> Self {
         assert_eq!(parser.tokens()[parser.index()], Token::Do);
         parser.bump();
+        if !matches!(parser.tokens()[parser.index()], Token::LBrace)
+            && matches!(
+                parser.tokens()[parser.index()],
+                Token::Let | Token::Const | Token::Function | Token::Class
+            )
+        {
+            panic!("declaration is not a valid do-while statement body");
+        }
         let body = parser.parse_block();
 
         if parser.tokens()[parser.index()] != Token::While {

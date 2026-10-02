@@ -109,6 +109,10 @@ pub fn run_function_object(
         formating: false,
     }));
     proto.borrow_mut().properties.insert(
+        "__function_scope__".into(),
+        Rc::new(RefCell::new(JsValue::Boolean(true))),
+    );
+    proto.borrow_mut().properties.insert(
         PROTO_NAME.into(),
         Rc::new(RefCell::new(JsValue::Prototype(mem.clone()))),
     );

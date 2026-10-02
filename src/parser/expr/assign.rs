@@ -127,8 +127,18 @@ impl Expr for VarDecl {
                         .properties
                         .contains_key(&"__forloop_scope__".into());
                     if is_loop_scope {
-                        let parent = current.borrow().parent();
-                        break parent.unwrap_or_else(|| current.clone());
+                        current = current
+                            .borrow()
+                            .parent()
+                            .unwrap_or_else(|| current.clone());
+                        continue;
+                    }
+                    if current
+                        .borrow()
+                        .properties
+                        .contains_key(&"__function_scope__".into())
+                    {
+                        break current;
                     }
                     let parent = current.borrow().parent();
                     let Some(parent) = parent else {
