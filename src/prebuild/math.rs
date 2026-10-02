@@ -9,7 +9,9 @@ new_class! {
     LN2, JsValue::Number(std::f64::consts::LN_2),
     LN10, JsValue::Number(std::f64::consts::LN_10),
     LOG2E, JsValue::Number(std::f64::consts::LOG2_E),
-    LOG10E, JsValue::Number(std::f64::consts::LOG10_E);
+    LOG10E, JsValue::Number(std::f64::consts::LOG10_E),
+    SQRT1_2, JsValue::Number(std::f64::consts::FRAC_1_SQRT_2),
+    SQRT2, JsValue::Number(std::f64::consts::SQRT_2);
     abs, fn,
     |_, _, [num]| {
         CodeResult::Return(Rc::new(RefCell::new(match inline_borrow!(num) {
@@ -17,6 +19,44 @@ new_class! {
             JsValue::Number(n) => JsValue::Number(n.abs()),
             _ => JsValue::BigInt(0)
         })))
+    },
+    acos, fn,
+    |_, num, []| {
+        CodeResult::Return(Rc::new(RefCell::new(JsValue::Number(match inline_borrow!(num) {
+            JsValue::BigInt(n) => (n as f64).acos(),
+            JsValue::Number(n) => n.acos(),
+            _ => f64::NAN,
+        }))))
+    },
+    asin, fn,
+    |_, num, []| {
+        CodeResult::Return(Rc::new(RefCell::new(JsValue::Number(match inline_borrow!(num) {
+            JsValue::BigInt(n) => (n as f64).asin(),
+            JsValue::Number(n) => n.asin(),
+            _ => f64::NAN,
+        }))))
+    },
+    atan, fn,
+    |_, num, []| {
+        CodeResult::Return(Rc::new(RefCell::new(JsValue::Number(match inline_borrow!(num) {
+            JsValue::BigInt(n) => (n as f64).atan(),
+            JsValue::Number(n) => n.atan(),
+            _ => f64::NAN,
+        }))))
+    },
+    atan2, fn,
+    |_, y, [x]| {
+        let y = match inline_borrow!(y) {
+            JsValue::BigInt(n) => n as f64,
+            JsValue::Number(n) => n,
+            _ => f64::NAN,
+        };
+        let x = match inline_borrow!(x) {
+            JsValue::BigInt(n) => n as f64,
+            JsValue::Number(n) => n,
+            _ => f64::NAN,
+        };
+        CodeResult::Return(Rc::new(RefCell::new(JsValue::Number(y.atan2(x)))))
     },
     floor, fn,
     |_, _, [num]| {
@@ -86,5 +126,49 @@ new_class! {
             JsValue::Number(n) => JsValue::Number(n.sqrt()),
             _ => JsValue::BigInt(0)
         })))
+    },
+    log, fn,
+    |_, num, []| {
+        CodeResult::Return(Rc::new(RefCell::new(JsValue::Number(match inline_borrow!(num) {
+            JsValue::BigInt(n) => (n as f64).ln(),
+            JsValue::Number(n) => n.ln(),
+            _ => f64::NAN,
+        }))))
+    },
+    random, fn,
+    |_, _, []| {
+        CodeResult::Return(Rc::new(RefCell::new(JsValue::Number(0.5))))
+    },
+    sin, fn,
+    |_, num, []| {
+        CodeResult::Return(Rc::new(RefCell::new(JsValue::Number(match inline_borrow!(num) {
+            JsValue::BigInt(n) => (n as f64).sin(),
+            JsValue::Number(n) => n.sin(),
+            _ => f64::NAN,
+        }))))
+    },
+    cos, fn,
+    |_, num, []| {
+        CodeResult::Return(Rc::new(RefCell::new(JsValue::Number(match inline_borrow!(num) {
+            JsValue::BigInt(n) => (n as f64).cos(),
+            JsValue::Number(n) => n.cos(),
+            _ => f64::NAN,
+        }))))
+    },
+    exp, fn,
+    |_, num, []| {
+        CodeResult::Return(Rc::new(RefCell::new(JsValue::Number(match inline_borrow!(num) {
+            JsValue::BigInt(n) => (n as f64).exp(),
+            JsValue::Number(n) => n.exp(),
+            _ => f64::NAN,
+        }))))
+    },
+    tan, fn,
+    |_, num, []| {
+        CodeResult::Return(Rc::new(RefCell::new(JsValue::Number(match inline_borrow!(num) {
+            JsValue::BigInt(n) => (n as f64).tan(),
+            JsValue::Number(n) => n.tan(),
+            _ => f64::NAN,
+        }))))
     };
 }

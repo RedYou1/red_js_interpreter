@@ -222,6 +222,40 @@ pub fn prebuild_prototypes(
         logger,
     };
 
+    function.borrow_mut().properties.insert(
+        "length".into(),
+        Rc::new(RefCell::new(JsValue::BigInt(0))),
+    );
+    let function_prototype = function.clone();
+    function.borrow_mut().properties.insert(
+        "valueOf".into(),
+        new_runnable_with_object(
+            function.clone(),
+            function.clone(),
+            "Function.prototype.valueOf",
+            prebuild_runnable(
+                env.clone(),
+                Box::new(move |_mem, this, []| CodeResult::Return(this.clone())),
+            ),
+        ),
+    );
+    function.borrow_mut().properties.insert(
+        "toString".into(),
+        new_runnable_with_object(
+            function.clone(),
+            function_prototype,
+            "Function.prototype.toString",
+            prebuild_runnable(
+                env.clone(),
+                Box::new(|_mem, _this, []| {
+                    CodeResult::Return(Rc::new(RefCell::new(JsValue::String(
+                        "function () { [native code] }".to_owned(),
+                    ))))
+                }),
+            ),
+        ),
+    );
+
     let obj = object.clone();
     object.borrow_mut().properties.insert(
         CONSTRUCTOR_NAME.into(),
@@ -249,6 +283,18 @@ pub fn prebuild_prototypes(
                         todo!() // return as an object of primitive wrapper
                     }
                 }),
+            ),
+        ),
+    );
+    object.borrow_mut().properties.insert(
+        "valueOf".into(),
+        new_runnable_with_object(
+            function.clone(),
+            object.clone(),
+            "Object.prototype.valueOf",
+            prebuild_runnable(
+                env.clone(),
+                Box::new(|_mem, this, []| CodeResult::Return(this.clone())),
             ),
         ),
     );
@@ -300,16 +346,41 @@ pub fn prebuild_prototypes(
                     let JsValue::Prototype(target) = inline_borrow!(value) else {
                         return CodeResult::Return(Rc::new(RefCell::new(JsValue::Undefined)));
                     };
-                    let names = target
-                        .borrow()
-                        .properties
-                        .keys()
-                        .filter_map(|key| match key {
-                            JsValue::String(key) if key != PROTO_NAME => {
-                                Some(Rc::new(RefCell::new(JsValue::String(key.clone()))))
+                    let target = target.borrow();
+                    let mut numeric = Vec::new();
+                    let mut string = Vec::new();
+                    let mut seen = std::collections::HashSet::new();
+                    for key in target
+                        .property_order
+                        .iter()
+                        .chain(target.properties.keys())
+                    {
+                        let key = match key {
+                            JsValue::String(key) if key != PROTO_NAME => key.clone(),
+                            JsValue::BigInt(key) if *key >= 0 => key.to_string(),
+                            JsValue::Number(key) if key.is_finite() && *key >= 0.0 => {
+                                (*key as i64).to_string()
                             }
-                            _ => None,
-                        })
+                            _ => continue,
+                        };
+                        if !seen.insert(key.clone()) {
+                            continue;
+                        }
+                        if let Ok(index) = key.parse::<u64>()
+                            && index.to_string() == *key
+                            && index < 4_294_967_295
+                        {
+                            numeric.push((index, key.clone()));
+                        } else {
+                            string.push(key.clone());
+                        }
+                    }
+                    numeric.sort_by_key(|(index, _)| *index);
+                    let names = numeric
+                        .into_iter()
+                        .map(|(_, key)| key)
+                        .chain(string)
+                        .map(|key| Rc::new(RefCell::new(JsValue::String(key))))
                         .collect();
                     let array = Prototype::find(env.mem.clone(), &stringify!(Array).into())
                         .1
@@ -430,11 +501,39 @@ pub fn prebuild_prototypes(
                     CodeResult::Return(Rc::new(RefCell::new(
                         if let Some(proto) = arguments.first() {
                             if let JsValue::Prototype(ref proto_obj) = inline_borrow!(proto) {
-                                JsValue::Prototype(Prototype::new_child(
+                                let result = Prototype::new_child(
                                     proto_obj.clone(),
                                     None,
                                     [],
-                                ))
+                                );
+                                if let Some(JsValue::Prototype(descriptors)) =
+                                    arguments.get(1).map(|value| inline_borrow!(value).clone())
+                                {
+                                    for (key, descriptor) in descriptors.borrow().properties.clone() {
+                                        if key == PROTO_NAME.into() {
+                                            continue;
+                                        }
+                                        let value = if let JsValue::Prototype(descriptor) =
+                                            inline_borrow!(descriptor.clone()).clone()
+                                        {
+                                            Prototype::find(descriptor, &"value".into()).1
+                                        } else {
+                                            Rc::new(RefCell::new(JsValue::Undefined))
+                                        };
+                                        result.borrow_mut().insert_property(key.clone(), value);
+                                        let enumerable = Prototype::find(
+                                            inline_borrow!(descriptor).unwrap_proto("Object.create descriptor"),
+                                            &"enumerable".into(),
+                                        );
+                                        if !matches!(
+                                            inline_borrow!(enumerable.1),
+                                            JsValue::Boolean(true)
+                                        ) {
+                                            result.borrow_mut().non_enumerable.insert(key);
+                                        }
+                                    }
+                                }
+                                JsValue::Prototype(result)
                             } else {
                                 JsValue::Undefined
                             }

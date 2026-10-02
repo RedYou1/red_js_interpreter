@@ -6,6 +6,7 @@ new_class! {
     Object,
     POSITIVE_INFINITY, JsValue::Number(f64::INFINITY),
     NEGATIVE_INFINITY, JsValue::Number(f64::NEG_INFINITY),
+    NaN, JsValue::Number(f64::NAN),
     MAX_VALUE, JsValue::BigInt(i64::MAX),
     MIN_VALUE, JsValue::BigInt(i64::MIN),
     MAX_SAFE_INTEGER, JsValue::BigInt(9007199254740991),
@@ -77,6 +78,10 @@ new_class! {
         } else {
             JsValue::String("0".to_owned())
         })))
+    },
+    valueOf, fn,
+    |_, this, []| {
+        CodeResult::Return(this.clone())
     };
 }
 

@@ -211,6 +211,8 @@ fn for_in_property_names(value: Rc<RefCell<JsValue>>) -> Vec<String> {
         return Vec::new();
     };
     let mut names = Vec::new();
+    let mut shadowed = std::collections::HashSet::new();
+    let mut first = true;
 
     loop {
         let parent = {
@@ -227,6 +229,11 @@ fn for_in_property_names(value: Rc<RefCell<JsValue>>) -> Vec<String> {
                     .filter_map(|key| {
                         if current_ref.non_enumerable.contains(key)
                             || matches!(key, JsValue::String(key) if key == PROTO_NAME || key.starts_with("__"))
+                        {
+                            return None;
+                        }
+                        if !first
+                            && matches!(key, JsValue::String(key) if shadowed.contains(key))
                         {
                             return None;
                         }
@@ -252,7 +259,17 @@ fn for_in_property_names(value: Rc<RefCell<JsValue>>) -> Vec<String> {
                 numeric.sort_by_key(|key| key.parse::<i64>().unwrap_or(i64::MAX));
                 names.extend(numeric);
                 names.extend(string);
+                for key in current_ref
+                    .property_order
+                    .iter()
+                    .chain(current_ref.properties.keys())
+                {
+                    if let JsValue::String(key) = key {
+                        shadowed.insert(key.clone());
+                    }
+                }
             }
+            first = false;
             current_ref.parent()
         };
         let Some(parent) = parent else {

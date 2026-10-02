@@ -5,11 +5,32 @@ new_class! {
     String,
     Object,;
     constructor, fn,
-    |env, _, [arg]| {
+    |env, this, [arg]| {
         let arg = match inline_borrow!(arg) {
             JsValue::Symbol(_, ref t) =>  *t.clone(),
             v => v
         };
+        if let JsValue::Prototype(object) = inline_borrow!(this) {
+            let value = match &arg {
+                JsValue::String(s) => s.clone(),
+                JsValue::Null | JsValue::Undefined => String::new(),
+                JsValue::BigInt(n) => n.to_string(),
+                JsValue::Number(n) => n.to_string(),
+                JsValue::Boolean(b) => b.to_string(),
+                _ => String::new(),
+            };
+            for (index, character) in value.chars().enumerate() {
+                object.borrow_mut().properties.insert(
+                    JsValue::BigInt(index as i64),
+                    Rc::new(RefCell::new(JsValue::String(character.to_string()))),
+                );
+            }
+            object.borrow_mut().properties.insert(
+                "length".into(),
+                Rc::new(RefCell::new(JsValue::BigInt(value.chars().count() as i64))),
+            );
+            return CodeResult::Return(Rc::new(RefCell::new(JsValue::Undefined)));
+        }
         match &arg {
             JsValue::Prototype(proto) => run_function_object(Prototype::find(proto.clone(), &"toString".into()).1.borrow().unwrap_proto("String.constructor for toString"), Rc::new(RefCell::new(arg.clone())), vec![], env.logger),
             JsValue::String(s) => CodeResult::Return(Rc::new(RefCell::new(JsValue::String(s.clone())))),
