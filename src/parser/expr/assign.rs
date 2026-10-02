@@ -64,8 +64,7 @@ impl Expr for Assign {
                 format!("Exiting Expr::Assign {obj:?}[{key:?}] = {value:?}")
             });
             obj.borrow_mut()
-                .properties
-                .insert(inline_borrow!(key), value.clone());
+                .insert_property(inline_borrow!(key), value.clone());
             CodeResult::Normal(value)
         })]
     }
@@ -149,8 +148,7 @@ impl Expr for VarDecl {
             };
             target
                 .borrow_mut()
-                .properties
-                .insert(name.clone().into(), value.clone());
+                .insert_property(name.clone().into(), value.clone());
             env.logger.borrow_mut().logln(LogLevel::Trace, &|| {
                 format!("Exiting Expr::VarDecl name={} value={:?}", name, value)
             });

@@ -15,6 +15,27 @@ fn integer(value: &Rc<RefCell<JsValue>>) -> i64 {
     match inline_borrow!(value) {
         JsValue::BigInt(value) => value,
         JsValue::Number(value) if value.is_finite() => value.trunc() as i64,
+        JsValue::Number(value) if value.is_sign_positive() => i64::MAX,
+        JsValue::Number(_) => i64::MIN,
+        JsValue::Boolean(value) => i64::from(value),
+        JsValue::String(value) => value
+            .trim()
+            .parse::<f64>()
+            .ok()
+            .map(|value| {
+                if value.is_nan() {
+                    0
+                } else if value.is_infinite() {
+                    if value.is_sign_positive() {
+                        i64::MAX
+                    } else {
+                        i64::MIN
+                    }
+                } else {
+                    value.trunc() as i64
+                }
+            })
+            .unwrap_or(0),
         _ => 0,
     }
 }
@@ -399,13 +420,32 @@ new_class! {
             .1
             .borrow()
             .unwrap_proto("Array.concat for Array");
+        let symbol = Prototype::find(env.mem.clone(), &stringify!(Symbol).into())
+            .1
+            .borrow()
+            .unwrap_proto("Array.concat for Symbol");
+        let spread_key = Prototype::find(symbol, &"isConcatSpreadable".into()).1;
+        let is_spreadable = |item: &Rc<RefCell<JsValue>>| {
+            let JsValue::Prototype(item) = inline_borrow!(item.clone()) else {
+                return false;
+            };
+            if let Some((_, spreadable)) =
+                Prototype::opt_find(item.clone(), &inline_borrow!(spread_key.clone()))
+            {
+                return inline_borrow!(spreadable).is_truthy();
+            }
+            item.borrow()
+                .parent()
+                .is_some_and(|parent| parent.borrow().name == Some("Array"))
+        };
         let mut result = Vec::new();
         for item in std::iter::once(Rc::new(RefCell::new(JsValue::Prototype(this.clone()))))
             .chain(arguments)
         {
-            if let JsValue::Prototype(item) = inline_borrow!(item.clone())
-                && Prototype::opt_find(item.clone(), &"length".into()).is_some()
-            {
+            if is_spreadable(&item) {
+                let JsValue::Prototype(item) = inline_borrow!(item.clone()) else {
+                    unreachable!();
+                };
                 for index in 0..array_length(&item) {
                     result.push(array_element(&item, index));
                 }

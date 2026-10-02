@@ -32,6 +32,7 @@ pub fn new_runnable_with_object(
                 Rc::new(RefCell::new(JsValue::BigInt(runnable.params.len() as i64))),
             ),
         ]),
+        property_order: Vec::new(),
         non_enumerable: std::collections::HashSet::new(),
         formating: false,
     }));
@@ -105,6 +106,7 @@ pub fn run_function_object(
             .enumerate()
             .map(|(i, param)| (runnable.params[i].as_str().into(), param.clone()))
             .collect(),
+        property_order: Vec::new(),
         non_enumerable: std::collections::HashSet::new(),
         formating: false,
     }));

@@ -84,6 +84,7 @@ pub fn default_console_config(env: Environment) -> Rc<RefCell<Prototype>> {
                 ),
             ),
         ]),
+        property_order: Vec::new(),
         non_enumerable: std::collections::HashSet::new(),
         formating: false,
     }))

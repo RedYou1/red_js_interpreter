@@ -126,6 +126,7 @@ macro_rules! new_class {
                         }, format!("{}.{{{}}}", stringify!($name), stringify!($fn_name2)).leak(), $fn_type2, $($fn_block2);+),
                     )*
                 ]),
+                property_order: Vec::new(),
                 non_enumerable: std::collections::HashSet::new(),
                 formating: false,
             })));

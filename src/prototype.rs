@@ -12,6 +12,7 @@ use crate::{JsValue, PROTO_NAME, inline_borrow};
 pub struct Prototype {
     pub name: Option<&'static str>,
     pub properties: HashMap<JsValue, Rc<RefCell<JsValue>>>,
+    pub property_order: Vec<JsValue>,
     pub non_enumerable: std::collections::HashSet<JsValue>,
     pub formating: bool,
 }
@@ -37,6 +38,18 @@ impl Hash for Prototype {
 }
 
 impl Prototype {
+    pub fn insert_property(&mut self, key: JsValue, value: Rc<RefCell<JsValue>>) {
+        if !self.properties.contains_key(&key) {
+            self.property_order.push(key.clone());
+        }
+        self.properties.insert(key, value);
+    }
+
+    pub fn remove_property(&mut self, key: &JsValue) {
+        self.properties.remove(key);
+        self.property_order.retain(|existing| existing != key);
+    }
+
     pub fn inner_find(
         this: Rc<RefCell<Self>>,
         key: &JsValue,
@@ -87,6 +100,8 @@ impl Prototype {
         name: Option<&'static str>,
         properties: impl IntoIterator<Item = (JsValue, Rc<RefCell<JsValue>>)>,
     ) -> Rc<RefCell<Self>> {
+        let properties = properties.into_iter().collect::<Vec<_>>();
+        let property_order = properties.iter().map(|(key, _)| key.clone()).collect();
         let mut properties = HashMap::from_iter(properties);
         properties.insert(
             PROTO_NAME.into(),
@@ -95,6 +110,7 @@ impl Prototype {
         Rc::new(RefCell::new(Prototype {
             name,
             properties,
+            property_order,
             non_enumerable: std::collections::HashSet::new(),
             formating: false,
         }))

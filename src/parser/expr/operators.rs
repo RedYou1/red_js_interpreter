@@ -211,7 +211,7 @@ impl Expr for Delete {
                     return CodeResult::Normal(Rc::new(RefCell::new(JsValue::Boolean(true))));
                 }
             };
-            object.borrow_mut().properties.remove(&inline_borrow!(key));
+            object.borrow_mut().remove_property(&inline_borrow!(key));
             CodeResult::Normal(Rc::new(RefCell::new(JsValue::Boolean(true))))
         })]
     }
