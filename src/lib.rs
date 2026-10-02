@@ -145,6 +145,7 @@ mod tests;
 
 use crate::prebuild::{
     array::prebuild_array,
+    boolean::prebuild_boolean,
     console::prebuild_console,
     date::prebuild_date,
     error::{prebuild_error, prebuild_syntax_error, prebuild_type_error},
@@ -572,6 +573,7 @@ pub fn prebuild_prototypes(
     );
     prebuild_date(env.clone());
     prebuild_string(env.clone());
+    prebuild_boolean(env.clone());
     prebuild_number(env.clone());
     prebuild_math(env.clone());
     prebuild_console(env.clone());

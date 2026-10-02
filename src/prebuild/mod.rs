@@ -3,6 +3,7 @@ use std::{cell::RefCell, mem::MaybeUninit, rc::Rc};
 use crate::{ARGUMENTS, CodeResult, Environment, JsValue, Prototype, Runnable, inline_borrow};
 
 pub mod array;
+pub mod boolean;
 pub mod console;
 pub mod date;
 pub mod error;

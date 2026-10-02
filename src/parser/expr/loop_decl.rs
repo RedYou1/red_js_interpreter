@@ -258,7 +258,8 @@ fn for_in_property_names(value: Rc<RefCell<JsValue>>) -> Vec<String> {
         current = parent;
     }
 
-    names.dedup();
+    let mut seen = std::collections::HashSet::new();
+    names.retain(|name| seen.insert(name.clone()));
     names
 }
 

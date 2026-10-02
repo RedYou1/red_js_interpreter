@@ -15,6 +15,7 @@ fn integer(value: &Rc<RefCell<JsValue>>) -> i64 {
     match inline_borrow!(value) {
         JsValue::BigInt(value) => value,
         JsValue::Number(value) if value.is_finite() => value.trunc() as i64,
+        JsValue::Number(value) if value.is_nan() => 0,
         JsValue::Number(value) if value.is_sign_positive() => i64::MAX,
         JsValue::Number(_) => i64::MIN,
         JsValue::Boolean(value) => i64::from(value),
@@ -64,7 +65,10 @@ fn array_prototype(env: &Environment) -> Rc<RefCell<Prototype>> {
 }
 
 fn array_element(array: &Rc<RefCell<Prototype>>, index: i64) -> Rc<RefCell<JsValue>> {
-    Prototype::find(array.clone(), &JsValue::BigInt(index)).1
+    Prototype::opt_find(array.clone(), &JsValue::BigInt(index))
+        .or_else(|| Prototype::opt_find(array.clone(), &index.to_string().into()))
+        .map(|(_, value)| value)
+        .unwrap_or_else(|| Rc::new(RefCell::new(JsValue::Undefined)))
 }
 
 fn callback_result(
