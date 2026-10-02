@@ -350,6 +350,15 @@ pub fn prebuild_prototypes(
                     let mut numeric = Vec::new();
                     let mut string = Vec::new();
                     let mut seen = std::collections::HashSet::new();
+                    let class_like = target.name.is_some()
+                        && target.properties.contains_key(&CONSTRUCTOR_NAME.into())
+                        && target.properties.contains_key(&PROTOTYPE_NAME.into());
+                    if class_like {
+                        for key in ["length", "name", "prototype"] {
+                            seen.insert(key.to_owned());
+                            string.push(key.to_owned());
+                        }
+                    }
                     for key in target
                         .property_order
                         .iter()
@@ -363,7 +372,10 @@ pub fn prebuild_prototypes(
                             }
                             _ => continue,
                         };
-                        if !seen.insert(key.clone()) {
+                        if (class_like
+                            && matches!(key.as_str(), CONSTRUCTOR_NAME | PROTOTYPE_NAME))
+                            || !seen.insert(key.clone())
+                        {
                             continue;
                         }
                         if let Ok(index) = key.parse::<u64>()

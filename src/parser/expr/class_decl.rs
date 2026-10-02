@@ -130,7 +130,7 @@ impl Expr for ClassDecl {
                 Some(name),
                 [],
             );
-            class_proto.borrow_mut().properties.insert(
+            class_proto.borrow_mut().insert_property(
                 "constructor".into(),
                 handle_return!(run_sub(
                     &constructor_runnable,
@@ -138,13 +138,13 @@ impl Expr for ClassDecl {
                     &mut CodeIndex::new()
                 )),
             );
-            class_proto.borrow_mut().properties.insert(
+            class_proto.borrow_mut().insert_property(
                 "prototype".into(),
                 Rc::new(RefCell::new(JsValue::Prototype(class_proto.clone()))),
             );
 
             for (methode_name, methode_code) in methodes.iter() {
-                class_proto.borrow_mut().properties.insert(
+                class_proto.borrow_mut().insert_property(
                     (*methode_name).into(),
                     handle_return!(run_sub(methode_code, env.clone(), &mut CodeIndex::new())),
                 );
