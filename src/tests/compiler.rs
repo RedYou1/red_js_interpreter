@@ -276,6 +276,16 @@ assert_result!(
 );
 
 assert_result!(
+    test_var_decl_in_for_loop_scope,
+    r#"
+    var key = "outer";
+    for (var key in { a: 1 }) {}
+    console.log(key);
+    "#,
+    "a"
+);
+
+assert_result!(
     test_throw_from_loop_is_caught,
     r#"
     var i = 0;
