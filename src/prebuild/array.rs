@@ -87,6 +87,18 @@ fn array_element(array: &Rc<RefCell<Prototype>>, index: i64) -> Rc<RefCell<JsVal
         .unwrap_or_else(|| Rc::new(RefCell::new(JsValue::Undefined)))
 }
 
+fn callback_object(callback: &Rc<RefCell<JsValue>>) -> Rc<RefCell<Prototype>> {
+    let callback = callback.borrow().unwrap_proto("Array callback");
+    if Prototype::opt_find(callback.clone(), &RUNNABLE.into()).is_some() {
+        callback
+    } else {
+        Prototype::find(callback, &"constructor".into())
+            .1
+            .borrow()
+            .unwrap_proto("Array callback constructor")
+    }
+}
+
 fn callback_result(
     env: &Environment,
     callback: &Rc<RefCell<JsValue>>,
@@ -95,15 +107,7 @@ fn callback_result(
     index: i64,
     array: Rc<RefCell<Prototype>>,
 ) -> CodeResult {
-    let callback = callback.borrow().unwrap_proto("Array callback");
-    let callback = if Prototype::opt_find(callback.clone(), &RUNNABLE.into()).is_some() {
-        callback
-    } else {
-        Prototype::find(callback, &"constructor".into())
-            .1
-            .borrow()
-            .unwrap_proto("Array callback constructor")
-    };
+    let callback = callback_object(callback);
     run_function_object(
         callback,
         this_arg,
@@ -336,7 +340,7 @@ new_class! {
         for i in start_idx..length {
             let element = array_element(&this, i);
             accumulator = handle_error!(run_function_object(
-                callback.borrow().unwrap_proto("Array.reduce for callback"),
+                callback_object(&callback),
                 value(JsValue::Undefined),
                 vec![
                     accumulator,
@@ -402,6 +406,11 @@ new_class! {
         let from = integer(&from_index);
         let start = if from < 0 { (length + from).max(0) } else { from };
         for i in start..length {
+            if !this.borrow().properties.contains_key(&JsValue::BigInt(i))
+                && !this.borrow().properties.contains_key(&i.to_string().into())
+            {
+                continue;
+            }
             if same_value(
                 &inline_borrow!(array_element(&this, i)),
                 &inline_borrow!(search_element.clone()),
@@ -452,7 +461,9 @@ new_class! {
             if let Some((_, spreadable)) =
                 Prototype::opt_find(item.clone(), &inline_borrow!(spread_key.clone()))
             {
-                return inline_borrow!(spreadable).is_truthy();
+                if !matches!(inline_borrow!(spreadable), JsValue::Undefined) {
+                    return inline_borrow!(spreadable).is_truthy();
+                }
             }
             item.borrow()
                 .parent()
@@ -663,6 +674,11 @@ new_class! {
         };
         let start = if from < 0 { length + from } else { from.min(length - 1) };
         for index in (0..=start).rev() {
+            if !this.borrow().properties.contains_key(&JsValue::BigInt(index))
+                && !this.borrow().properties.contains_key(&index.to_string().into())
+            {
+                continue;
+            }
             if same_value(
                 &inline_borrow!(array_element(&this, index)),
                 &inline_borrow!(search_element.clone()),
@@ -687,7 +703,7 @@ new_class! {
         }
         while index >= 0 {
             accumulator = handle_error!(run_function_object(
-                callback.borrow().unwrap_proto("Array.reduceRight for callback"),
+                callback_object(&callback),
                 value(JsValue::Undefined),
                 vec![
                     accumulator,

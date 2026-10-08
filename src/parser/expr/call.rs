@@ -26,7 +26,12 @@ impl Expr for Call {
             let (func, this) = match run_sub(&func, env.clone(), &mut CodeIndex::new()) {
                 CodeResult::Normal(res) => (res, Rc::new(RefCell::new(JsValue::Undefined))),
                 CodeResult::NormalMember(res, of, _) => {
-                    (res, Rc::new(RefCell::new(JsValue::Prototype(of))))
+                    let this = if Rc::ptr_eq(&of, &env.mem) {
+                        Rc::new(RefCell::new(JsValue::Undefined))
+                    } else {
+                        Rc::new(RefCell::new(JsValue::Prototype(of)))
+                    };
+                    (res, this)
                 }
                 e => return e,
             };
