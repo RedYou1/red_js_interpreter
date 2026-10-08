@@ -52,3 +52,21 @@ assert_result!(
     "#,
     "strict"
 );
+
+assert_result!(
+    test_switch_default_fallthrough,
+    r#"
+    switch ("Orange") {
+        case "Apple":
+            console.log("Apple");
+            break;
+        default:
+            console.log("Default");
+        case "Banana":
+            console.log("Banana");
+            break;
+    }
+    "#,
+    "Default",
+    "Banana"
+);
