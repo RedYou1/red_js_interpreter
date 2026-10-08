@@ -691,6 +691,26 @@ pub fn prebuild_prototypes(
     prebuild_error(env.clone());
     prebuild_type_error(env.clone());
     prebuild_syntax_error(env.clone());
+    for name in [
+        "Date",
+        "String",
+        "Boolean",
+        "Number",
+        "Error",
+        "TypeError",
+        "SyntaxError",
+    ] {
+        let class = Prototype::find(env.mem.clone(), &name.into())
+            .1
+            .borrow()
+            .unwrap_proto("prebuild_prototypes class prototype");
+        if !class.borrow().properties.contains_key(&PROTOTYPE_NAME.into()) {
+            class.borrow_mut().insert_property(
+                PROTOTYPE_NAME.into(),
+                Rc::new(RefCell::new(JsValue::Prototype(class.clone()))),
+            );
+        }
+    }
     env.mem.borrow().properties[&JsValue::String("console".to_owned())]
         .borrow()
         .unwrap_proto("prebuild_prototypes adding config to console")

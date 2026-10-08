@@ -121,6 +121,9 @@ impl Expr for VarDecl {
             let target = if function_scoped {
                 let mut current = env.mem.clone();
                 loop {
+                    if current.borrow().properties.contains_key(&name.clone().into()) {
+                        break current;
+                    }
                     let is_loop_scope = current
                         .borrow()
                         .properties

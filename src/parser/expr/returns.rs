@@ -32,7 +32,11 @@ impl Return {
         };
         let name = if matches!(t, Token::Break | Token::Continue) {
             match &parser.tokens()[parser.index()] {
-                Token::Ident(name) => Some(name.clone()),
+                Token::Ident(name) if !matches!(parser.tokens().get(parser.index() + 1), Some(Token::LineTerminator)) => {
+                    let name = name.clone();
+                    parser.bump();
+                    Some(name)
+                }
                 _ => None,
             }
         } else {
@@ -43,12 +47,20 @@ impl Return {
             .logger
             .borrow_mut()
             .logln_str(LogLevel::Info, "Entering Return::parse");
-        let expr = Box::new(parser.parse_expression(false));
+        let line_terminated = matches!(parser.tokens()[parser.index()], Token::LineTerminator);
+        if line_terminated {
+            parser.bump();
+        }
+        let expr = if line_terminated || matches!(t, Token::Break | Token::Continue) {
+            None
+        } else {
+            Some(Box::new(parser.parse_expression(false)) as Box<dyn Expr>)
+        };
         if let Token::Semicolon = parser.tokens()[parser.index()] {
             parser.bump();
         }
         Self {
-            expr: Some(expr),
+            expr,
             rtype: match t {
                 Token::Break => ReturnType::Break(name),
                 Token::Continue => ReturnType::Continue(name),

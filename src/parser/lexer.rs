@@ -76,6 +76,7 @@ pub enum Token {
     Catch,
     Finally,
     Throw,
+    LineTerminator,
 
     Regex(String, String),
 
@@ -301,6 +302,15 @@ impl<'a> Lexer<'a> {
             }
             match c {
                 c if c.is_whitespace() => {
+                    if matches!(c, '\n' | '\r' | '\u{2028}' | '\u{2029}')
+                        && matches!(prev.last(), Some(Token::Break | Token::Continue))
+                    {
+                        self.bump();
+                        if c == '\r' && self.peek() == Some('\n') {
+                            self.bump();
+                        }
+                        return Token::LineTerminator;
+                    }
                     self.bump();
                     continue;
                 }

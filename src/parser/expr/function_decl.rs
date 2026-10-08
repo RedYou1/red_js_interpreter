@@ -30,6 +30,24 @@ impl FunctionDecl {
         } else {
             "anonymous function"
         };
+        Self::parse_body(parser, insert, generator, name)
+    }
+
+    pub fn parse_named(
+        parser: &mut Parser,
+        insert: bool,
+        name: &'static str,
+        generator: bool,
+    ) -> Self {
+        Self::parse_body(parser, insert, generator, name)
+    }
+
+    fn parse_body(
+        parser: &mut Parser,
+        insert: bool,
+        generator: bool,
+        name: &'static str,
+    ) -> Self {
         parser.env.logger.borrow_mut().logln(LogLevel::Info, &|| {
             format!("Entering FunctionDecl::parse name={}", name)
         });

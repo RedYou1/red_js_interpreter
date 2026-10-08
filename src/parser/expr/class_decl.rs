@@ -15,7 +15,7 @@ use crate::{
 pub struct ClassDecl {
     pub name: &'static str,
     pub super_class: Option<Box<dyn Expr>>,
-    pub methods: Rc<[FunctionDecl]>,
+    pub methods: Rc<[(FunctionDecl, bool)]>,
 }
 
 impl ClassDecl {
@@ -58,11 +58,63 @@ impl ClassDecl {
         parser.bump();
         let mut methods = Vec::new();
         while !matches!(parser.tokens()[parser.index()], Token::RBrace | Token::Eof) {
-            if let Token::Ident(_) = parser.tokens()[parser.index()] {
-                methods.push(expr::FunctionDecl::parse(parser, false));
-                continue;
+            let is_static = matches!(
+                (&parser.tokens()[parser.index()], parser.tokens().get(parser.index() + 1)),
+                (Token::Ident(name), Some(Token::LParen)) if name == "static"
+            ) == false
+                && matches!(&parser.tokens()[parser.index()], Token::Ident(name) if name == "static");
+            if is_static {
+                parser.bump();
             }
-            parser.bump();
+            let generator = if matches!(parser.tokens()[parser.index()], Token::Star) {
+                parser.bump();
+                true
+            } else {
+                false
+            };
+            let name = match parser.tokens()[parser.index()].clone() {
+                Token::Ident(name) | Token::Str(name) => {
+                    parser.bump();
+                    name
+                }
+                Token::Number(name) => {
+                    parser.bump();
+                    name.to_string()
+                }
+                Token::BigInt(name) => {
+                    parser.bump();
+                    name.to_string()
+                }
+                Token::LBracket => {
+                    parser.bump();
+                    let name = match parser.tokens()[parser.index()].clone() {
+                        Token::Ident(name) | Token::Str(name) => name,
+                        Token::Number(name) => name.to_string(),
+                        Token::BigInt(name) => name.to_string(),
+                        _ => {
+                            parser.bump();
+                            continue;
+                        }
+                    };
+                    parser.bump();
+                    parser.skip_to(Token::RBracket);
+                    if matches!(parser.tokens()[parser.index()], Token::RBracket) {
+                        parser.bump();
+                    }
+                    name
+                }
+                _ => {
+                    parser.bump();
+                    continue;
+                }
+            };
+            let name = name.leak();
+            if matches!(parser.tokens()[parser.index()], Token::LParen) {
+                methods.push((
+                    expr::FunctionDecl::parse_named(parser, false, name, generator),
+                    is_static,
+                ));
+            }
         }
         let class = Self {
             name,
@@ -86,7 +138,11 @@ impl Expr for ClassDecl {
             })]
         };
 
-        let constructor_method = self.methods.iter().find(|m| m.name == "constructor");
+        let constructor_method = self
+            .methods
+            .iter()
+            .find(|(m, is_static)| !is_static && m.name == "constructor")
+            .map(|(m, _)| m);
 
         let constructor_runnable = if let Some(constructor) = constructor_method {
             constructor.compile(env.clone())
@@ -106,7 +162,7 @@ impl Expr for ClassDecl {
         let methodes: Vec<(&'static str, Vec<Code>)> = self
             .methods
             .iter()
-            .map(|methode| (methode.name, methode.compile(env.clone())))
+            .map(|(methode, _)| (methode.name, methode.compile(env.clone())))
             .collect();
         let mem = env.mem.clone();
         vec![Box::new(move |env, _| {

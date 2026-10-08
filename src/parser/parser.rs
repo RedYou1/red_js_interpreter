@@ -416,12 +416,14 @@ impl Parser {
                 };
                 self.bump();
                 let mut elements: Vec<Box<dyn Expr>> = Vec::new();
+                let mut holes = Vec::new();
                 while self.tokens[self.index] != Token::Eof && self.tokens[self.index] != end {
                     if is_array && self.tokens[self.index] == Token::Comma {
                         self.bump();
                         elements.push(Box::new(expr::ConstObj {
                             obj: JsValue::Undefined,
                         }));
+                        holes.push(true);
                         continue;
                     }
                     let before = self.index;
@@ -440,6 +442,7 @@ impl Parser {
                         );
                     }
                     elements.append(&mut exprs);
+                    holes.extend(std::iter::repeat_n(false, elements.len() - holes.len()));
                     if is_array && self.tokens[self.index] == Token::Comma {
                         self.bump();
                     }
@@ -455,7 +458,7 @@ impl Parser {
                 }
                 self.bump();
                 if end == Token::RBracket {
-                    Box::new(expr::Array { elems: elements })
+                    Box::new(expr::Array { elems: elements, holes })
                 } else if elements.len() == 1 {
                     elements.pop().unwrap()
                 } else {

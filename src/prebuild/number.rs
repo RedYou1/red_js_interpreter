@@ -7,10 +7,10 @@ new_class! {
     POSITIVE_INFINITY, JsValue::Number(f64::INFINITY),
     NEGATIVE_INFINITY, JsValue::Number(f64::NEG_INFINITY),
     NaN, JsValue::Number(f64::NAN),
-    MAX_VALUE, JsValue::BigInt(i64::MAX),
-    MIN_VALUE, JsValue::BigInt(i64::MIN),
-    MAX_SAFE_INTEGER, JsValue::BigInt(9007199254740991),
-    MIN_SAFE_INTEGER, JsValue::BigInt(-9007199254740991);
+    MAX_VALUE, JsValue::Number(f64::MAX),
+    MIN_VALUE, JsValue::Number(f64::MIN_POSITIVE),
+    MAX_SAFE_INTEGER, JsValue::Number(9007199254740991.0),
+    MIN_SAFE_INTEGER, JsValue::Number(-9007199254740991.0);
     constructor, fn,
     |_, _, [arg]| {
         CodeResult::Return(Rc::new(RefCell::new(match inline_borrow!(arg) {

@@ -136,6 +136,10 @@ pub fn run_generator_object(
             logger.clone(),
         ),
     );
+    proto.borrow_mut().properties.insert(
+        "__function_scope__".into(),
+        Rc::new(RefCell::new(JsValue::Boolean(true))),
+    );
     proto.borrow_mut().properties.insert("this".into(), this);
 
     IterGenerator {

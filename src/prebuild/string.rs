@@ -12,6 +12,25 @@ new_class! {
         };
         if let JsValue::Prototype(object) = inline_borrow!(this) {
             let value = match &arg {
+                JsValue::Prototype(proto) => {
+                    let method = Prototype::find(proto.clone(), &"toString".into())
+                        .1
+                        .borrow()
+                        .unwrap_proto("String constructor toString");
+                    let result = run_function_object(
+                        method,
+                        Rc::new(RefCell::new(arg.clone())),
+                        vec![],
+                        env.logger.clone(),
+                    );
+                    let CodeResult::Return(result) = result else {
+                        return result;
+                    };
+                    match inline_borrow!(result) {
+                        JsValue::String(s) => s,
+                        value => value.print(),
+                    }
+                }
                 JsValue::String(s) => s.clone(),
                 JsValue::Null | JsValue::Undefined => String::new(),
                 JsValue::BigInt(n) => n.to_string(),

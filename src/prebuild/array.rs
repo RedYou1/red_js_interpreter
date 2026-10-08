@@ -433,7 +433,7 @@ new_class! {
                 return CodeResult::Return(value(JsValue::BigInt(i)));
             }
         }
-        CodeResult::Return(value(JsValue::BigInt(-1)))
+        CodeResult::Return(value(JsValue::Number(-1.0)))
     },
     slice, fn,
     |env, this, [start, end]| {
@@ -476,8 +476,9 @@ new_class! {
             if let Some((_, spreadable)) =
                 Prototype::opt_find(item.clone(), &inline_borrow!(spread_key.clone()))
             {
-                if !matches!(inline_borrow!(spreadable), JsValue::Undefined) {
-                    return inline_borrow!(spreadable).is_truthy();
+                let spreadable = inline_borrow!(spreadable);
+                if !matches!(spreadable, JsValue::Undefined) {
+                    return spreadable.is_truthy();
                 }
             }
             item.borrow()
@@ -699,7 +700,7 @@ new_class! {
                 return CodeResult::Return(value(JsValue::BigInt(index)));
             }
         }
-        CodeResult::Return(value(JsValue::BigInt(-1)))
+        CodeResult::Return(value(JsValue::Number(-1.0)))
     },
     reduceRight, fn,
     |env, this, [callback, initial_value, _]| {

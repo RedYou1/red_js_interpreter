@@ -133,6 +133,7 @@ impl Expr for Object {
 #[derive(Debug)]
 pub struct Array {
     pub elems: Vec<Box<dyn Expr>>,
+    pub holes: Vec<bool>,
 }
 
 impl Expr for Array {
@@ -142,6 +143,7 @@ impl Expr for Array {
             .iter()
             .map(|elem| elem.compile(env.clone()))
             .collect();
+        let holes = self.holes.clone();
         vec![Box::new(move |env, _| {
             env.logger
                 .borrow_mut()
@@ -159,6 +161,13 @@ impl Expr for Array {
                 }
             }
             let out = new_array(array_proto, values, env.logger.clone());
+            if let JsValue::Prototype(array) = inline_borrow!(out.clone()) {
+                for (index, hole) in holes.iter().enumerate() {
+                    if *hole {
+                        array.borrow_mut().properties.remove(&JsValue::BigInt(index as i64));
+                    }
+                }
+            }
             env.logger.borrow_mut().logln(LogLevel::Trace, &|| {
                 format!("Exiting Expr::Array result={:?}", out)
             });
@@ -168,6 +177,7 @@ impl Expr for Array {
     fn duplicate(&self) -> Box<dyn Expr> {
         Box::new(Self {
             elems: self.elems.iter().map(|a| a.duplicate()).collect(),
+            holes: self.holes.clone(),
         })
     }
 }
