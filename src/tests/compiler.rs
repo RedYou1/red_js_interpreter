@@ -307,6 +307,17 @@ assert_result!(
 );
 
 assert_result!(
+    test_array_concat_and_slice,
+    r#"
+    const values = [1, 2].concat(3, [4, 5]);
+    console.log(values.join(","));
+    console.log(values.slice(1, -1).join(","));
+    "#,
+    "1,2,3,4,5",
+    "2,3,4"
+);
+
+assert_result!(
     test_compile_iterator_array,
     r#"
     for (message of [5, 'allo', {a: true}]) {
