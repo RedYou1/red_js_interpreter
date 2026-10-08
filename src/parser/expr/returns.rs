@@ -44,9 +44,6 @@ impl Return {
             .borrow_mut()
             .logln_str(LogLevel::Info, "Entering Return::parse");
         let expr = Box::new(parser.parse_expression(false));
-        if let Token::Semicolon = parser.tokens()[parser.index()] {
-            parser.bump();
-        }
         Self {
             expr: Some(expr),
             rtype: match t {
