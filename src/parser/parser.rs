@@ -301,7 +301,9 @@ impl Parser {
                     res.push(Box::new(expr::Return::parse(self)));
                 }
                 Token::Semicolon => {
-                    self.bump();
+                    if self.can_multi {
+                        self.bump();
+                    }
                     break;
                 }
                 Token::Comma => {

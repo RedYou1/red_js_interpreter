@@ -97,9 +97,6 @@ impl VarDecl {
             } else {
                 None
             };
-        if let Token::Semicolon = parser.tokens()[parser.index()] {
-            parser.bump();
-        }
         Self { name, initializer }
     }
 }

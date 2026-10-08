@@ -12,6 +12,44 @@ assert_result!(
 );
 
 assert_result!(
+    test_function_closure_retains_captured_state,
+    r#"
+    function makeCounter(start) {
+        let count = start;
+        return function(step) {
+            count += step;
+            return count;
+        };
+    }
+    let counter = makeCounter(3);
+    console.log(counter(2));
+    console.log(counter(4));
+    "#,
+    "5",
+    "9"
+);
+
+assert_result!(
+    test_function_return_from_loop,
+    r#"
+    function firstEvenAfterZero(limit) {
+        let i = 0;
+        while (i < limit) {
+            i++;
+            if (i > 0 && i % 2 === 0) {
+                return i;
+            }
+        }
+        return -1;
+    }
+    console.log(firstEvenAfterZero(10));
+    console.log(firstEvenAfterZero(1));
+    "#,
+    "2",
+    "-1"
+);
+
+assert_result!(
     test_compile_integration2,
     r#"
     let a = {
@@ -123,6 +161,59 @@ assert_result!(
     "while 9",
     "elem: a",
     "elem: wow"
+);
+
+assert_result!(
+    test_compile_do_while,
+    r#"
+    let runs = 0;
+    do {
+        runs++;
+    } while (false);
+    console.log(runs);
+    "#,
+    "1"
+);
+
+assert_result!(
+    test_compile_loop_break_and_continue,
+    r#"
+    for (let i = 0; i < 6; i++) {
+        if (i === 1) continue;
+        if (i === 4) break;
+        console.log(i);
+    }
+
+    let i = 0;
+    while (i < 4) {
+        i++;
+        if (i === 2) continue;
+        console.log(i);
+    }
+    "#,
+    "0",
+    "2",
+    "3",
+    "1",
+    "3",
+    "4"
+);
+
+assert_result!(
+    test_compile_nested_loop_break_only_exits_inner_loop,
+    r#"
+    for (let i = 0; i < 2; i++) {
+        for (let j = 0; j < 3; j++) {
+            if (j === 1) break;
+            console.log(i + ":" + j);
+        }
+        console.log("outer:" + i);
+    }
+    "#,
+    "0:0",
+    "outer:0",
+    "1:0",
+    "outer:1"
 );
 
 assert_result!(
