@@ -147,7 +147,7 @@ use crate::prebuild::{
     array::prebuild_array,
     console::prebuild_console,
     date::prebuild_date,
-    error::{prebuild_error, prebuild_syntax_error, prebuild_type_error},
+    error::{prebuild_error, prebuild_reference_error, prebuild_syntax_error, prebuild_type_error},
     iterator::{prebuild_iterator, prebuild_itergen},
     math::prebuild_math,
     number::prebuild_number,
@@ -574,6 +574,7 @@ pub fn prebuild_prototypes(
     prebuild_math(env.clone());
     prebuild_console(env.clone());
     prebuild_error(env.clone());
+    prebuild_reference_error(env.clone());
     prebuild_type_error(env.clone());
     prebuild_syntax_error(env.clone());
     env.mem.borrow().properties[&JsValue::String("console".to_owned())]

@@ -7,6 +7,9 @@ use crate::{
 
 pub trait Expr: Debug {
     fn compile(&self, env: Environment) -> Vec<Code>;
+    fn compile_as_target(&self, env: Environment) -> Vec<Code> {
+        self.compile(env)
+    }
     fn duplicate(&self) -> Box<dyn Expr>;
 }
 
@@ -85,13 +88,38 @@ pub struct Identifier {
 }
 
 impl Expr for Identifier {
-    fn compile(&self, _: Environment) -> Vec<Code> {
+    fn compile(&self, env: Environment) -> Vec<Code> {
+        self.compile_reference(env, false)
+    }
+
+    fn compile_as_target(&self, env: Environment) -> Vec<Code> {
+        self.compile_reference(env, true)
+    }
+
+    fn duplicate(&self) -> Box<dyn Expr> {
+        Box::new(self.clone())
+    }
+}
+
+impl Identifier {
+    fn compile_reference(&self, _: Environment, assignment_target: bool) -> Vec<Code> {
         let name = self.name.clone();
         vec![Box::new(move |env, _| {
             env.logger.borrow_mut().logln(LogLevel::Trace, &|| {
                 format!("Entering Expr::Identifier name={}", name)
             });
-            let res = Prototype::find(env.mem.clone(), &name.as_str().into()).1;
+            let found = Prototype::opt_find(env.mem.clone(), &name.as_str().into());
+            if found.is_none() && !assignment_target && name != "await" {
+                return crate::prebuild::error::error_result(
+                    env,
+                    "ReferenceError",
+                    format!("{name} is not defined"),
+                );
+            }
+            let res = found.map_or_else(
+                || Rc::new(RefCell::new(JsValue::Undefined)),
+                |(_, value)| value,
+            );
             if name == "super" {
                 let this = Prototype::find(env.mem, &"this".into()).1;
                 env.logger.borrow_mut().logln(LogLevel::Trace, &|| {
@@ -111,35 +139,48 @@ impl Expr for Identifier {
             }
         })]
     }
-    fn duplicate(&self) -> Box<dyn Expr> {
-        Box::new(self.clone())
-    }
 }
 
 #[derive(Debug)]
 pub struct Typeof {
     pub obj: Box<dyn Expr>,
+    pub direct_identifier: Option<String>,
 }
 
 impl Typeof {
     pub fn parse(parser: &mut Parser) -> Self {
+        let start = parser.index();
+        let direct_identifier = match &parser.tokens()[start] {
+            crate::parser::lexer::Token::Ident(name) => Some(name.clone()),
+            _ => None,
+        };
         let expr = parser.parse_call_or_primary(false);
-        Self { obj: expr }
+        Self {
+            obj: expr,
+            direct_identifier: direct_identifier.filter(|_| parser.index() == start + 1),
+        }
     }
 }
 
 impl Expr for Typeof {
     fn compile(&self, env: Environment) -> Vec<Code> {
         let obj = self.obj.compile(env);
+        let direct_identifier = self.direct_identifier.clone();
         vec![Box::new(move |env, _| {
-            if obj.len() > 1 {
-                handle_return!(run_sub(
-                    &obj[..(obj.len() - 1)],
-                    env.clone(),
-                    &mut CodeIndex::new()
-                ));
-            }
-            let t = handle_return!(obj[obj.len() - 1](env, &mut CodeIndex::new()));
+            let t = if direct_identifier.as_ref().is_some_and(|name| {
+                Prototype::opt_find(env.mem.clone(), &name.as_str().into()).is_none()
+            }) {
+                Rc::new(RefCell::new(JsValue::Undefined))
+            } else {
+                if obj.len() > 1 {
+                    handle_return!(run_sub(
+                        &obj[..(obj.len() - 1)],
+                        env.clone(),
+                        &mut CodeIndex::new()
+                    ));
+                }
+                handle_return!(obj[obj.len() - 1](env, &mut CodeIndex::new()))
+            };
             CodeResult::Normal(Rc::new(RefCell::new(JsValue::String(
                 match inline_borrow!(t) {
                     JsValue::Function(_) => "function",
@@ -166,6 +207,7 @@ impl Expr for Typeof {
     fn duplicate(&self) -> Box<dyn Expr> {
         Box::new(Self {
             obj: self.obj.duplicate(),
+            direct_identifier: self.direct_identifier.clone(),
         })
     }
 }

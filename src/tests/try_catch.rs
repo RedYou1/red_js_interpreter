@@ -1,5 +1,56 @@
 use crate::{assert_result, tests::*};
 
+assert_result!(
+    test_exception_in_while_loop,
+    r#"
+    var i = 0;
+    try {
+        while (i < 10) {
+            if (i === 5) throw i;
+            i++;
+        }
+    } catch (error) {
+        console.log(error);
+    }
+    "#,
+    "5"
+);
+
+assert_result!(
+    test_exception_in_do_while_loop,
+    r#"
+    var j = 0;
+    try {
+        do {
+            if (j === 5) throw j;
+            j++;
+        } while (j < 10);
+    } catch (error) {
+        console.log(error);
+    }
+    "#,
+    "5",
+    "5"
+);
+
+assert_result!(
+    test_var_scope_and_reference_error_in_while_loop,
+    r#"
+    var x;
+    try {
+        while (x != 1) {
+            var x = 1;
+            missingIdentifierInLoop;
+        }
+    } catch (error) {
+        console.log(error instanceof ReferenceError);
+    }
+    console.log(x);
+    "#,
+    "true",
+    "1"
+);
+
 // 1. Basic Throw and Catch
 assert_result!(
     test_catch_std_error,

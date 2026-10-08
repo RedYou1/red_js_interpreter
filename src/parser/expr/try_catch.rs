@@ -69,7 +69,7 @@ impl Expr for Try {
                 .logln_str(LogLevel::Trace, "Entering Expr::Try block");
             let mut res = run_sub(
                 block.as_ref(),
-                env.with_mem(Prototype::new_child(env.mem.clone(), None, [])),
+                env.with_mem(Prototype::new_scope(env.mem.clone(), [])),
                 &mut CodeIndex::new(),
             );
             if let Some((param, catch)) = catch.as_ref()
@@ -78,9 +78,8 @@ impl Expr for Try {
                 env.logger.borrow_mut().logln(LogLevel::Trace, &|| {
                     format!("Entering Expr::Try catch after block error {err:?}")
                 });
-                let child = Prototype::new_child(
+                let child = Prototype::new_scope(
                     env.mem.clone(),
-                    None,
                     if let Some(name) = param {
                         vec![(name.as_str().into(), err.clone())]
                     } else {
@@ -96,7 +95,7 @@ impl Expr for Try {
                     .logln_str(LogLevel::Trace, "Entering Expr::Try finally");
                 let t = run_sub(
                     finally.as_ref(),
-                    env.with_mem(Prototype::new_child(env.mem.clone(), None, [])),
+                    env.with_mem(Prototype::new_scope(env.mem.clone(), [])),
                     &mut CodeIndex::new(),
                 );
                 if matches!(t, CodeResult::Return(_) | CodeResult::Error(_)) {

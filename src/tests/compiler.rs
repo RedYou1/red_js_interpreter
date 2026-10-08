@@ -126,6 +126,143 @@ assert_result!(
 );
 
 assert_result!(
+    test_var_declarations_in_loop_bodies_share_function_scope,
+    r#"
+    var x = 0;
+    while (x != 1) {
+        var x = 1;
+    }
+    console.log(x);
+    "#,
+    "1"
+);
+
+assert_result!(
+    test_labeled_continue_targets_outer_loop,
+    r#"
+    var count = 0;
+    label: for (let x = 0; x < 10;) {
+        while (true) {
+            x++;
+            count++;
+            continue label;
+        }
+    }
+    console.log(count);
+    "#,
+    "10"
+);
+
+assert_result!(
+    test_labeled_break_targets_outer_loop,
+    r#"
+    var count = 0;
+    var afterBreak = false;
+    outer: while (true) {
+        while (true) {
+            count++;
+            break outer;
+        }
+        afterBreak = true;
+    }
+    console.log(count);
+    console.log(afterBreak);
+    "#,
+    "1",
+    "false"
+);
+
+assert_result!(
+    test_labeled_while_breaks_and_var_scope,
+    r#"
+    var before2;
+    var inside2;
+    var afterInside2;
+    var after2;
+    var before3;
+    var inside3;
+    var afterInside3;
+    var after3;
+    var before4;
+    var inside4;
+    var afterInside4;
+    var after4;
+    out2: while (1 === 1) {
+        if (before2) break;
+        var before2 = "before";
+        in2: while (1) {
+            var inside2 = "inside";
+            break in2;
+            var afterInside2 = "unreachable";
+        }
+        var after2 = "after";
+    }
+    console.log(before2);
+    console.log(inside2);
+    console.log(afterInside2);
+    console.log(after2);
+
+    out3: while (1 === 1) {
+        if (before3) break;
+        var before3 = "before";
+        in3: while (1) {
+            var inside3 = "inside";
+            break out3;
+            var afterInside3 = "unreachable";
+        }
+        var after3 = "unreachable";
+    }
+    console.log(before3);
+    console.log(inside3);
+    console.log(afterInside3);
+    console.log(after3);
+
+    out4: while (1 === 1) {
+        if (before4) break;
+        var before4 = "before";
+        in4: while (1) {
+            var inside4 = "inside";
+            break;
+            var afterInside4 = "unreachable";
+        }
+        var after4 = "after";
+    }
+    console.log(before4);
+    console.log(inside4);
+    console.log(afterInside4);
+    console.log(after4);
+    "#,
+    "before",
+    "inside",
+    "undefined",
+    "after",
+    "before",
+    "inside",
+    "undefined",
+    "undefined",
+    "before",
+    "inside",
+    "undefined",
+    "after"
+);
+
+assert_result!(
+    test_unresolvable_identifier_throws_reference_error,
+    r#"
+    var caught = false;
+    try {
+        missingIdentifier;
+    } catch (error) {
+        caught = error instanceof ReferenceError;
+    }
+    console.log(caught);
+    console.log(typeof anotherMissingIdentifier);
+    "#,
+    "true",
+    "undefined"
+);
+
+assert_result!(
     test_compile_for_in,
     r#"
     var object = {a: 1, b: 2};
@@ -242,6 +379,74 @@ assert_result!(
     "5",
     "allo",
     "{ a: true }"
+);
+
+assert_result!(
+    test_for_of_uses_iterator_result_values_and_done,
+    r#"
+    var calls = 0;
+    var iterable = {};
+    iterable[Symbol.iterator] = function() {
+        return {
+            next: function() {
+                calls++;
+                if (calls === 1) {
+                    return { value: 9, done: 0 };
+                }
+                return { value: 10, done: true };
+            }
+        };
+    };
+    var total = 0;
+    for (var value of iterable) {
+        total += value;
+    }
+    console.log(total);
+    console.log(calls);
+    "#,
+    "9",
+    "2"
+);
+
+assert_result!(
+    test_for_of_rejects_primitive_iterator_results,
+    r#"
+    var iterable = {};
+    iterable[Symbol.iterator] = function() {
+        return { next: function() { return 1; } };
+    };
+    var caught = false;
+    try {
+        for (var value of iterable) {}
+    } catch (error) {
+        caught = error instanceof TypeError;
+    }
+    console.log(caught);
+    "#,
+    "true"
+);
+
+assert_result!(
+    test_generator_next_returns_iterator_results,
+    r#"
+    function* values() {
+        yield 7;
+    }
+    var iterator = values();
+    var first = iterator.next();
+    var final = iterator.next();
+    console.log(first.value);
+    console.log(first.done);
+    console.log(final.value);
+    console.log(final.done);
+    var doneAgain = iterator.next();
+    console.log(doneAgain.done);
+    "#,
+    "7",
+    "false",
+    "undefined",
+    "true",
+    "true"
 );
 
 assert_result!(

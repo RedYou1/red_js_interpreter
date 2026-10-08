@@ -136,6 +136,7 @@ pub fn run_generator_object(
             logger.clone(),
         ),
     );
+    Prototype::mark_function_scope(proto.clone());
     proto.borrow_mut().properties.insert("this".into(), this);
 
     IterGenerator {

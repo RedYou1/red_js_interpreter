@@ -142,6 +142,7 @@ pub fn run_function_object(
             logger.clone(),
         ),
     );
+    Prototype::mark_function_scope(proto.clone());
     let this = runnable.lexical_this.clone().unwrap_or(this);
     proto
         .borrow_mut()

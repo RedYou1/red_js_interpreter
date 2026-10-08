@@ -238,8 +238,9 @@ impl Parser {
                     res.push(Box::new(expr::ClassDecl::parse(self)));
                 }
                 Token::Let | Token::Const | Token::Var => {
+                    let var_scoped = matches!(self.tokens[self.index], Token::Var);
                     self.bump();
-                    res.push(Box::new(expr::VarDecl::parse(self)));
+                    res.push(Box::new(expr::VarDecl::parse(self, var_scoped)));
                 }
                 Token::If => {
                     self.bump();
@@ -248,60 +249,15 @@ impl Parser {
                 Token::While => res.push(Box::new(expr::LoopExpr::parse(self))),
                 Token::For => res.push(Box::new(expr::LoopExpr::parse(self))),
                 Token::Do => {
-                    self.bump();
-                    let body = self.parse_block();
-
-                    if self.tokens[self.index] != Token::While {
-                        self.env.logger.borrow_mut().logln(LogLevel::Error, &|| {
-                            format!(
-                                "Parser::parse_expression expected while after do body at index {}",
-                                self.index
-                            )
-                        });
-                        panic!("expected 'while' after do body");
-                    }
-                    self.bump();
-                    if self.tokens[self.index] != Token::LParen {
-                        self.env.logger.borrow_mut().logln(
-                            LogLevel::Fatal,
-                            &||format!(
-                                "Parser::parse_expression expected '(' after while at index {} but found {:?}",
-                                self.index, self.tokens[self.index]
-                            ),
-                        );
-                        panic!("expected '(' after while");
-                    }
-                    self.bump();
-                    let condition: Option<Box<dyn Expr>> =
-                        Some(Box::new(self.parse_expression(true)));
-                    if self.tokens[self.index] != Token::RParen {
-                        self.env.logger.borrow_mut().logln(LogLevel::Error, &|| {
-                            format!(
-                                "Parser::parse_expression expected ')' after do-while at index {}",
-                                self.index
-                            )
-                        });
-                        panic!("expected ')' after while condition");
-                    }
-                    self.bump();
-                    if self.tokens[self.index] == Token::Semicolon {
-                        self.bump();
-                    }
-
-                    res.push(Box::new(expr::LoopExpr {
-                        init: None,
-                        body,
-                        condition,
-                        update: None,
-                        do_first: true,
-                        for_in: None,
-                    }));
+                    res.push(Box::new(expr::LoopExpr::parse_do(self)));
                 }
                 Token::Break | Token::Continue | Token::Return | Token::Yield | Token::Throw => {
                     res.push(Box::new(expr::Return::parse(self)));
                 }
                 Token::Semicolon => {
-                    self.bump();
+                    if self.can_multi {
+                        self.bump();
+                    }
                     break;
                 }
                 Token::Comma => {
@@ -321,10 +277,20 @@ impl Parser {
                     let name = name.clone();
                     self.bump();
                     self.bump();
-                    res.push(Box::new(expr::Label {
-                        name,
-                        code: self.parse_block(),
-                    }));
+                    let statement = match self.tokens[self.index] {
+                        Token::While | Token::For => Some(expr::LoopExpr::parse(self)),
+                        Token::Do => Some(expr::LoopExpr::parse_do(self)),
+                        _ => None,
+                    };
+                    if let Some(mut loop_expr) = statement {
+                        loop_expr.label = Some(name);
+                        res.push(Box::new(loop_expr));
+                    } else {
+                        res.push(Box::new(expr::Label {
+                            name,
+                            code: self.parse_block(),
+                        }));
+                    }
                 }
                 _ if (matches!(self.tokens[self.index], Token::LParen)
                     && self.tokens[self.index..].contains(&Token::Arrow)

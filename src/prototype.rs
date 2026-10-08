@@ -8,6 +8,8 @@ use std::{
 
 use crate::{JsValue, PROTO_NAME, inline_borrow};
 
+const VAR_SCOPE_NAME: &str = "__var_scope__";
+
 #[derive(Clone, Eq, PartialEq)]
 pub struct Prototype {
     pub name: Option<&'static str>,
@@ -37,6 +39,49 @@ impl Hash for Prototype {
 }
 
 impl Prototype {
+    pub fn new_scope(
+        parent: Rc<RefCell<Self>>,
+        properties: impl IntoIterator<Item = (JsValue, Rc<RefCell<JsValue>>)>,
+    ) -> Rc<RefCell<Self>> {
+        let var_scope = Self::var_scope(parent.clone());
+        let scope = Self::new_child(parent, None, properties);
+        scope.borrow_mut().properties.insert(
+            VAR_SCOPE_NAME.into(),
+            Rc::new(RefCell::new(JsValue::Prototype(var_scope))),
+        );
+        scope
+    }
+
+    pub fn mark_function_scope(scope: Rc<RefCell<Self>>) {
+        scope.borrow_mut().properties.insert(
+            VAR_SCOPE_NAME.into(),
+            Rc::new(RefCell::new(JsValue::Boolean(true))),
+        );
+    }
+
+    pub fn var_scope(this: Rc<RefCell<Self>>) -> Rc<RefCell<Self>> {
+        let fallback = this.clone();
+        let mut current = Some(this);
+        while let Some(scope) = current {
+            let (var_scope, parent) = {
+                let scope_ref = scope.borrow();
+                (
+                    scope_ref.properties.get(&VAR_SCOPE_NAME.into()).cloned(),
+                    scope_ref.parent(),
+                )
+            };
+            if let Some(var_scope) = var_scope {
+                match inline_borrow!(var_scope) {
+                    JsValue::Boolean(true) => return scope,
+                    JsValue::Prototype(var_scope) => return var_scope,
+                    _ => {}
+                }
+            }
+            current = parent;
+        }
+        fallback
+    }
+
     pub fn inner_find(
         this: Rc<RefCell<Self>>,
         key: &JsValue,

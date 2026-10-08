@@ -19,6 +19,7 @@ pub struct LoopExpr {
     pub body: Vec<Box<dyn Expr>>,
     pub do_first: bool,
     pub for_in: Option<(String, Box<dyn Expr>)>,
+    pub label: Option<String>,
 }
 
 impl LoopExpr {
@@ -57,6 +58,7 @@ impl LoopExpr {
                 Token::Let | Token::Const | Token::Var
             ) || matches!(parser.tokens()[parser.index() + 1], Token::In | Token::Of)
             {
+                let var_scoped = matches!(parser.tokens()[parser.index()], Token::Var);
                 if !matches!(parser.tokens()[parser.index() + 1], Token::In | Token::Of) {
                     parser.bump();
                 }
@@ -88,6 +90,7 @@ impl LoopExpr {
                         Some(Box::new([
                             Box::new(expr::VarDecl {
                                 name: format!("__for_of_{name}__"),
+                                var_scoped: false,
                                 initializer: Some(Box::new(expr::Call {
                                     func: Box::new(expr::Member {
                                         object: initializer.unwrap(),
@@ -106,31 +109,23 @@ impl LoopExpr {
                             Box::new(expr::VarDecl {
                                 name: name.clone(),
                                 initializer: None,
+                                var_scoped,
                             }),
                         ])),
-                        Some(Box::new(expr::Operator {
-                            left: Box::new(expr::Assign {
-                                value: Box::new(expr::Call {
-                                    func: Box::new(expr::Member {
-                                        object: Box::new(expr::Identifier {
-                                            name: format!("__for_of_{name}__"),
-                                        }),
-                                        property: Box::new(expr::ConstString {
-                                            s: "next".to_owned(),
-                                        }),
-                                    }),
-                                    args: Vec::new(),
-                                }),
-                                target: Box::new(expr::ConstString { s: name }),
-                            }),
-                            op: expr::BinaryOp::NotEq,
-                            right: Box::new(expr::ConstObj {
-                                obj: JsValue::Undefined,
-                            }),
+                        Some(Box::new(ForOfNext {
+                            iterator: format!("__for_of_{name}__"),
+                            binding: name,
                         })),
                     )
                 } else {
-                    (Some(Box::new(expr::VarDecl { name, initializer })), None)
+                    (
+                        Some(Box::new(expr::VarDecl {
+                            name,
+                            initializer,
+                            var_scoped,
+                        })),
+                        None,
+                    )
                 }
             } else {
                 let expr = Box::new(parser.parse_expression(true));
@@ -185,7 +180,122 @@ impl LoopExpr {
             body,
             do_first: false,
             for_in,
+            label: None,
         }
+    }
+
+    pub fn parse_do(parser: &mut Parser) -> Self {
+        parser.bump();
+        let body = parser.parse_block();
+        if parser.tokens()[parser.index()] != Token::While {
+            parser.env.logger.borrow_mut().logln(LogLevel::Error, &|| {
+                format!(
+                    "Parser::parse_expression expected while after do body at index {}",
+                    parser.index()
+                )
+            });
+            panic!("expected 'while' after do body");
+        }
+        parser.bump();
+        if parser.tokens()[parser.index()] != Token::LParen {
+            parser.env.logger.borrow_mut().logln(LogLevel::Fatal, &|| {
+                format!(
+                    "Parser::parse_expression expected '(' after while at index {} but found {:?}",
+                    parser.index(),
+                    parser.tokens()[parser.index()]
+                )
+            });
+            panic!("expected '(' after while");
+        }
+        parser.bump();
+        let condition: Option<Box<dyn Expr>> = Some(Box::new(parser.parse_expression(true)));
+        if parser.tokens()[parser.index()] != Token::RParen {
+            parser.env.logger.borrow_mut().logln(LogLevel::Error, &|| {
+                format!(
+                    "Parser::parse_expression expected ')' after do-while at index {}",
+                    parser.index()
+                )
+            });
+            panic!("expected ')' after while condition");
+        }
+        parser.bump();
+        if parser.tokens()[parser.index()] == Token::Semicolon {
+            parser.bump();
+        }
+
+        Self {
+            init: None,
+            body,
+            condition,
+            update: None,
+            do_first: true,
+            for_in: None,
+            label: None,
+        }
+    }
+}
+
+fn matches_loop_label(loop_label: &Option<String>, target: &Option<String>) -> bool {
+    match target {
+        None => true,
+        Some(target) => loop_label.as_ref() == Some(target),
+    }
+}
+
+#[derive(Debug)]
+struct ForOfNext {
+    iterator: String,
+    binding: String,
+}
+
+impl Expr for ForOfNext {
+    fn compile(&self, env: Environment) -> Vec<Code> {
+        let next = expr::Call {
+            func: Box::new(expr::Member {
+                object: Box::new(expr::Identifier {
+                    name: self.iterator.clone(),
+                }),
+                property: Box::new(expr::ConstString {
+                    s: "next".to_owned(),
+                }),
+            }),
+            args: Vec::new(),
+        }
+        .compile(env);
+        let binding = self.binding.clone();
+
+        vec![Box::new(move |env, _| {
+            let result = match run_sub(&next, env.clone(), &mut CodeIndex::new()) {
+                CodeResult::Normal(result) | CodeResult::NormalMember(result, _, _) => result,
+                result => return result,
+            };
+            let JsValue::Prototype(result_object) = inline_borrow!(result.clone()) else {
+                return crate::prebuild::error::error_result(
+                    env,
+                    "TypeError",
+                    "Iterator result is not an object".to_owned(),
+                );
+            };
+            let done = Prototype::find(result_object.clone(), &"done".into()).1;
+            if done.borrow().is_truthy() {
+                return CodeResult::Normal(Rc::new(RefCell::new(JsValue::Boolean(false))));
+            }
+            let value = Prototype::find(result_object, &"value".into()).1;
+            let target = Prototype::opt_find(env.mem.clone(), &binding.as_str().into())
+                .map_or_else(|| env.mem.clone(), |(scope, _)| scope);
+            target
+                .borrow_mut()
+                .properties
+                .insert(binding.clone().into(), value);
+            CodeResult::Normal(Rc::new(RefCell::new(JsValue::Boolean(true))))
+        })]
+    }
+
+    fn duplicate(&self) -> Box<dyn Expr> {
+        Box::new(Self {
+            iterator: self.iterator.clone(),
+            binding: self.binding.clone(),
+        })
     }
 }
 
@@ -257,6 +367,7 @@ impl Expr for LoopExpr {
             let target: Vec<Code> = for_in_expr.compile(env.clone());
             let body: Vec<Code> = self.body.compile(env.clone());
             let for_in_name = for_in_name.clone();
+            let loop_label = self.label.clone();
 
             return vec![
                 Box::new(move |env, _i| {
@@ -276,7 +387,7 @@ impl Expr for LoopExpr {
                         new_array(array, names, env.logger.clone()),
                     );
 
-                    let sub = Prototype::new_child(env.mem.clone(), None, []);
+                    let sub = Prototype::new_scope(env.mem.clone(), []);
                     sub.borrow_mut().properties.insert(
                         "__forin_i__".into(),
                         Rc::new(RefCell::new(JsValue::BigInt(0))),
@@ -330,10 +441,33 @@ impl Expr for LoopExpr {
                     if i.current < body.len() {
                         let res = run_sub(&body, env.with_mem(sub.clone()), &mut i);
                         match &res {
-                            CodeResult::Normal(_)
-                            | CodeResult::NormalMember(_, _, _)
-                            | CodeResult::Continue(_) => {}
-                            CodeResult::Break(_) | CodeResult::YieldBreak => {
+                            CodeResult::Normal(_) | CodeResult::NormalMember(_, _, _) => {}
+                            CodeResult::Continue(target)
+                                if matches_loop_label(&loop_label, target) =>
+                            {
+                                i.reset();
+                                i.save_into(sub, "forloop_i");
+                            }
+                            CodeResult::Continue(_) => {
+                                i.save_into(sub, "forloop_i");
+                                return res;
+                            }
+                            CodeResult::Break(target)
+                                if matches_loop_label(&loop_label, target) =>
+                            {
+                                _i.move_iamount(1);
+                                _i.reset_retry();
+                                i.reset();
+                                i.save_into(sub, "forloop_i");
+                                return CodeResult::Normal(Rc::new(RefCell::new(
+                                    JsValue::Undefined,
+                                )));
+                            }
+                            CodeResult::Break(_) => {
+                                i.save_into(sub, "forloop_i");
+                                return res;
+                            }
+                            CodeResult::YieldBreak => {
                                 _i.move_iamount(1);
                                 _i.reset_retry();
                                 i.reset();
@@ -382,6 +516,7 @@ impl Expr for LoopExpr {
             ];
         }
         let do_first = self.do_first;
+        let loop_label = self.label.clone();
         let init: Vec<Code> = self.init.compile(env.clone());
         let condition: Vec<Code> = self.condition.compile(env.clone());
         let update: Vec<Code> = self.update.compile(env.clone());
@@ -391,7 +526,7 @@ impl Expr for LoopExpr {
             Box::new(move |env, _i| {
                 handle_return!(run_sub(&init, env.clone(), &mut CodeIndex::new()));
 
-                let sub = Prototype::new_child(env.mem.clone(), None, []);
+                let sub = Prototype::new_scope(env.mem.clone(), []);
                 env.mem.borrow_mut().properties.insert(
                     "__forloop_sub__".into(),
                     Rc::new(RefCell::new(JsValue::Prototype(sub.clone()))),
@@ -410,12 +545,22 @@ impl Expr for LoopExpr {
                 let mut i = CodeIndex::load_from(sub.clone(), "forloop_i");
                 if i.current < body.len() {
                     let res = run_sub(&body, env.with_mem(sub.clone()), &mut i);
-                    //TODO handle correctly his label
                     match &res {
-                        CodeResult::Normal(_)
-                        | CodeResult::NormalMember(_, _, _)
-                        | CodeResult::Continue(_) => {}
-                        CodeResult::Break(_) | CodeResult::YieldBreak => {
+                        CodeResult::Normal(_) | CodeResult::NormalMember(_, _, _) => {}
+                        CodeResult::Continue(target) if matches_loop_label(&loop_label, target) => {
+                            i.reset();
+                            i.save_into(sub, "forloop_i");
+                        }
+                        CodeResult::Continue(_) => return res,
+                        CodeResult::Break(target) if matches_loop_label(&loop_label, target) => {
+                            _i.move_iamount(1);
+                            _i.reset_retry();
+                            i.reset();
+                            i.save_into(sub, "forloop_i");
+                            return CodeResult::Normal(Rc::new(RefCell::new(JsValue::Undefined)));
+                        }
+                        CodeResult::Break(_) => return res,
+                        CodeResult::YieldBreak => {
                             _i.move_iamount(1);
                             _i.reset_retry();
                             i.reset();
@@ -448,7 +593,7 @@ impl Expr for LoopExpr {
                     )
                 });
                 if cond.borrow().is_truthy() {
-                    let sub = Prototype::new_child(env.mem.clone(), None, []);
+                    let sub = Prototype::new_scope(env.mem.clone(), []);
                     env.mem.borrow_mut().properties.insert(
                         "__forloop_sub__".into(),
                         Rc::new(RefCell::new(JsValue::Prototype(sub.clone()))),
@@ -473,6 +618,7 @@ impl Expr for LoopExpr {
                 .for_in
                 .as_ref()
                 .map(|(name, expr)| (name.clone(), expr.duplicate())),
+            label: self.label.clone(),
         })
     }
 }

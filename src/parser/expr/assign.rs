@@ -19,7 +19,7 @@ pub struct Assign {
 
 impl Expr for Assign {
     fn compile(&self, env: Environment) -> Vec<Code> {
-        let target = self.target.compile(env.clone());
+        let target = self.target.compile_as_target(env.clone());
         let value = self.value.compile(env.clone());
         vec![Box::new(move |env, _| {
             env.logger
@@ -81,10 +81,11 @@ impl Expr for Assign {
 pub struct VarDecl {
     pub name: String,
     pub initializer: Option<Box<dyn Expr>>,
+    pub var_scoped: bool,
 }
 
 impl VarDecl {
-    pub fn parse(parser: &mut Parser) -> Self {
+    pub fn parse(parser: &mut Parser, var_scoped: bool) -> Self {
         let name = parser.expect_ident();
         parser.env.logger.borrow_mut().logln(LogLevel::Info, &|| {
             format!("Entering VarDecl::parse name={}", name)
@@ -97,24 +98,30 @@ impl VarDecl {
             } else {
                 None
             };
-        if let Token::Semicolon = parser.tokens()[parser.index()] {
-            parser.bump();
+        Self {
+            name,
+            initializer,
+            var_scoped,
         }
-        Self { name, initializer }
     }
 }
 
 impl Expr for VarDecl {
     fn compile(&self, env: Environment) -> Vec<Code> {
         let name = self.name.clone();
+        let var_scoped = self.var_scoped;
         let code = self.initializer.compile(env);
         vec![Box::new(move |env, _| {
             env.logger.borrow_mut().logln(LogLevel::Trace, &|| {
                 format!("Entering Expr::VarDecl name={}", name)
             });
             let value = handle_return!(run_sub(&code, env.clone(), &mut CodeIndex::new()));
-            env.mem
-                .borrow_mut()
+            let mem = if var_scoped {
+                Prototype::var_scope(env.mem.clone())
+            } else {
+                env.mem.clone()
+            };
+            mem.borrow_mut()
                 .properties
                 .insert(name.clone().into(), value.clone());
             env.logger.borrow_mut().logln(LogLevel::Trace, &|| {
@@ -127,6 +134,7 @@ impl Expr for VarDecl {
         Box::new(Self {
             name: self.name.clone(),
             initializer: self.initializer.as_ref().map(|a| a.as_ref().duplicate()),
+            var_scoped: self.var_scoped,
         })
     }
 }
