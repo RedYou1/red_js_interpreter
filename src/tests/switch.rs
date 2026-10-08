@@ -70,3 +70,63 @@ assert_result!(
     "Default",
     "Banana"
 );
+
+assert_result!(
+    test_switch_evaluates_selector_and_cases_once_in_order,
+    r#"
+    let selectorCalls = 0;
+    function getSelector() {
+        selectorCalls++;
+        return "match";
+    }
+    function getCase(value) {
+        console.log("case " + value);
+        return value;
+    }
+
+    switch (getSelector()) {
+        case getCase("first"):
+            console.log("first");
+            break;
+        case getCase("match"):
+            console.log("matched");
+            break;
+        case getCase("last"):
+            console.log("last");
+            break;
+    }
+    console.log("selector calls: " + selectorCalls);
+    "#,
+    "case first",
+    "case match",
+    "matched",
+    "selector calls: 1"
+);
+
+assert_result!(
+    test_switch_without_matching_case_or_default,
+    r#"
+    switch (3) {
+        case 1:
+            console.log("one");
+        case 2:
+            console.log("two");
+    }
+    console.log("after switch");
+    "#,
+    "after switch"
+);
+
+assert_result!(
+    test_switch_default_break,
+    r#"
+    switch ("unmatched") {
+        default:
+            console.log("default");
+            break;
+        case "later":
+            console.log("unreachable");
+    }
+    "#,
+    "default"
+);
