@@ -70,7 +70,7 @@ fn string_value(value: &Rc<RefCell<JsValue>>) -> String {
 }
 
 fn array_length(array: &Rc<RefCell<Prototype>>) -> i64 {
-    integer(&Prototype::find(array.clone(), &"length".into()).1)
+    integer(&Prototype::find(array.clone(), &"length".into()).1).max(0)
 }
 
 fn array_prototype(env: &Environment) -> Rc<RefCell<Prototype>> {
@@ -85,6 +85,11 @@ fn array_element(array: &Rc<RefCell<Prototype>>, index: i64) -> Rc<RefCell<JsVal
         .or_else(|| Prototype::opt_find(array.clone(), &index.to_string().into()))
         .map(|(_, value)| value)
         .unwrap_or_else(|| Rc::new(RefCell::new(JsValue::Undefined)))
+}
+
+fn has_array_element(array: &Rc<RefCell<Prototype>>, index: i64) -> bool {
+    Prototype::opt_find(array.clone(), &JsValue::BigInt(index)).is_some()
+        || Prototype::opt_find(array.clone(), &index.to_string().into()).is_some()
 }
 
 fn callback_object(callback: &Rc<RefCell<JsValue>>) -> Rc<RefCell<Prototype>> {
@@ -275,6 +280,10 @@ new_class! {
         let length = array_length(&this);
         let mut result = Vec::with_capacity(length as usize);
         for i in 0..length {
+            if !has_array_element(&this, i) {
+                result.push(value(JsValue::Undefined));
+                continue;
+            }
             result.push(handle_error!(callback_result(
                 &env,
                 &callback,
@@ -333,11 +342,19 @@ new_class! {
         let mut accumulator = initial_value.clone();
         let start_idx = if !matches!(inline_borrow!(initial_value), JsValue::Undefined) { 0 } else {
             if length == 0 { return CodeResult::Error(value(JsValue::Undefined)); }
-            accumulator = array_element(&this, 0);
-            1
+            let mut index = 0;
+            while index < length && !has_array_element(&this, index) {
+                index += 1;
+            }
+            if index == length { return CodeResult::Error(value(JsValue::Undefined)); }
+            accumulator = array_element(&this, index);
+            index + 1
         };
 
         for i in start_idx..length {
+            if !has_array_element(&this, i) {
+                continue;
+            }
             let element = array_element(&this, i);
             accumulator = handle_error!(run_function_object(
                 callback_object(&callback),
@@ -406,9 +423,7 @@ new_class! {
         let from = integer(&from_index);
         let start = if from < 0 { (length + from).max(0) } else { from };
         for i in start..length {
-            if !this.borrow().properties.contains_key(&JsValue::BigInt(i))
-                && !this.borrow().properties.contains_key(&i.to_string().into())
-            {
+            if !has_array_element(&this, i) {
                 continue;
             }
             if same_value(
@@ -674,9 +689,7 @@ new_class! {
         };
         let start = if from < 0 { length + from } else { from.min(length - 1) };
         for index in (0..=start).rev() {
-            if !this.borrow().properties.contains_key(&JsValue::BigInt(index))
-                && !this.borrow().properties.contains_key(&index.to_string().into())
-            {
+            if !has_array_element(&this, index) {
                 continue;
             }
             if same_value(
@@ -698,10 +711,20 @@ new_class! {
             if length == 0 {
                 return CodeResult::Error(value(JsValue::Undefined));
             }
+            while index >= 0 && !has_array_element(&this, index) {
+                index -= 1;
+            }
+            if index < 0 {
+                return CodeResult::Error(value(JsValue::Undefined));
+            }
             accumulator = array_element(&this, index);
             index -= 1;
         }
         while index >= 0 {
+            if !has_array_element(&this, index) {
+                index -= 1;
+                continue;
+            }
             accumulator = handle_error!(run_function_object(
                 callback_object(&callback),
                 value(JsValue::Undefined),
