@@ -471,6 +471,72 @@ assert_result!(
 );
 
 assert_result!(
+    test_for_in_shadowed_inherited_property_is_not_repeated,
+    r#"
+    const prototype = { name: "prototype", inherited: true };
+    const object = Object.create(prototype);
+    object.name = "own";
+    const keys = [];
+    for (const key in object) {
+        keys.push(key);
+    }
+    console.log(keys.join(","));
+    console.log(Object.prototype.hasOwnProperty.call(object, "name"));
+    console.log(Object.prototype.hasOwnProperty.call(object, "inherited"));
+    "#,
+    "inherited,name",
+    "true",
+    "false"
+);
+
+assert_result!(
+    test_symbol_identity_and_type,
+    r#"
+    const first = Symbol("tag");
+    const second = Symbol("tag");
+    console.log(typeof first);
+    console.log(first === first);
+    console.log(first === second);
+    "#,
+    "symbol",
+    "true",
+    "false"
+);
+
+assert_result!(
+    test_bigint_arithmetic_and_comparison,
+    r#"
+    console.log(123n + 7n);
+    console.log(7n * 6n);
+    console.log(9n - 12n);
+    console.log(3n < 4n);
+    console.log(typeof (2n + 3n));
+    "#,
+    "130",
+    "42",
+    "-3",
+    "true",
+    "number"
+);
+
+assert_result!(
+    test_regex_exec_capture_groups_and_index,
+    r#"
+    const match = /([a-z]+)([0-9]+)/.exec("id=abc42");
+    console.log(match[0]);
+    console.log(match[1]);
+    console.log(match[2]);
+    console.log(match.index);
+    console.log(match.input);
+    "#,
+    "abc42",
+    "abc",
+    "42",
+    "3",
+    "id=abc42"
+);
+
+assert_result!(
     test_template_interpolation_evaluates_expressions_in_order,
     r#"
     let count = 0;
