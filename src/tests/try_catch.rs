@@ -41,6 +41,21 @@ assert_result!(
     "Not Found"
 );
 
+assert_result!(
+    test_catch_binding_shadows_outer_variable,
+    r#"
+    let error = "outer";
+    try {
+        throw "inner";
+    } catch (error) {
+        console.log(error);
+    }
+    console.log(error);
+    "#,
+    "inner",
+    "outer"
+);
+
 // 3. The Finally Block (Success Path)
 assert_result!(
     test_finally_even_when_no_error,

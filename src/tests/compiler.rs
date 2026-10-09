@@ -471,6 +471,89 @@ assert_result!(
 );
 
 assert_result!(
+    test_template_interpolation_evaluates_expressions_in_order,
+    r#"
+    let count = 0;
+    const message = `first:${count++}, second:${count}, sum:${2 + 3}`;
+    console.log(message);
+    console.log(count);
+    "#,
+    "first:0, second:1, sum:5",
+    "1"
+);
+
+assert_result!(
+    test_labelled_break_exits_its_block,
+    r#"
+    let result = "start";
+    finish: {
+        result = result + "-before";
+        break finish;
+        result = result + "-skipped";
+    }
+    console.log(result);
+    "#,
+    "start-before"
+);
+
+assert_result!(
+    test_function_this_binding_and_arrow_capture,
+    r#"
+    const receiver = {
+        value: "receiver",
+        makeArrow: function() {
+            return () => this.value;
+        }
+    };
+    const arrow = receiver.makeArrow();
+    console.log(arrow.call({ value: "other" }));
+    "#,
+    "receiver"
+);
+
+assert_result!(
+    test_unary_and_increment_operators,
+    r#"
+    let count = 5;
+    console.log(count++);
+    console.log(++count);
+    console.log(count--);
+    console.log(--count);
+    console.log(!0);
+    console.log(-5);
+    console.log(17 % 5);
+    "#,
+    "5",
+    "7",
+    "7",
+    "5",
+    "true",
+    "-5",
+    "2"
+);
+
+assert_result!(
+    test_if_else_if_evaluates_conditions_in_order,
+    r#"
+    let checks = 0;
+    function check(value) {
+        checks++;
+        return value;
+    }
+    if (check(false)) {
+        console.log("first");
+    } else if (check(1)) {
+        console.log("second");
+    } else {
+        console.log("fallback");
+    }
+    console.log(checks);
+    "#,
+    "second",
+    "2"
+);
+
+assert_result!(
     test_compile_iterator_array,
     r#"
     for (message of [5, 'allo', {a: true}]) {
