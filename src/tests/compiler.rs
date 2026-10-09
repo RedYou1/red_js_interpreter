@@ -415,7 +415,7 @@ assert_result!(
     }
     console.log(keys.join(","));
     "#,
-    "inherited,own"
+    "own,inherited"
 );
 
 assert_result!(
@@ -432,7 +432,7 @@ assert_result!(
     console.log(Object.prototype.hasOwnProperty.call(object, "name"));
     console.log(Object.prototype.hasOwnProperty.call(object, "inherited"));
     "#,
-    "inherited,name",
+    "name,inherited",
     "true",
     "false"
 );

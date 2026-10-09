@@ -1,4 +1,4 @@
-use std::{cell::RefCell, rc::Rc};
+use std::{cell::RefCell, collections::HashSet, rc::Rc};
 
 use crate::{
     Code, CodeIndex, CodeResult, Environment, JsValue, LogLevel, PROTO_NAME, Prototype,
@@ -194,34 +194,43 @@ fn for_in_property_names(value: Rc<RefCell<JsValue>>) -> Vec<String> {
         return Vec::new();
     };
     let mut names = Vec::new();
+    let mut visited = HashSet::new();
 
     loop {
-        let parent = {
+        let (parent, mut current_names) = {
             let current_ref = current.borrow();
-            let is_array =
-                current_ref.parent().and_then(|parent| parent.borrow().name) == Some("Array");
-            if current_ref.name.is_none() {
-                names.extend(
-                    current_ref
-                        .properties
-                        .keys()
-                        .filter(|key| !current_ref.non_enumerable.contains(*key))
-                        .filter_map(|key| match key {
-                            JsValue::String(key)
-                                if key != PROTO_NAME && (!is_array || key != "length") =>
-                            {
-                                Some(key.clone())
-                            }
-                            JsValue::BigInt(key) => Some(key.to_string()),
-                            JsValue::Number(key) if key.is_finite() && key.fract() == 0.0 => {
-                                Some((*key as i64).to_string())
-                            }
-                            _ => None,
-                        }),
-                );
-            }
-            current_ref.parent()
+            let parent = current_ref.parent();
+            let is_array = parent.as_ref().and_then(|parent| parent.borrow().name) == Some("Array");
+            let names = if current_ref.name.is_none() {
+                current_ref
+                    .properties
+                    .keys()
+                    .filter(|key| !current_ref.non_enumerable.contains(*key))
+                    .filter_map(|key| match key {
+                        JsValue::String(key)
+                            if key != PROTO_NAME && (!is_array || key != "length") =>
+                        {
+                            Some(key.clone())
+                        }
+                        JsValue::BigInt(key) => Some(key.to_string()),
+                        JsValue::Number(key) if key.is_finite() && key.fract() == 0.0 => {
+                            Some((*key as i64).to_string())
+                        }
+                        _ => None,
+                    })
+                    .collect()
+            } else {
+                Vec::new()
+            };
+            (parent, names)
         };
+        current_names.sort();
+        names.extend(
+            current_names
+                .into_iter()
+                .filter(|name| visited.insert(name.clone())),
+        );
+
         let Some(parent) = parent else {
             break;
         };
@@ -230,9 +239,6 @@ fn for_in_property_names(value: Rc<RefCell<JsValue>>) -> Vec<String> {
         }
         current = parent;
     }
-
-    names.sort();
-    names.dedup();
     names
 }
 
