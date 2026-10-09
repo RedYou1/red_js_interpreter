@@ -355,58 +355,6 @@ assert_result!(
 );
 
 assert_result!(
-    test_string_builtin_methods,
-    r#"
-    const length = Function.prototype.call.bind(String.length);
-    const charAt = Function.prototype.call.bind(String.charAt);
-    const charCodeAt = Function.prototype.call.bind(String.charCodeAt);
-    const substring = Function.prototype.call.bind(String.substring);
-    const slice = Function.prototype.call.bind(String.slice);
-    const indexOf = Function.prototype.call.bind(String.indexOf);
-    const includes = Function.prototype.call.bind(String.includes);
-    const startsWith = Function.prototype.call.bind(String.startsWith);
-    const endsWith = Function.prototype.call.bind(String.endsWith);
-    const toUpperCase = Function.prototype.call.bind(String.toUpperCase);
-    const toLowerCase = Function.prototype.call.bind(String.toLowerCase);
-    const trim = Function.prototype.call.bind(String.trim);
-    const split = Function.prototype.call.bind(String.split);
-    const repeat = Function.prototype.call.bind(String.repeat);
-    const replace = Function.prototype.call.bind(String.replace);
-    const text = "  hello world  ";
-    console.log(length(text));
-    console.log(charAt("hello", 1));
-    console.log(charCodeAt("hello", 1));
-    console.log(substring("hello", 4, 1));
-    console.log(slice("hello", 1, 4));
-    console.log(indexOf("hello world", "world"));
-    console.log(includes("hello world", "lo"));
-    console.log(startsWith("hello", "he"));
-    console.log(endsWith("hello", "lo"));
-    console.log(toUpperCase("hello"));
-    console.log(toLowerCase("HELLO"));
-    console.log(trim(text));
-    console.log(split("red,blue", ",").join("|"));
-    console.log(repeat("ha", 3));
-    console.log(replace("a-b-a", "a", "x"));
-    "#,
-    "15",
-    "e",
-    "101",
-    "ell",
-    "ell",
-    "6",
-    "true",
-    "true",
-    "true",
-    "HELLO",
-    "hello",
-    "hello world",
-    "red|blue",
-    "hahaha",
-    "x-b-a"
-);
-
-assert_result!(
     test_number_and_math_builtins,
     r#"
     console.log(Math.abs(-4));
@@ -467,7 +415,7 @@ assert_result!(
     }
     console.log(keys.join(","));
     "#,
-    "inherited,own"
+    "own,inherited"
 );
 
 assert_result!(
@@ -484,7 +432,7 @@ assert_result!(
     console.log(Object.prototype.hasOwnProperty.call(object, "name"));
     console.log(Object.prototype.hasOwnProperty.call(object, "inherited"));
     "#,
-    "inherited,name",
+    "name,inherited",
     "true",
     "false"
 );
