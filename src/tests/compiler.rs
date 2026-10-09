@@ -307,6 +307,267 @@ assert_result!(
 );
 
 assert_result!(
+    test_array_concat_and_slice,
+    r#"
+    const values = [1, 2].concat(3, [4, 5]);
+    console.log(values.join(","));
+    console.log(values.slice(1, -1).join(","));
+    "#,
+    "1,2,3,4,5",
+    "2,3,4"
+);
+
+assert_result!(
+    test_array_reduce_empty_with_initial_value_and_this_arg,
+    r#"
+    const initial = { count: 0 };
+    const reduced = [].reduce((accumulator) => accumulator, initial);
+    console.log(reduced === initial);
+    console.log(reduced.count);
+
+    const context = { minimum: 5 };
+    let calls = 0;
+    console.log([3, 5, 7].some(function(value) {
+        calls++;
+        return value >= this.minimum;
+    }, context));
+    console.log([3, 5, 7].every(function(value) {
+        return value >= this.minimum;
+    }, context));
+    console.log(calls);
+    "#,
+    "true",
+    "0",
+    "true",
+    "false",
+    "2"
+);
+
+assert_result!(
+    test_array_reverse,
+    r#"
+    const values = [10, 20, 30];
+    console.log(values.reverse() === values);
+    console.log(values.join(","));
+    "#,
+    "true",
+    "30,20,10"
+);
+
+assert_result!(
+    test_number_and_math_builtins,
+    r#"
+    console.log(Math.abs(-4));
+    console.log(Math.floor(2.9));
+    console.log(Math.ceil(3.1));
+    console.log(Math.round(2.5));
+    console.log(Math.pow(2, 5));
+    console.log(Math.sqrt(81));
+    console.log(Math.PI > 3);
+    console.log(Number.MAX_SAFE_INTEGER);
+    console.log(Number.isNaN(NaN));
+    console.log(Number.isFinite(5));
+    console.log(Number.isInteger(5));
+    "#,
+    "4",
+    "2",
+    "4",
+    "3",
+    "32",
+    "9",
+    "true",
+    "9007199254740991",
+    "true",
+    "true",
+    "true"
+);
+
+assert_result!(
+    test_regex_global_test_updates_last_index,
+    r#"
+    const regex = /test/g;
+    console.log(regex.lastIndex);
+    console.log(regex.test("testtest"));
+    console.log(regex.lastIndex);
+    console.log(regex.test("testtest"));
+    console.log(regex.lastIndex);
+    console.log(regex.test("testtest"));
+    console.log(regex.lastIndex);
+    "#,
+    "0",
+    "true",
+    "4",
+    "true",
+    "8",
+    "false",
+    "0"
+);
+
+assert_result!(
+    test_for_in_includes_enumerable_prototype_properties,
+    r#"
+    const prototype = { inherited: 1 };
+    const object = Object.create(prototype);
+    object.own = 2;
+    const keys = [];
+    for (const key in object) {
+        keys.push(key);
+    }
+    console.log(keys.join(","));
+    "#,
+    "own,inherited"
+);
+
+assert_result!(
+    test_for_in_shadowed_inherited_property_is_not_repeated,
+    r#"
+    const prototype = { name: "prototype", inherited: true };
+    const object = Object.create(prototype);
+    object.name = "own";
+    const keys = [];
+    for (const key in object) {
+        keys.push(key);
+    }
+    console.log(keys.join(","));
+    console.log(Object.prototype.hasOwnProperty.call(object, "name"));
+    console.log(Object.prototype.hasOwnProperty.call(object, "inherited"));
+    "#,
+    "name,inherited",
+    "true",
+    "false"
+);
+
+assert_result!(
+    test_symbol_identity_and_type,
+    r#"
+    const first = Symbol("tag");
+    const second = Symbol("tag");
+    console.log(typeof first);
+    console.log(first === first);
+    console.log(first === second);
+    "#,
+    "symbol",
+    "true",
+    "false"
+);
+
+assert_result!(
+    test_bigint_arithmetic_and_comparison,
+    r#"
+    console.log(123n + 7n);
+    console.log(7n * 6n);
+    console.log(9n - 12n);
+    console.log(3n < 4n);
+    console.log(typeof (2n + 3n));
+    "#,
+    "130",
+    "42",
+    "-3",
+    "true",
+    "number"
+);
+
+assert_result!(
+    test_regex_exec_capture_groups_and_index,
+    r#"
+    const match = /([a-z]+)([0-9]+)/.exec("id=abc42");
+    console.log(match[0]);
+    console.log(match[1]);
+    console.log(match[2]);
+    console.log(match.index);
+    console.log(match.input);
+    "#,
+    "abc42",
+    "abc",
+    "42",
+    "3",
+    "id=abc42"
+);
+
+assert_result!(
+    test_template_interpolation_evaluates_expressions_in_order,
+    r#"
+    let count = 0;
+    const message = `first:${count++}, second:${count}, sum:${2 + 3}`;
+    console.log(message);
+    console.log(count);
+    "#,
+    "first:0, second:1, sum:5",
+    "1"
+);
+
+assert_result!(
+    test_labelled_break_exits_its_block,
+    r#"
+    let result = "start";
+    finish: {
+        result = result + "-before";
+        break finish;
+        result = result + "-skipped";
+    }
+    console.log(result);
+    "#,
+    "start-before"
+);
+
+assert_result!(
+    test_function_this_binding_and_arrow_capture,
+    r#"
+    const receiver = {
+        value: "receiver",
+        makeArrow: function() {
+            return () => this.value;
+        }
+    };
+    const arrow = receiver.makeArrow();
+    console.log(arrow.call({ value: "other" }));
+    "#,
+    "receiver"
+);
+
+assert_result!(
+    test_unary_and_increment_operators,
+    r#"
+    let count = 5;
+    console.log(count++);
+    console.log(++count);
+    console.log(count--);
+    console.log(--count);
+    console.log(!0);
+    console.log(-5);
+    console.log(17 % 5);
+    "#,
+    "5",
+    "7",
+    "7",
+    "5",
+    "true",
+    "-5",
+    "2"
+);
+
+assert_result!(
+    test_if_else_if_evaluates_conditions_in_order,
+    r#"
+    let checks = 0;
+    function check(value) {
+        checks++;
+        return value;
+    }
+    if (check(false)) {
+        console.log("first");
+    } else if (check(1)) {
+        console.log("second");
+    } else {
+        console.log("fallback");
+    }
+    console.log(checks);
+    "#,
+    "second",
+    "2"
+);
+
+assert_result!(
     test_compile_iterator_array,
     r#"
     for (message of [5, 'allo', {a: true}]) {

@@ -213,6 +213,23 @@ assert_result!(
 );
 
 assert_result!(
+    test_date_set_time_updates_time_and_clips_invalid_values,
+    r#"
+    const date = new Date(0);
+    console.log(date.setTime(1234));
+    console.log(date.getTime());
+    console.log(date.valueOf());
+    console.log(date.setTime(Infinity));
+    console.log(date.getTime());
+    "#,
+    "1234",
+    "1234",
+    "1234",
+    "NaN",
+    "NaN"
+);
+
+assert_result!(
     test_date_set_year_is_not_a_constructor,
     r#"
     var constructable = true;
