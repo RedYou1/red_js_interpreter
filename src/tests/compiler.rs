@@ -318,6 +318,159 @@ assert_result!(
 );
 
 assert_result!(
+    test_array_reduce_empty_with_initial_value_and_this_arg,
+    r#"
+    const initial = { count: 0 };
+    const reduced = [].reduce((accumulator) => accumulator, initial);
+    console.log(reduced === initial);
+    console.log(reduced.count);
+
+    const context = { minimum: 5 };
+    let calls = 0;
+    console.log([3, 5, 7].some(function(value) {
+        calls++;
+        return value >= this.minimum;
+    }, context));
+    console.log([3, 5, 7].every(function(value) {
+        return value >= this.minimum;
+    }, context));
+    console.log(calls);
+    "#,
+    "true",
+    "0",
+    "true",
+    "false",
+    "2"
+);
+
+assert_result!(
+    test_array_reverse,
+    r#"
+    const values = [10, 20, 30];
+    console.log(values.reverse() === values);
+    console.log(values.join(","));
+    "#,
+    "true",
+    "30,20,10"
+);
+
+assert_result!(
+    test_string_builtin_methods,
+    r#"
+    const length = Function.prototype.call.bind(String.length);
+    const charAt = Function.prototype.call.bind(String.charAt);
+    const charCodeAt = Function.prototype.call.bind(String.charCodeAt);
+    const substring = Function.prototype.call.bind(String.substring);
+    const slice = Function.prototype.call.bind(String.slice);
+    const indexOf = Function.prototype.call.bind(String.indexOf);
+    const includes = Function.prototype.call.bind(String.includes);
+    const startsWith = Function.prototype.call.bind(String.startsWith);
+    const endsWith = Function.prototype.call.bind(String.endsWith);
+    const toUpperCase = Function.prototype.call.bind(String.toUpperCase);
+    const toLowerCase = Function.prototype.call.bind(String.toLowerCase);
+    const trim = Function.prototype.call.bind(String.trim);
+    const split = Function.prototype.call.bind(String.split);
+    const repeat = Function.prototype.call.bind(String.repeat);
+    const replace = Function.prototype.call.bind(String.replace);
+    const text = "  hello world  ";
+    console.log(length(text));
+    console.log(charAt("hello", 1));
+    console.log(charCodeAt("hello", 1));
+    console.log(substring("hello", 4, 1));
+    console.log(slice("hello", 1, 4));
+    console.log(indexOf("hello world", "world"));
+    console.log(includes("hello world", "lo"));
+    console.log(startsWith("hello", "he"));
+    console.log(endsWith("hello", "lo"));
+    console.log(toUpperCase("hello"));
+    console.log(toLowerCase("HELLO"));
+    console.log(trim(text));
+    console.log(split("red,blue", ",").join("|"));
+    console.log(repeat("ha", 3));
+    console.log(replace("a-b-a", "a", "x"));
+    "#,
+    "15",
+    "e",
+    "101",
+    "ell",
+    "ell",
+    "6",
+    "true",
+    "true",
+    "true",
+    "HELLO",
+    "hello",
+    "hello world",
+    "red|blue",
+    "hahaha",
+    "x-b-a"
+);
+
+assert_result!(
+    test_number_and_math_builtins,
+    r#"
+    console.log(Math.abs(-4));
+    console.log(Math.floor(2.9));
+    console.log(Math.ceil(3.1));
+    console.log(Math.round(2.5));
+    console.log(Math.pow(2, 5));
+    console.log(Math.sqrt(81));
+    console.log(Math.PI > 3);
+    console.log(Number.MAX_SAFE_INTEGER);
+    console.log(Number.isNaN(NaN));
+    console.log(Number.isFinite(5));
+    console.log(Number.isInteger(5));
+    "#,
+    "4",
+    "2",
+    "4",
+    "3",
+    "32",
+    "9",
+    "true",
+    "9007199254740991",
+    "true",
+    "true",
+    "true"
+);
+
+assert_result!(
+    test_regex_global_test_updates_last_index,
+    r#"
+    const regex = /test/g;
+    console.log(regex.lastIndex);
+    console.log(regex.test("testtest"));
+    console.log(regex.lastIndex);
+    console.log(regex.test("testtest"));
+    console.log(regex.lastIndex);
+    console.log(regex.test("testtest"));
+    console.log(regex.lastIndex);
+    "#,
+    "0",
+    "true",
+    "4",
+    "true",
+    "8",
+    "false",
+    "0"
+);
+
+assert_result!(
+    test_for_in_includes_enumerable_prototype_properties,
+    r#"
+    const prototype = { inherited: 1 };
+    const object = Object.create(prototype);
+    object.own = 2;
+    const keys = [];
+    for (const key in object) {
+        keys.push(key);
+    }
+    console.log(keys.join(","));
+    "#,
+    "inherited,own"
+);
+
+assert_result!(
     test_compile_iterator_array,
     r#"
     for (message of [5, 'allo', {a: true}]) {
