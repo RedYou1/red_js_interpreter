@@ -5116,7 +5116,6 @@ test/language/statements/class/elements/private-getter-shadowed-by-field-on-nest
 test/language/statements/class/elements/private-getter-visible-to-direct-eval-on-initializer.js
 test/language/statements/class/elements/private-indirect-eval-err-contains-newtarget.js
 test/language/statements/class/elements/private-literal-name-init-err-contains-arguments.js
-test/language/statements/class/elements/private-method-comparison-multiple-evaluations-of-class.js
 test/language/statements/class/elements/private-method-comparison.js
 test/language/statements/class/elements/private-method-get-and-call.js
 test/language/statements/class/elements/private-method-length.js
