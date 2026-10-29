@@ -22,10 +22,10 @@ mod try_catch;
 
 fn prebuild_prototypes_test<T>(logs: &mut Loggable<T>) -> Environment {
     let logger = test_logger();
-    let env = Environment {
-        mem: prebuild_prototypes(default_console_config, logger.clone()),
+    let env = Environment::new(
+        prebuild_prototypes(default_console_config, logger.clone()),
         logger,
-    };
+    );
     let console = Prototype::find(env.mem.clone(), &JsValue::String("console".to_owned()))
         .1
         .borrow()

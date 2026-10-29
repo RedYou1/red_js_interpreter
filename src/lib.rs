@@ -169,12 +169,100 @@ macro_rules! inline_borrow {
 pub struct Environment {
     pub mem: Rc<RefCell<Prototype>>,
     pub logger: Rc<RefCell<dyn Logger>>,
+    pub execution: ExecutionHooks,
 }
+
+pub type ExecutionCallback = Rc<dyn Fn(Environment, usize)>;
+
+#[derive(Clone, Default)]
+pub struct ExecutionHooks {
+    state: Rc<RefCell<ExecutionHooksState>>,
+}
+
+#[derive(Default)]
+struct ExecutionHooksState {
+    next_listener_id: usize,
+    listeners: Vec<(usize, ExecutionCallback)>,
+    breakpoints: HashMap<usize, ExecutionCallback>,
+}
+
 impl Environment {
+    pub fn new(mem: Rc<RefCell<Prototype>>, logger: Rc<RefCell<dyn Logger>>) -> Self {
+        Self {
+            mem,
+            logger,
+            execution: ExecutionHooks::default(),
+        }
+    }
+
     pub fn with_mem(&self, mem: Rc<RefCell<Prototype>>) -> Self {
         Self {
             mem,
             logger: self.logger.clone(),
+            execution: self.execution.clone(),
+        }
+    }
+
+    /// Registers a callback invoked before each compiled code unit runs.
+    ///
+    /// The index is local to the currently executing code sequence, including nested expressions.
+    pub fn add_execution_listener(
+        &self,
+        listener: impl Fn(Environment, usize) + 'static,
+    ) -> usize {
+        let mut state = self.execution.state.borrow_mut();
+        let id = state.next_listener_id;
+        state.next_listener_id += 1;
+        state.listeners.push((id, Rc::new(listener)));
+        id
+    }
+
+    /// Removes an execution listener previously registered with its returned ID.
+    pub fn remove_execution_listener(&self, id: usize) -> bool {
+        let mut state = self.execution.state.borrow_mut();
+        let old_len = state.listeners.len();
+        state.listeners.retain(|(listener_id, _)| *listener_id != id);
+        state.listeners.len() != old_len
+    }
+
+    /// Registers a callback invoked before code at `code_index` runs.
+    ///
+    /// The index is local to the currently executing code sequence, including nested expressions.
+    pub fn set_breakpoint(
+        &self,
+        code_index: usize,
+        callback: impl Fn(Environment, usize) + 'static,
+    ) {
+        self.execution
+            .state
+            .borrow_mut()
+            .breakpoints
+            .insert(code_index, Rc::new(callback));
+    }
+
+    /// Removes the breakpoint at `code_index`.
+    pub fn remove_breakpoint(&self, code_index: usize) -> bool {
+        self.execution
+            .state
+            .borrow_mut()
+            .breakpoints
+            .remove(&code_index)
+            .is_some()
+    }
+
+    pub(crate) fn notify_execution(&self, code_index: usize) {
+        let callbacks = {
+            let state = self.execution.state.borrow();
+            state
+                .breakpoints
+                .get(&code_index)
+                .into_iter()
+                .cloned()
+                .chain(state.listeners.iter().map(|(_, callback)| callback.clone()))
+                .collect::<Vec<_>>()
+        };
+        for callback in callbacks {
+            callback(self.clone(), code_index);
         }
     }
 }
@@ -200,8 +288,8 @@ pub fn prebuild_prototypes(
         Rc::new(RefCell::new(JsValue::Prototype(function.clone()))),
     );
 
-    let env = Environment {
-        mem: Rc::new(RefCell::new(Prototype {
+    let env = Environment::new(
+        Rc::new(RefCell::new(Prototype {
             name: None,
             properties: HashMap::from([
                 (
@@ -217,7 +305,7 @@ pub fn prebuild_prototypes(
             formating: false,
         })),
         logger,
-    };
+    );
 
     let obj = object.clone();
     object.borrow_mut().properties.insert(
@@ -598,6 +686,14 @@ pub fn prebuild_prototypes(
     );
     prebuild_regex(env.clone());
     env.mem
+}
+
+/// Initializes the built-in objects and returns an environment ready for runtime configuration.
+pub fn prebuild_environment(
+    console_config: impl Fn(Environment) -> Rc<RefCell<Prototype>>,
+    logger: Rc<RefCell<dyn Logger>>,
+) -> Environment {
+    Environment::new(prebuild_prototypes(console_config, logger.clone()), logger)
 }
 
 fn is_constructor(value: &Rc<RefCell<JsValue>>) -> bool {

@@ -167,6 +167,7 @@ pub fn run_sub(codes: &[Code], env: Environment, i: &mut CodeIndex) -> CodeResul
     });
     let mut result = CodeResult::Normal(Rc::new(RefCell::new(JsValue::Undefined)));
     while i.current() < codes.len() {
+        env.notify_execution(i.current());
         result = codes[i.current()](env.clone(), i);
         match result {
             CodeResult::Normal(_) | CodeResult::NormalMember(_, _, _) => {}

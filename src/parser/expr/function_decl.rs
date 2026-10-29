@@ -100,6 +100,7 @@ impl Expr for FunctionDecl {
                     stmt.compile(Environment {
                         mem: my_mem.clone(),
                         logger: env.logger.clone(),
+                        execution: env.execution.clone(),
                     })
                 })
                 .collect();
@@ -113,6 +114,7 @@ impl Expr for FunctionDecl {
                         excess: None,
                         code: Rc::from(code),
                         mem: my_mem.clone(),
+                        execution: env.execution.clone(),
                     },
                 )
             } else {
@@ -125,6 +127,7 @@ impl Expr for FunctionDecl {
                         code,
                         mem: my_mem.clone(),
                         lexical_this: lexical_this.clone(),
+                        execution: env.execution.clone(),
                     },
                 )
             };

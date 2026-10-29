@@ -15,6 +15,7 @@ impl Program {
             code: self.body.compile(env.clone()),
             mem: env.mem,
             lexical_this: None,
+            execution: env.execution,
         }
     }
 }
