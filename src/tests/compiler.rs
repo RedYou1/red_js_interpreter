@@ -26,7 +26,7 @@ fn custom_statement_parser_compiles_runtime_behavior() {
             })
         })
     });
-    crate::parse_with_extensions("runCustom;", env.clone(), extensions).run(env);
+    crate::parse_with_extensions("runCustom;", env.clone(), extensions).compile_and_run(env);
 
     assert!(executed.get());
 }

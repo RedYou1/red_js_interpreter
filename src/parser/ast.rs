@@ -23,12 +23,12 @@ impl Program {
         }
     }
 
-    pub fn run(self, env: Environment) -> CodeResult {
+    pub fn compile_and_run(self, env: Environment) -> CodeResult {
         let runnable = self.compile(env.clone());
-        Self::run_compiled(runnable, env)
+        Self::run(runnable, env)
     }
 
-    pub fn run_compiled(runnable: Runnable, env: Environment) -> CodeResult {
+    pub fn run(runnable: Runnable, env: Environment) -> CodeResult {
         let function = Prototype::find(env.mem.clone(), &"Function".into())
             .1
             .borrow()
