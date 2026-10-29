@@ -570,7 +570,7 @@ fn execute_case(source: &str) -> CaseOutcome {
     };
 
     let executed = panic::catch_unwind(AssertUnwindSafe(|| {
-        red_js_interpreter::parser_ast::Program::run_compiled(program, env)
+        red_js_interpreter::parser_ast::Program::run(program, env)
     }));
 
     match executed {
