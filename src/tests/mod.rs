@@ -6,7 +6,7 @@ use crate::{
     Environment, FilterLogs, LastNLogs, Logger, StdOutLogger, prebuild::console::Loggable,
 };
 pub use crate::{
-    JsValue, Prototype, new_runnable,
+    JsValue, Prototype,
     prebuild::{
         array::new_array,
         array::new_array_with_length,
