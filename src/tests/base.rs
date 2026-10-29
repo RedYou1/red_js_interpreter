@@ -1,4 +1,4 @@
-use crate::{CodeResult, JsValue, assert_result, tests::*};
+use crate::{CodeResult, JsValue, assert_result_fn, tests::*};
 
 #[test]
 pub fn test_new_array() {
@@ -61,7 +61,7 @@ pub fn test_new_array() {
     );
 }
 
-assert_result!(
+assert_result_fn!(
     test_date_get_year,
     r#"
     console.log(new Date(1899, 0).getYear());
@@ -97,7 +97,7 @@ assert_result!(
     "0"
 );
 
-assert_result!(
+assert_result_fn!(
     test_date_get_year_requires_date,
     r#"
     var getYear = Date.prototype.getYear;
@@ -116,7 +116,7 @@ assert_result!(
     "true"
 );
 
-assert_result!(
+assert_result_fn!(
     test_date_get_year_is_not_a_constructor,
     r#"
     var date = new Date(Date.now());
@@ -138,7 +138,7 @@ assert_result!(
     "true"
 );
 
-assert_result!(
+assert_result_fn!(
     test_date_set_year,
     r#"
     var date = new Date(1970, 1, 2, 3, 4, 5);
@@ -173,7 +173,7 @@ assert_result!(
     "-2177452800000"
 );
 
-assert_result!(
+assert_result_fn!(
     test_date_set_year_to_number_order,
     r#"
     var date = new Date(0);
@@ -191,7 +191,7 @@ assert_result!(
     "1901"
 );
 
-assert_result!(
+assert_result_fn!(
     test_date_set_year_to_number_error,
     r#"
     var date = new Date(0);
@@ -212,7 +212,7 @@ assert_result!(
     "0"
 );
 
-assert_result!(
+assert_result_fn!(
     test_date_set_time_updates_time_and_clips_invalid_values,
     r#"
     const date = new Date(0);
@@ -229,7 +229,7 @@ assert_result!(
     "NaN"
 );
 
-assert_result!(
+assert_result_fn!(
     test_date_set_year_is_not_a_constructor,
     r#"
     var constructable = true;

@@ -69,7 +69,7 @@ fn test_logger() -> Rc<RefCell<dyn Logger>> {
 
 const NB_LOGS: usize = 10;
 #[macro_export]
-macro_rules! assert_result {
+macro_rules! assert_result_fn {
     ($name:ident, $src:expr, $($result:expr),*) => {
         #[test]
         fn $name() {
@@ -83,8 +83,24 @@ macro_rules! assert_result {
                 data: &mut data as *mut AssertResultData as i64,
             });
 
-            $crate::parser::parse($src, env.clone()).run(env);
+            $crate::parser::parse($src, env.clone()).compile_and_run(env);
         }
+    }
+}
+#[macro_export]
+macro_rules! assert_result_with_extentions {
+    ($src:expr, $ext:expr, $($result:expr),*) => {
+        let wanted = [$($result.to_owned(),)*];
+        let mut data = AssertResultData {
+            wanted: &wanted,
+            current: 0,
+        };
+        let env =prebuild_prototypes_test(&mut Loggable::<i64> {
+            logger: &(append as fn(&mut i64, String)),
+            data: &mut data as *mut AssertResultData as i64,
+        });
+
+        $crate::parser::parse_with_extensions($src, env.clone(), $ext).compile_and_run(env);
     }
 }
 
