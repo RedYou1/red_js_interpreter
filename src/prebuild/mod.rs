@@ -29,7 +29,6 @@ pub fn prebuild_runnable<const WANTED_PARAM: usize>(
         excess: None,
         mem: env.mem.clone(),
         lexical_this: None,
-        execution: env.execution.clone(),
         code: vec![Box::new(move |env, _| {
             let JsValue::Prototype(array) =
                 inline_borrow!(Prototype::find(env.mem.clone(), &ARGUMENTS.into()).1)
@@ -65,7 +64,6 @@ pub fn prebuild_runnable_direct(
         excess: None,
         mem: env.mem.clone(),
         lexical_this: None,
-        execution: env.execution.clone(),
         code: vec![Box::new(move |env, _| {
             let JsValue::Prototype(array) =
                 inline_borrow!(Prototype::find(env.mem.clone(), &ARGUMENTS.into()).1)
@@ -196,7 +194,6 @@ macro_rules! class_fn {
                             params: vec![],
                             excess: None,
                             mem: $env.mem.clone(),
-                            execution: $env.execution.clone(),
                             code: Rc::new([$(Box::new($generator)),+]),
                         },
                     )

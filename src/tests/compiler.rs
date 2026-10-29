@@ -2,49 +2,50 @@ use crate::{assert_result, tests::*};
 use std::cell::Cell;
 
 #[test]
-fn execution_hooks_can_mutate_values_between_statements() {
+fn custom_statement_parser_compiles_runtime_behavior() {
     let logger = test_logger();
-    let env = crate::prebuild_environment(default_console_config, logger.clone());
-    let program = crate::parse("let value = 1; value += 1; value += 0;", env.clone())
+    let env = Environment {
+        mem: prebuild_prototypes(default_console_config, logger.clone()),
+        logger: logger.clone(),
+    };
+    let executed = Rc::new(Cell::new(false));
+    let mut extensions = crate::ParserExtensions::default();
+    let executed_by_parser = executed.clone();
+    extensions.register("runCustom", move |parser| {
+        assert_eq!(
+            parser.tokens()[parser.index()],
+            crate::Token::Ident("runCustom".to_owned())
+        );
+        parser.bump();
+        let executed_by_compile = executed_by_parser.clone();
+        crate::CustomExpression::new(move || {
+            let executed = executed_by_compile.clone();
+            Box::new(move |_| {
+                executed.set(true);
+                crate::CodeResult::Normal(Rc::new(RefCell::new(JsValue::Undefined)))
+            })
+        })
+    });
+    let program = crate::parse_with_extensions("runCustom;", env.clone(), extensions)
         .compile(env.clone());
     let function = new_runnable(
         Prototype::find(env.mem.clone(), &"Function".into())
             .1
             .borrow()
-            .unwrap_proto("execution hook test for Function"),
+            .unwrap_proto("custom parser test for Function"),
         "__main__",
         program,
     );
-    let function = function.borrow().unwrap_proto("execution hook test for program");
-
-    let listener_hits = Rc::new(Cell::new(0));
-    let observed_value = Rc::new(RefCell::new(JsValue::Undefined));
-    let listener_hits_clone = listener_hits.clone();
-    let observed_value_clone = observed_value.clone();
-    env.add_execution_listener(move |env, _| {
-        listener_hits_clone.set(listener_hits_clone.get() + 1);
-        let value = Prototype::find(env.mem, &"value".into()).1;
-        if *value.borrow() != JsValue::Undefined {
-            *observed_value_clone.borrow_mut() = value.borrow().clone();
-        }
-    });
-    let breakpoint_triggered = Rc::new(Cell::new(false));
-    let breakpoint_triggered_clone = breakpoint_triggered.clone();
-    env.set_breakpoint(1, move |env, _| {
-        if !breakpoint_triggered_clone.replace(true) {
-            let value = Prototype::find(env.mem, &"value".into()).1;
-            *value.borrow_mut() = JsValue::BigInt(41);
-        }
-    });
     run_function_object(
-        function,
+        function
+            .borrow()
+            .unwrap_proto("custom parser test for program"),
         Rc::new(RefCell::new(JsValue::Undefined)),
         vec![],
         logger,
     );
 
-    assert_eq!(*observed_value.borrow(), JsValue::BigInt(42));
-    assert!(listener_hits.get() >= 2);
+    assert!(executed.get());
 }
 
 assert_result!(

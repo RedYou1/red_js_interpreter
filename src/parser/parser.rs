@@ -1,20 +1,96 @@
-use std::io::{Write, stdout};
-use std::rc::Rc;
+use std::{
+    cell::RefCell,
+    collections::HashMap,
+    fmt::Debug,
+    io::{Write, stdout},
+    rc::Rc,
+};
 
 use crate::parser::ast::*;
 use crate::parser::expr::{self, Expr};
 use crate::parser::lexer::{Lexer, Token};
-use crate::{Environment, JsValue, LogLevel};
+use crate::{Code, CodeResult, Environment, JsValue, LogLevel, Prototype};
+
+/// Custom runtime code receives the current scope without an interpreter instruction index.
+pub type CustomCode = Box<dyn Fn(Rc<RefCell<Prototype>>) -> CodeResult>;
+type CustomParser = Rc<dyn Fn(&mut Parser) -> CustomExpression>;
+
+#[derive(Clone)]
+pub struct CustomExpression {
+    compile: Rc<dyn Fn() -> CustomCode>,
+}
+
+impl CustomExpression {
+    /// Creates a custom expression from its compile step.
+    ///
+    /// The returned code runs with the current scope when the parsed program executes.
+    pub fn new(compile: impl Fn() -> CustomCode + 'static) -> Self {
+        Self {
+            compile: Rc::new(compile),
+        }
+    }
+}
+
+impl Debug for CustomExpression {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("CustomExpression").finish_non_exhaustive()
+    }
+}
+
+#[derive(Clone, Default)]
+pub struct ParserExtensions {
+    parsers: HashMap<String, CustomParser>,
+}
+
+impl ParserExtensions {
+    /// Registers a parser for an ordinary identifier used as a custom statement token.
+    ///
+    /// The parser is called with the token still current and must consume it.
+    pub fn register(
+        &mut self,
+        token: impl Into<String>,
+        parser: impl Fn(&mut Parser) -> CustomExpression + 'static,
+    ) {
+        self.parsers.insert(token.into(), Rc::new(parser));
+    }
+
+    fn parser(&self, token: &str) -> Option<CustomParser> {
+        self.parsers.get(token).cloned()
+    }
+}
+
+#[derive(Debug)]
+struct CustomExpressionNode(CustomExpression);
+
+impl Expr for CustomExpressionNode {
+    fn compile(&self, _env: Environment) -> Vec<Code> {
+        let code = (self.0.compile)();
+        vec![Box::new(move |env, _| code(env.mem))]
+    }
+
+    fn duplicate(&self) -> Box<dyn Expr> {
+        Box::new(Self(self.0.clone()))
+    }
+}
 
 pub struct Parser {
     pub env: Environment,
     tokens: Vec<Token>,
     index: usize,
     can_multi: bool,
+    extensions: ParserExtensions,
 }
 
 impl Parser {
     pub fn new(input: &str, env: Environment) -> Self {
+        Self::with_extensions(input, env, ParserExtensions::default())
+    }
+
+    pub fn with_extensions(
+        input: &str,
+        env: Environment,
+        extensions: ParserExtensions,
+    ) -> Self {
         let mut lexer = Lexer::new(input);
         let mut tokens = Vec::with_capacity(input.len());
         loop {
@@ -30,6 +106,7 @@ impl Parser {
             index: 0,
             can_multi: true,
             env,
+            extensions,
         };
         parser.env.logger.borrow_mut().logln(LogLevel::Trace, &|| {
             format!(
@@ -327,6 +404,19 @@ impl Parser {
                         name,
                         code: self.parse_block(),
                     }));
+                }
+                Token::Ident(name) if self.extensions.parser(name).is_some() => {
+                    let name = name.clone();
+                    let parser = self
+                        .extensions
+                        .parser(&name)
+                        .expect("custom parser should remain registered");
+                    let before = self.index;
+                    let expression = parser(self);
+                    if self.index == before {
+                        panic!("custom parser for {name:?} did not consume its token");
+                    }
+                    res.push(Box::new(CustomExpressionNode(expression)));
                 }
                 _ if (matches!(self.tokens[self.index], Token::LParen)
                     && self.tokens[self.index..].contains(&Token::Arrow)
@@ -639,4 +729,13 @@ impl Parser {
 pub fn parse(input: &str, env: Environment) -> Program {
     let mut p = Parser::new(input, env);
     p.parse_program()
+}
+
+pub fn parse_with_extensions(
+    input: &str,
+    env: Environment,
+    extensions: ParserExtensions,
+) -> Program {
+    let mut parser = Parser::with_extensions(input, env, extensions);
+    parser.parse_program()
 }

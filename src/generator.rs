@@ -10,7 +10,6 @@ pub struct Generator {
     pub excess: Option<String>,
     pub code: Rc<[Code]>,
     pub mem: Rc<RefCell<Prototype>>,
-    pub execution: crate::ExecutionHooks,
 }
 
 pub struct IterGenerator {
@@ -23,7 +22,6 @@ impl Iterator for IterGenerator {
 
     fn next(&mut self) -> Option<Self::Item> {
         while self.index.current() < self.code.len() {
-            self.env.notify_execution(self.index.current());
             let res = self.code[self.index.current()](self.env.clone(), &mut self.index);
             match res {
                 CodeResult::Return(_) => {
@@ -142,11 +140,7 @@ pub fn run_generator_object(
 
     IterGenerator {
         index: CodeIndex::new(),
-        env: Environment {
-            mem: proto,
-            logger,
-            execution: runnable.execution.clone(),
-        },
+        env: Environment { mem: proto, logger },
         code: runnable.code.clone(),
     }
 }

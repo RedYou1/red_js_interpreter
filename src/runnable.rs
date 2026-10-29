@@ -11,7 +11,6 @@ pub struct Runnable {
     pub code: Vec<Code>,
     pub mem: Rc<RefCell<Prototype>>,
     pub lexical_this: Option<Rc<RefCell<JsValue>>>,
-    pub execution: crate::ExecutionHooks,
 }
 
 pub fn new_runnable_with_object(
@@ -164,11 +163,7 @@ pub fn run_function_object(
 
     let res = run_sub(
         &runnable.code,
-        crate::Environment {
-            mem: proto,
-            logger,
-            execution: runnable.execution.clone(),
-        },
+        crate::Environment { mem: proto, logger },
         &mut CodeIndex::new(),
     );
     match res {
