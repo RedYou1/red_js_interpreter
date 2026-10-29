@@ -26,24 +26,7 @@ fn custom_statement_parser_compiles_runtime_behavior() {
             })
         })
     });
-    let program = crate::parse_with_extensions("runCustom;", env.clone(), extensions)
-        .compile(env.clone());
-    let function = new_runnable(
-        Prototype::find(env.mem.clone(), &"Function".into())
-            .1
-            .borrow()
-            .unwrap_proto("custom parser test for Function"),
-        "__main__",
-        program,
-    );
-    run_function_object(
-        function
-            .borrow()
-            .unwrap_proto("custom parser test for program"),
-        Rc::new(RefCell::new(JsValue::Undefined)),
-        vec![],
-        logger,
-    );
+    crate::parse_with_extensions("runCustom;", env.clone(), extensions).run(env);
 
     assert!(executed.get());
 }

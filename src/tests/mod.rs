@@ -83,22 +83,7 @@ macro_rules! assert_result {
                 data: &mut data as *mut AssertResultData as i64,
             });
 
-            let program = $crate::parser::parse($src, env.clone())
-                //.expect("parse failed")
-                .compile(env.clone());
-            run_function_object(
-                new_runnable(
-                    Prototype::find(env.mem, &JsValue::String("Function".to_owned()))
-                        .1.borrow()
-                        .unwrap_proto("tests::compiler::assert_result! for Function"),
-                    "__main__",
-                    program,
-                ).borrow()
-                .unwrap_proto("tests::compiler::assert_result! for Result"),
-                Rc::new(RefCell::new(JsValue::Undefined)),
-                vec![],
-                env.logger
-            );
+            $crate::parser::parse($src, env.clone()).run(env);
         }
     }
 }
