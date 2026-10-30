@@ -46,6 +46,7 @@ impl LoopExpr {
         // Parse init
         let mut of = false;
         let mut for_in = None;
+        let mut for_of_destructure = None;
         let (init, of_cond): (Option<Box<dyn Expr>>, Option<Box<dyn Expr>>) =
             if !matches!(t, Token::For) {
                 (None, None)
@@ -60,7 +61,16 @@ impl LoopExpr {
                 if !matches!(parser.tokens()[parser.index() + 1], Token::In | Token::Of) {
                     parser.bump();
                 }
-                let name = parser.expect_ident();
+                let name = if parser.tokens()[parser.index()] == Token::LBracket {
+                    let name = format!("__for_of_item_{}__", parser.index());
+                    for_of_destructure = Some(Box::new(expr::ArrayDestructure::parse_parameter(
+                        parser,
+                        name.clone(),
+                    )) as Box<dyn Expr>);
+                    name
+                } else {
+                    parser.expect_ident()
+                };
                 let initializer: Option<Box<dyn Expr>> =
                     if let Token::Assign(t) = &parser.tokens()[parser.index()] {
                         assert_eq!(*t, Option::<BinaryOp>::None);
@@ -176,7 +186,10 @@ impl LoopExpr {
         }
         parser.bump();
 
-        let body = parser.parse_block();
+        let mut body = parser.parse_block();
+        if let Some(destructure) = for_of_destructure {
+            body.insert(0, destructure);
+        }
 
         Self {
             init,

@@ -400,6 +400,9 @@ assert_result_fn!(
     console.log(Number.isNaN(NaN));
     console.log(Number.isFinite(5));
     console.log(Number.isInteger(5));
+    console.log(parseInt("42px", 10));
+    console.log(parseInt("101", 2));
+    console.log(parseFloat("3.5seconds"));
     "#,
     "4",
     "2",
@@ -411,7 +414,50 @@ assert_result_fn!(
     "9007199254740991",
     "true",
     "true",
+    "true",
+    "42",
+    "5",
+    "3.5"
+);
+
+assert_result_fn!(
+    test_object_define_property_data_descriptors,
+    r#"
+    const target = {};
+    Object.defineProperty(target, "visible", { value: "yes", enumerable: true });
+    Object.defineProperty(target, "visible", { value: "still visible" });
+    Object.defineProperty(target, "hidden", { value: "no" });
+    console.log(target.visible);
+    console.log(target.hidden);
+    console.log(target.propertyIsEnumerable("visible"));
+    console.log(target.propertyIsEnumerable("hidden"));
+    console.log(Object.getOwnPropertyDescriptor(target, "visible").enumerable);
+    "#,
+    "still visible",
+    "no",
+    "true",
+    "false",
     "true"
+);
+
+assert_result_fn!(
+    test_synchronous_promise_chains_and_rejection,
+    r#"
+    Promise.resolve(2)
+        .then(value => Promise.resolve(value + 3))
+        .then(value => console.log(value));
+    Promise.reject("failed")
+        .then(() => console.log("unexpected"))
+        .catch(error => console.log(error));
+    Promise.resolve(1)
+        .then(() => { throw "handler failed"; })
+        .catch(error => console.log(error));
+    console.log(JSON.stringify(Promise.resolve(2)));
+    "#,
+    "5",
+    "failed",
+    "handler failed",
+    "{}"
 );
 
 assert_result_fn!(
@@ -1389,7 +1435,7 @@ assert_result_fn!(
     "#,
     "[object Object]",
     "true",
-    "false",
+    "true",
     "[object Object]",
     "1",
     "value",

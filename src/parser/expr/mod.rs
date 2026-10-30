@@ -84,6 +84,112 @@ pub struct Identifier {
     pub name: String,
 }
 
+const SPREAD_MARKER: &str = "__red_js_spread__";
+
+#[derive(Debug)]
+pub struct Spread {
+    pub expression: Box<dyn Expr>,
+}
+
+#[derive(Debug)]
+pub struct DefaultParameter {
+    pub name: String,
+    pub default: Box<dyn Expr>,
+}
+
+impl Expr for DefaultParameter {
+    fn compile(&self, environment: Environment) -> Vec<Code> {
+        let name = self.name.clone();
+        let default = self.default.compile(environment.clone());
+        vec![Box::new(move |environment, _| {
+            let binding = Prototype::find(environment.mem.clone(), &name.as_str().into()).1;
+            if matches!(inline_borrow!(binding.clone()), JsValue::Undefined) {
+                let value = match run_sub(&default, environment.clone(), &mut CodeIndex::new()) {
+                    CodeResult::Normal(value) | CodeResult::NormalMember(value, _, _) => value,
+                    result => return result,
+                };
+                environment
+                    .mem
+                    .borrow_mut()
+                    .properties
+                    .insert(name.as_str().into(), value);
+            }
+            CodeResult::Normal(Rc::new(RefCell::new(JsValue::Undefined)))
+        })]
+    }
+
+    fn duplicate(&self) -> Box<dyn Expr> {
+        Box::new(Self {
+            name: self.name.clone(),
+            default: self.default.duplicate(),
+        })
+    }
+}
+
+impl Expr for Spread {
+    fn compile(&self, env: Environment) -> Vec<Code> {
+        let expression = self.expression.compile(env);
+        vec![Box::new(move |env, _| {
+            let source = match run_sub(&expression, env.clone(), &mut CodeIndex::new()) {
+                CodeResult::Normal(value) | CodeResult::NormalMember(value, _, _) => value,
+                result => return result,
+            };
+            let object_prototype = Prototype::find(env.mem.clone(), &stringify!(Object).into())
+                .1
+                .borrow()
+                .unwrap_proto("Spread wrapper for Object");
+            let spread = Prototype::new_child(
+                object_prototype,
+                None,
+                [
+                    (
+                        SPREAD_MARKER.into(),
+                        Rc::new(RefCell::new(JsValue::Boolean(true))),
+                    ),
+                    ("value".into(), source),
+                ],
+            );
+            CodeResult::Normal(Rc::new(RefCell::new(JsValue::Prototype(spread))))
+        })]
+    }
+
+    fn duplicate(&self) -> Box<dyn Expr> {
+        Box::new(Self {
+            expression: self.expression.duplicate(),
+        })
+    }
+}
+
+pub(crate) fn expand_spread(value: &Rc<RefCell<JsValue>>) -> Option<Vec<Rc<RefCell<JsValue>>>> {
+    let JsValue::Prototype(wrapper) = inline_borrow!(value.clone()) else {
+        return None;
+    };
+    let marker = Prototype::find(wrapper.clone(), &SPREAD_MARKER.into()).1;
+    if !matches!(inline_borrow!(marker), JsValue::Boolean(true)) {
+        return None;
+    }
+    let source = Prototype::find(wrapper, &"value".into()).1;
+    match inline_borrow!(source.clone()) {
+        JsValue::String(text) => Some(
+            text.chars()
+                .map(|character| Rc::new(RefCell::new(JsValue::String(character.to_string()))))
+                .collect(),
+        ),
+        JsValue::Prototype(iterable) => {
+            let length = Prototype::find(iterable.clone(), &"length".into()).1;
+            let JsValue::BigInt(length) = inline_borrow!(length) else {
+                panic!("spread value is not an array or string")
+            };
+            Some(
+                (0..length.max(0))
+                    .map(|index| Prototype::find(iterable.clone(), &JsValue::BigInt(index)).1)
+                    .collect(),
+            )
+        }
+        _ => panic!("spread value is not iterable"),
+    }
+}
+
 impl Expr for Identifier {
     fn compile(&self, _: Environment) -> Vec<Code> {
         let name = self.name.clone();

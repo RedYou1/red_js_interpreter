@@ -7,12 +7,15 @@ pub mod console;
 pub mod date;
 pub mod error;
 pub mod iterator;
+pub mod json;
 pub mod math;
 pub mod number;
 mod prelude;
+pub mod promise;
 pub mod regex;
 pub mod string;
 pub mod symbol;
+pub mod uri;
 
 pub fn prebuild_runnable<const WANTED_PARAM: usize>(
     env: Environment,
