@@ -1,6 +1,6 @@
-use crate::{assert_result, tests::*};
+use crate::{assert_result_fn, tests::*};
 
-assert_result!(
+assert_result_fn!(
     test_switch_basic,
     r#"
     let fruit = "Apple";
@@ -18,7 +18,7 @@ assert_result!(
     "Found Apple"
 );
 
-assert_result!(
+assert_result_fn!(
     test_switch_fallthrough,
     r#"
     let score = 2;
@@ -35,7 +35,7 @@ assert_result!(
     "Low score"
 );
 
-assert_result!(
+assert_result_fn!(
     test_switch_strict_equality,
     r#"
     let val = "5";
@@ -53,7 +53,7 @@ assert_result!(
     "strict"
 );
 
-assert_result!(
+assert_result_fn!(
     test_switch_default_fallthrough,
     r#"
     switch ("Orange") {
@@ -71,7 +71,7 @@ assert_result!(
     "Banana"
 );
 
-assert_result!(
+assert_result_fn!(
     test_switch_evaluates_selector_and_cases_once_in_order,
     r#"
     let selectorCalls = 0;
@@ -103,7 +103,7 @@ assert_result!(
     "selector calls: 1"
 );
 
-assert_result!(
+assert_result_fn!(
     test_switch_without_matching_case_or_default,
     r#"
     switch (3) {
@@ -117,7 +117,7 @@ assert_result!(
     "after switch"
 );
 
-assert_result!(
+assert_result_fn!(
     test_switch_default_break,
     r#"
     switch ("unmatched") {

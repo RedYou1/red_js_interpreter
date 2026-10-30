@@ -6,7 +6,7 @@ use crate::{
     Environment, FilterLogs, LastNLogs, Logger, StdOutLogger, prebuild::console::Loggable,
 };
 pub use crate::{
-    JsValue, Prototype, new_runnable,
+    JsValue, Prototype,
     prebuild::{
         array::new_array,
         array::new_array_with_length,
@@ -69,7 +69,7 @@ fn test_logger() -> Rc<RefCell<dyn Logger>> {
 
 const NB_LOGS: usize = 10;
 #[macro_export]
-macro_rules! assert_result {
+macro_rules! assert_result_fn {
     ($name:ident, $src:expr, $($result:expr),*) => {
         #[test]
         fn $name() {
@@ -83,23 +83,24 @@ macro_rules! assert_result {
                 data: &mut data as *mut AssertResultData as i64,
             });
 
-            let program = $crate::parser::parse($src, env.clone())
-                //.expect("parse failed")
-                .compile(env.clone());
-            run_function_object(
-                new_runnable(
-                    Prototype::find(env.mem, &JsValue::String("Function".to_owned()))
-                        .1.borrow()
-                        .unwrap_proto("tests::compiler::assert_result! for Function"),
-                    "__main__",
-                    program,
-                ).borrow()
-                .unwrap_proto("tests::compiler::assert_result! for Result"),
-                Rc::new(RefCell::new(JsValue::Undefined)),
-                vec![],
-                env.logger
-            );
+            $crate::parser::parse($src, env.clone()).compile_and_run(env);
         }
+    }
+}
+#[macro_export]
+macro_rules! assert_result_with_extentions {
+    ($src:expr, $ext:expr, $($result:expr),*) => {
+        let wanted = [$($result.to_owned(),)*];
+        let mut data = AssertResultData {
+            wanted: &wanted,
+            current: 0,
+        };
+        let env =prebuild_prototypes_test(&mut Loggable::<i64> {
+            logger: &(append as fn(&mut i64, String)),
+            data: &mut data as *mut AssertResultData as i64,
+        });
+
+        $crate::parser::parse_with_extensions($src, env.clone(), $ext).compile_and_run(env);
     }
 }
 

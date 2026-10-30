@@ -1,6 +1,38 @@
-use crate::{assert_result, tests::*};
+use crate::{assert_result_fn, assert_result_with_extentions, tests::*};
+use std::cell::Cell;
 
-assert_result!(
+#[test]
+fn custom_statement() {
+    let executed = Rc::new(Cell::new(false));
+    let mut extensions = crate::ParserExtensions::default();
+    let executed_by_parser = executed.clone();
+    extensions.register("runCustom", move |parser| {
+        assert_eq!(
+            parser.tokens()[parser.index()],
+            crate::Token::Ident("runCustom".to_owned())
+        );
+        parser.bump();
+        let executed_by_compile = executed_by_parser.clone();
+        crate::CustomExpression::new(move || {
+            let executed = executed_by_compile.clone();
+            Box::new(move |mem| {
+                executed.set(true);
+                mem.borrow_mut()
+                    .properties
+                    .get_mut(&JsValue::String("i".to_owned()))
+                    .expect("const code")
+                    .replace(JsValue::BigInt(8));
+                crate::CodeResult::Normal(Rc::new(RefCell::new(JsValue::Undefined)))
+            })
+        })
+    });
+
+    assert_result_with_extentions!("var i = 5;runCustom;console.log(i);", extensions, "8");
+
+    assert!(executed.get());
+}
+
+assert_result_fn!(
     test_compile_integration,
     r#"
     function greet(){
@@ -11,7 +43,7 @@ assert_result!(
     "hello world"
 );
 
-assert_result!(
+assert_result_fn!(
     test_function_closure_retains_captured_state,
     r#"
     function makeCounter(start) {
@@ -29,7 +61,7 @@ assert_result!(
     "9"
 );
 
-assert_result!(
+assert_result_fn!(
     test_function_return_from_loop,
     r#"
     function firstEvenAfterZero(limit) {
@@ -49,7 +81,7 @@ assert_result!(
     "-1"
 );
 
-assert_result!(
+assert_result_fn!(
     test_compile_integration2,
     r#"
     let a = {
@@ -62,7 +94,7 @@ assert_result!(
     "{ a: 5, yes: 'wow', { v: 6 }: { haha: 'o' } }"
 );
 
-assert_result!(
+assert_result_fn!(
     test_compile_proto_class,
     r#"
     function Animal(name) {
@@ -97,7 +129,7 @@ assert_result!(
     "8"
 );
 
-assert_result!(
+assert_result_fn!(
     test_compile_class,
     r#"
     class Animal {
@@ -137,7 +169,7 @@ assert_result!(
     "8"
 );
 
-assert_result!(
+assert_result_fn!(
     test_compile_loops,
     r#"
     for(var i = 0;i < 5;i++) {
@@ -163,7 +195,7 @@ assert_result!(
     "elem: wow"
 );
 
-assert_result!(
+assert_result_fn!(
     test_compile_do_while,
     r#"
     let runs = 0;
@@ -175,7 +207,7 @@ assert_result!(
     "1"
 );
 
-assert_result!(
+assert_result_fn!(
     test_compile_loop_break_and_continue,
     r#"
     for (let i = 0; i < 6; i++) {
@@ -199,7 +231,7 @@ assert_result!(
     "4"
 );
 
-assert_result!(
+assert_result_fn!(
     test_compile_nested_loop_break_only_exits_inner_loop,
     r#"
     for (let i = 0; i < 2; i++) {
@@ -216,7 +248,7 @@ assert_result!(
     "outer:1"
 );
 
-assert_result!(
+assert_result_fn!(
     test_compile_for_in,
     r#"
     var object = {a: 1, b: 2};
@@ -238,7 +270,7 @@ assert_result!(
     "done"
 );
 
-assert_result!(
+assert_result_fn!(
     test_compile_for_in_function_prototype,
     r#"
     function __func() {}
@@ -248,7 +280,7 @@ assert_result!(
     "#,
 );
 
-assert_result!(
+assert_result_fn!(
     test_array_index_of_object_identity,
     r#"
     var obj1 = { toString: function() { return "false"; } };
@@ -262,7 +294,7 @@ assert_result!(
     "8"
 );
 
-assert_result!(
+assert_result_fn!(
     test_array_prototype_methods,
     r#"
     let values = [1, 2, 3];
@@ -306,7 +338,7 @@ assert_result!(
     "0,0"
 );
 
-assert_result!(
+assert_result_fn!(
     test_array_concat_and_slice,
     r#"
     const values = [1, 2].concat(3, [4, 5]);
@@ -317,7 +349,7 @@ assert_result!(
     "2,3,4"
 );
 
-assert_result!(
+assert_result_fn!(
     test_array_reduce_empty_with_initial_value_and_this_arg,
     r#"
     const initial = { count: 0 };
@@ -343,7 +375,7 @@ assert_result!(
     "2"
 );
 
-assert_result!(
+assert_result_fn!(
     test_array_reverse,
     r#"
     const values = [10, 20, 30];
@@ -354,7 +386,7 @@ assert_result!(
     "30,20,10"
 );
 
-assert_result!(
+assert_result_fn!(
     test_number_and_math_builtins,
     r#"
     console.log(Math.abs(-4));
@@ -382,7 +414,7 @@ assert_result!(
     "true"
 );
 
-assert_result!(
+assert_result_fn!(
     test_regex_global_test_updates_last_index,
     r#"
     const regex = /test/g;
@@ -403,7 +435,7 @@ assert_result!(
     "0"
 );
 
-assert_result!(
+assert_result_fn!(
     test_for_in_includes_enumerable_prototype_properties,
     r#"
     const prototype = { inherited: 1 };
@@ -418,7 +450,7 @@ assert_result!(
     "own,inherited"
 );
 
-assert_result!(
+assert_result_fn!(
     test_for_in_shadowed_inherited_property_is_not_repeated,
     r#"
     const prototype = { name: "prototype", inherited: true };
@@ -437,7 +469,7 @@ assert_result!(
     "false"
 );
 
-assert_result!(
+assert_result_fn!(
     test_symbol_identity_and_type,
     r#"
     const first = Symbol("tag");
@@ -451,7 +483,7 @@ assert_result!(
     "false"
 );
 
-assert_result!(
+assert_result_fn!(
     test_bigint_arithmetic_and_comparison,
     r#"
     console.log(123n + 7n);
@@ -467,7 +499,7 @@ assert_result!(
     "number"
 );
 
-assert_result!(
+assert_result_fn!(
     test_regex_exec_capture_groups_and_index,
     r#"
     const match = /([a-z]+)([0-9]+)/.exec("id=abc42");
@@ -484,7 +516,7 @@ assert_result!(
     "id=abc42"
 );
 
-assert_result!(
+assert_result_fn!(
     test_template_interpolation_evaluates_expressions_in_order,
     r#"
     let count = 0;
@@ -496,7 +528,7 @@ assert_result!(
     "1"
 );
 
-assert_result!(
+assert_result_fn!(
     test_labelled_break_exits_its_block,
     r#"
     let result = "start";
@@ -510,7 +542,7 @@ assert_result!(
     "start-before"
 );
 
-assert_result!(
+assert_result_fn!(
     test_function_this_binding_and_arrow_capture,
     r#"
     const receiver = {
@@ -525,7 +557,7 @@ assert_result!(
     "receiver"
 );
 
-assert_result!(
+assert_result_fn!(
     test_unary_and_increment_operators,
     r#"
     let count = 5;
@@ -546,7 +578,7 @@ assert_result!(
     "2"
 );
 
-assert_result!(
+assert_result_fn!(
     test_if_else_if_evaluates_conditions_in_order,
     r#"
     let checks = 0;
@@ -567,7 +599,7 @@ assert_result!(
     "2"
 );
 
-assert_result!(
+assert_result_fn!(
     test_compile_iterator_array,
     r#"
     for (message of [5, 'allo', {a: true}]) {
@@ -579,7 +611,7 @@ assert_result!(
     "{ a: true }"
 );
 
-assert_result!(
+assert_result_fn!(
     test_compile_iterator_generator,
     r#"
     function* t1(){
@@ -596,7 +628,7 @@ assert_result!(
     "{ a: true }"
 );
 
-assert_result!(
+assert_result_fn!(
     test_compile_iterator_multiple_generator,
     r#"
     function* t1() {
@@ -624,7 +656,7 @@ assert_result!(
     "2:b"
 );
 
-assert_result!(
+assert_result_fn!(
     test_order_of_operation,
     r#"
     console.log(5/8+7*9);
@@ -640,7 +672,7 @@ assert_result!(
     "-42"
 );
 
-assert_result!(
+assert_result_fn!(
     test_recursive,
     r#"
     // Objet global (const : la référence ne change pas, mais son contenu oui)
@@ -732,7 +764,7 @@ assert_result!(
     "État global : { compteur: 36, historique: [3, 13, 32, 60, 127, 260, 459, 925, 1856], stats: { appels: 9 } }"
 );
 
-assert_result!(
+assert_result_fn!(
     test_recursive_generator,
     r#"
     // Objet global (const : la référence ne change pas, mais son contenu oui)
@@ -842,7 +874,7 @@ assert_result!(
     "État global : { compteur: 36, historique: [3, 13, 32, 60, 127, 260, 459, 925, 1856], stats: { appels: 9 } }"
 );
 
-assert_result!(
+assert_result_fn!(
     test_typeof,
     r#"
     console.log("=== Primitive values ===");
@@ -970,7 +1002,7 @@ assert_result!(
     "undefined"
 );
 
-assert_result!(
+assert_result_fn!(
     test_conditional_operator,
     r#"
     // Basic booleans
@@ -1133,7 +1165,7 @@ assert_result!(
     "right"
 );
 
-assert_result!(
+assert_result_fn!(
     test_commas,
     "let a=5;while(a>0)console.log(a),a--,console.log(a);if(a>0)console.log('in');else console.log('out');for(let b=0;a++,b<2;b++,a--)console.log(a),console.log(b)",
     "5",
@@ -1153,7 +1185,7 @@ assert_result!(
     "1"
 );
 
-assert_result!(
+assert_result_fn!(
     test_comma_operator_basic,
     r#"
     let x = (1, 2, 3);
@@ -1162,7 +1194,7 @@ assert_result!(
     "3"
 );
 
-assert_result!(
+assert_result_fn!(
     test_comma_operator_in_expressions,
     r#"
     let a = 1;
@@ -1174,7 +1206,7 @@ assert_result!(
     "20"
 );
 
-assert_result!(
+assert_result_fn!(
     test_comma_operator_in_for_loop,
     r#"
     for (let i = 0, j = 5; i < 3; i++, j--) {
@@ -1186,7 +1218,7 @@ assert_result!(
     "5"
 );
 
-assert_result!(
+assert_result_fn!(
     test_edge_case_automatic_semi_insertion,
     r#"
     let x = 
@@ -1198,7 +1230,7 @@ assert_result!(
     "10"
 );
 
-assert_result!(
+assert_result_fn!(
     test_edge_case_division_by_zero,
     r#"
     console.log(1 / 0);
@@ -1210,7 +1242,7 @@ assert_result!(
     "NaN"
 );
 
-assert_result!(
+assert_result_fn!(
     test_edge_case_type_coercion,
     r#"
     console.log("5" + 3);
@@ -1223,7 +1255,7 @@ assert_result!(
     "2" //,"[object Object]"
 );
 
-assert_result!(
+assert_result_fn!(
     test_regex_constructor_and_literal,
     r#"
     console.log(typeof RegExp);
@@ -1250,7 +1282,7 @@ assert_result!(
     "/\\d+/"
 );
 
-assert_result!(
+assert_result_fn!(
     test_regexp_compile_metadata,
     r#"
     console.log(typeof RegExp.prototype.compile);
@@ -1271,7 +1303,7 @@ assert_result!(
     "true"
 );
 
-assert_result!(
+assert_result_fn!(
     test_regexp_compile_reinitializes,
     r#"
     let re = /a/g;
@@ -1292,7 +1324,7 @@ assert_result!(
     "1"
 );
 
-assert_result!(
+assert_result_fn!(
     test_regexp_compile_canonical_flags,
     r#"
     let re = /x/;
@@ -1302,7 +1334,7 @@ assert_result!(
     "gimsuy"
 );
 
-assert_result!(
+assert_result_fn!(
     test_regexp_compile_regexp_pattern,
     r#"
     let source = /a+/g;
@@ -1318,7 +1350,7 @@ assert_result!(
     "true"
 );
 
-assert_result!(
+assert_result_fn!(
     test_regexp_compile_preserves_state_on_error,
     r#"
     let re = /ok/g;
@@ -1340,7 +1372,7 @@ assert_result!(
     "false"
 );
 
-assert_result!(
+assert_result_fn!(
     test_object_primordial_methods,
     r#"
     console.log(Object.prototype.toString.call({}));
@@ -1364,7 +1396,7 @@ assert_result!(
     "a"
 );
 
-assert_result!(
+assert_result_fn!(
     test_object_get_own_property_names_starts_at_zero,
     r#"
     let names = Object.getOwnPropertyNames({prop1: 1001});
@@ -1375,7 +1407,7 @@ assert_result!(
     "prop1"
 );
 
-assert_result!(
+assert_result_fn!(
     test_arrow_this_cannot_be_overridden,
     r#"
     let calls = 0;
@@ -1390,7 +1422,7 @@ assert_result!(
     "1"
 );
 
-assert_result!(
+assert_result_fn!(
     test_function_arguments_binding,
     r#"
     function count(first) {
@@ -1401,7 +1433,7 @@ assert_result!(
     "3"
 );
 
-assert_result!(
+assert_result_fn!(
     test_logical_operators_short_circuit,
     r#"
     console.log(false && missing.value);
@@ -1411,7 +1443,7 @@ assert_result!(
     "true"
 );
 
-assert_result!(
+assert_result_fn!(
     test_regexp_compile_descriptor_values,
     r#"
     let desc = Object.getOwnPropertyDescriptor(RegExp.prototype.compile, "length");
@@ -1430,7 +1462,7 @@ assert_result!(
     "true"
 );
 
-assert_result!(
+assert_result_fn!(
     test_delete_operator,
     r#"
     let object = {a: 1};

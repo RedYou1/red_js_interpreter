@@ -18,7 +18,11 @@ mod runnable;
 pub use code_manipulation::*;
 pub use generator::*;
 pub use jsvalue::JsValue;
+pub use parser::expr::Expr;
+pub use parser::lexer::Token;
 pub use parser::parse;
+pub use parser::parse_with_extensions;
+pub use parser::parser::{CustomCode, CustomExpression, Parser, ParserExtensions};
 pub use prebuild::array::new_array;
 pub use prebuild::console::default_console_config;
 pub use prototype::Prototype;
@@ -170,6 +174,7 @@ pub struct Environment {
     pub mem: Rc<RefCell<Prototype>>,
     pub logger: Rc<RefCell<dyn Logger>>,
 }
+
 impl Environment {
     pub fn with_mem(&self, mem: Rc<RefCell<Prototype>>) -> Self {
         Self {
@@ -598,6 +603,17 @@ pub fn prebuild_prototypes(
     );
     prebuild_regex(env.clone());
     env.mem
+}
+
+/// Initializes the built-in objects and returns an environment ready for runtime configuration.
+pub fn prebuild_environment(
+    console_config: impl Fn(Environment) -> Rc<RefCell<Prototype>>,
+    logger: Rc<RefCell<dyn Logger>>,
+) -> Environment {
+    Environment {
+        mem: prebuild_prototypes(console_config, logger.clone()),
+        logger,
+    }
 }
 
 fn is_constructor(value: &Rc<RefCell<JsValue>>) -> bool {

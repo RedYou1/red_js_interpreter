@@ -1,7 +1,7 @@
-use crate::{assert_result, tests::*};
+use crate::{assert_result_fn, tests::*};
 
 // 1. Basic Throw and Catch
-assert_result!(
+assert_result_fn!(
     test_catch_std_error,
     r#"
     let errorCaught = false;
@@ -22,7 +22,7 @@ assert_result!(
 );
 
 // 2. Throwing Custom Data Types (Strings, Objects, etc.)
-assert_result!(
+assert_result_fn!(
     test_catch_custom_obj,
     r#"
     let caughtData = null;
@@ -41,7 +41,7 @@ assert_result!(
     "Not Found"
 );
 
-assert_result!(
+assert_result_fn!(
     test_catch_binding_shadows_outer_variable,
     r#"
     let error = "outer";
@@ -57,7 +57,7 @@ assert_result!(
 );
 
 // 3. The Finally Block (Success Path)
-assert_result!(
+assert_result_fn!(
     test_finally_even_when_no_error,
     r#"
     let finallyExecuted = false;
@@ -79,7 +79,7 @@ assert_result!(
 );
 
 // 4. The Finally Block (Error Path)
-assert_result!(
+assert_result_fn!(
     test_finally_after_error,
     r#"
     let finallyExecuted = false;
@@ -98,7 +98,7 @@ assert_result!(
 );
 
 // 5. Try/Finally without a Catch block
-assert_result!(
+assert_result_fn!(
     test_finally_without_catch,
     r#"
     let finallyExecuted = false;
@@ -122,7 +122,7 @@ assert_result!(
 );
 
 // 6. Rethrowing Errors
-assert_result!(
+assert_result_fn!(
     test_throw_in_catch,
     r#"
     const processData = () => {
@@ -142,7 +142,7 @@ assert_result!(
 );
 
 // 7. Optional Catch Binding (ES2019 feature)
-assert_result!(
+assert_result_fn!(
     test_catch_without_param,
     r#"
     let fallbackTriggered = false;
@@ -160,7 +160,7 @@ assert_result!(
 );
 
 // 8. Asynchronous Try/Catch (with async/await)
-assert_result!(
+assert_result_fn!(
     test_catch_an_awaited_error,
     r#"
     const fetchFailingData = async () => {
@@ -182,7 +182,7 @@ assert_result!(
 
 // 9. Return statements inside Finally
 // (Warning: Finally overrides return values from Try/Catch)
-assert_result!(
+assert_result_fn!(
     test_throw_in_finally,
     r#"
     const testReturn = () => {

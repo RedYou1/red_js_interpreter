@@ -14,7 +14,7 @@ use std::{
 
 use red_js_interpreter::{
     CodeResult, Environment, JsValue, LogLevel, Logger, Prototype, default_console_config,
-    new_runnable, parse, prebuild_prototypes, run_function_object,
+    parse, prebuild_prototypes,
 };
 use serde::Deserialize;
 
@@ -570,18 +570,7 @@ fn execute_case(source: &str) -> CaseOutcome {
     };
 
     let executed = panic::catch_unwind(AssertUnwindSafe(|| {
-        let function = Prototype::find(env.mem.clone(), &JsValue::String("Function".to_owned()))
-            .1
-            .borrow()
-            .unwrap_proto("test262 Function prototype");
-        let main = new_runnable(function, "__test262__", program);
-        let main = main.borrow().unwrap_proto("test262 main function");
-        run_function_object(
-            main,
-            Rc::new(std::cell::RefCell::new(JsValue::Undefined)),
-            vec![],
-            env.logger.clone(),
-        )
+        red_js_interpreter::parser_ast::Program::run(program, env)
     }));
 
     match executed {
