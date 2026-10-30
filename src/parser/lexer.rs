@@ -46,8 +46,10 @@ pub enum Token {
     Comma,
     Semicolon,
     Dot,
+    Spread,
     Assign(Option<BinaryOp>),
     QMark,
+    Nullish,
     Colon,
 
     Plus,
@@ -65,6 +67,7 @@ pub enum Token {
     LtEq,
     GtEq,
     Arrow,
+    BitNot,
 
     And,
     Or,
@@ -151,6 +154,9 @@ impl Token {
             Token::Void => "void",
             Token::Delete => "delete",
             Token::InstanceOf => "instanceof",
+            Token::Spread => "...",
+            Token::Nullish => "??",
+            Token::BitNot => "~",
             Token::Try => "try",
             Token::Catch => "catch",
             Token::Finally => "finally",
@@ -163,13 +169,17 @@ impl Token {
 
 use crate::parser::expr::BinaryOp;
 
+#[derive(Clone, Copy)]
+struct TemplateFrame {
+    in_expression: bool,
+    expression_depth: usize,
+}
+
 pub struct Lexer<'a> {
     chars: std::str::Chars<'a>,
     peeked: Option<char>,
     pending: Option<Token>,
-    template_mode: bool,
-    in_template_expr: bool,
-    template_expr_depth: usize,
+    template_stack: Vec<TemplateFrame>,
 }
 
 impl<'a> Lexer<'a> {
@@ -180,9 +190,7 @@ impl<'a> Lexer<'a> {
             chars,
             peeked,
             pending: None,
-            template_mode: false,
-            in_template_expr: false,
-            template_expr_depth: 0,
+            template_stack: Vec::new(),
         }
     }
 
@@ -226,6 +234,59 @@ impl<'a> Lexer<'a> {
         })
     }
 
+    fn starts_with_ellipsis(&self) -> bool {
+        if self.peek() != Some('.') {
+            return false;
+        }
+        let mut remaining = self.chars.clone();
+        remaining.next() == Some('.') && remaining.next() == Some('.')
+    }
+
+    fn read_number(&mut self) -> Option<(String, f64)> {
+        let mut number = String::new();
+        if self
+            .peek()
+            .is_some_and(|character| character.is_ascii_digit())
+        {
+            number.push_str(&self.eat_while(|character| character.is_ascii_digit()));
+            if self.peek() == Some('.') && !self.starts_with_ellipsis() {
+                number.push(self.bump()?);
+                number.push_str(&self.eat_while(|character| character.is_ascii_digit()));
+            }
+        } else if self.peek() == Some('.') && !self.starts_with_ellipsis() {
+            let mut remaining = self.chars.clone();
+            if !remaining
+                .next()
+                .is_some_and(|character| character.is_ascii_digit())
+            {
+                return None;
+            }
+            number.push(self.bump()?);
+            number.push_str(&self.eat_while(|character| character.is_ascii_digit()));
+        } else {
+            return None;
+        }
+
+        let power = if matches!(self.peek(), Some('e' | 'E')) {
+            self.bump();
+            let negative = matches!(self.peek(), Some('-'));
+            if matches!(self.peek(), Some('+' | '-')) {
+                self.bump();
+            }
+            let exponent = self
+                .eat_while(|character| character.is_ascii_digit())
+                .parse::<u32>()
+                .unwrap();
+            10.0_f64.powf(exponent as f64 * if negative { -1.0 } else { 1.0 })
+        } else {
+            1.0_f64
+        };
+        if self.peek() == Some('n') {
+            self.bump();
+        }
+        Some((number, power))
+    }
+
     pub fn next_token(&mut self, prev: &[Token]) -> Token {
         // logln(
         //     LogLevel::Trace,
@@ -241,12 +302,16 @@ impl<'a> Lexer<'a> {
             return token;
         }
 
-        if self.template_mode {
+        if self
+            .template_stack
+            .last()
+            .is_some_and(|frame| !frame.in_expression)
+        {
             let mut literal = String::new();
             while let Some(ch) = self.peek() {
                 if ch == '`' {
                     self.bump();
-                    self.template_mode = false;
+                    self.template_stack.pop();
                     if !literal.is_empty() {
                         self.pending = Some(Token::TemplateEnd);
                         return Token::TemplateString(literal);
@@ -258,9 +323,10 @@ impl<'a> Lexer<'a> {
                     if let Some('{') = clone.next() {
                         self.bump();
                         self.bump();
-                        self.template_mode = false;
-                        self.in_template_expr = true;
-                        self.template_expr_depth = 0;
+                        if let Some(frame) = self.template_stack.last_mut() {
+                            frame.in_expression = true;
+                            frame.expression_depth = 0;
+                        }
                         if !literal.is_empty() {
                             self.pending = Some(Token::TemplateExprStart);
                             return Token::TemplateString(literal);
@@ -277,24 +343,31 @@ impl<'a> Lexer<'a> {
                 self.bump();
                 literal.push(ch);
             }
-            self.template_mode = false;
+            self.template_stack.pop();
             return Token::TemplateString(literal);
         }
 
         while let Some(c) = self.peek() {
-            if self.in_template_expr {
+            if self
+                .template_stack
+                .last()
+                .is_some_and(|frame| frame.in_expression)
+            {
                 if c == '{' {
                     self.bump();
-                    self.template_expr_depth += 1;
+                    if let Some(frame) = self.template_stack.last_mut() {
+                        frame.expression_depth += 1;
+                    }
                     return Token::LBrace;
                 }
                 if c == '}' {
                     self.bump();
-                    if self.template_expr_depth == 0 {
-                        self.in_template_expr = false;
-                        self.template_mode = true;
-                    } else {
-                        self.template_expr_depth -= 1;
+                    if let Some(frame) = self.template_stack.last_mut() {
+                        if frame.expression_depth == 0 {
+                            frame.in_expression = false;
+                        } else {
+                            frame.expression_depth -= 1;
+                        }
                     }
                     return Token::RBrace;
                 }
@@ -461,8 +534,16 @@ impl<'a> Lexer<'a> {
                         return Token::Not;
                     }
                 }
+                '~' => {
+                    self.bump();
+                    return Token::BitNot;
+                }
                 '?' => {
                     self.bump();
+                    if self.peek() == Some('?') {
+                        self.bump();
+                        return Token::Nullish;
+                    }
                     return Token::QMark;
                 }
                 '<' => {
@@ -499,6 +580,21 @@ impl<'a> Lexer<'a> {
                     } else {
                         return Token::Gt;
                     }
+                }
+                '.' if self.starts_with_ellipsis() => {
+                    self.bump();
+                    self.bump();
+                    self.bump();
+                    return Token::Spread;
+                }
+                '.' if !self
+                    .chars
+                    .clone()
+                    .next()
+                    .is_some_and(|character| character.is_ascii_digit()) =>
+                {
+                    self.bump();
+                    return Token::Dot;
                 }
                 '%' => {
                     self.bump();
@@ -542,7 +638,10 @@ impl<'a> Lexer<'a> {
                 }
                 '`' => {
                     self.bump();
-                    self.template_mode = true;
+                    self.template_stack.push(TemplateFrame {
+                        in_expression: false,
+                        expression_depth: 0,
+                    });
                     return Token::TemplateStart;
                 }
                 '"' | '\'' => {
@@ -568,41 +667,16 @@ impl<'a> Lexer<'a> {
                 c if is_ident_start(c) => {
                     return Token::from_keyword(self.eat_while(is_ident_continue));
                 }
-                _ if let mut s = self.eat_while(|ch| ch.is_ascii_digit() || ch == '.')
-                    && !s.is_empty() =>
-                {
-                    if s == "." {
-                        return Token::Dot;
-                    }
-                    if s.starts_with(".") {
-                        s.insert(0, '0');
-                    }
-                    let pow = if matches!(self.peek(), Some('e' | 'E')) {
-                        self.bump();
-                        let neg = matches!(self.peek(), Some('-'));
-                        if matches!(self.peek(), Some('+') | Some('-')) {
-                            self.bump();
-                        }
-                        let s = self
-                            .eat_while(|ch| ch.is_ascii_digit())
-                            .parse::<u32>()
-                            .unwrap();
-                        10.0_f64.powf(s as f64 * if neg { -1.0 } else { 1.0 })
-                    } else {
-                        1.0_f64
-                    };
-                    if let Some('n') = self.peek() {
-                        self.bump();
-                    }
+                _ if let Some((s, power)) = self.read_number() => {
                     if let Ok(n) = s.parse::<i64>() {
-                        let n = n as f64 * pow;
+                        let n = n as f64 * power;
                         if ((n as i64) as f64) == n {
                             return Token::BigInt(n as i64);
                         } else {
                             return Token::Number(n);
                         }
                     } else if let Ok(n) = s.parse::<f64>() {
-                        let n = n * pow;
+                        let n = n * power;
                         if ((n as i64) as f64) == n {
                             return Token::BigInt(n as i64);
                         } else {
@@ -646,5 +720,29 @@ mod tests {
             assert_eq!(lexer.next_token(&[]), expected);
             assert_eq!(lexer.next_token(&[expected]), Token::Eof);
         }
+    }
+
+    #[test]
+    fn separates_numeric_literal_from_ellipsis() {
+        let mut lexer = Lexer::new("0...");
+        assert_eq!(lexer.next_token(&[]), Token::BigInt(0));
+        assert_eq!(lexer.next_token(&[]), Token::Spread);
+        assert_eq!(lexer.next_token(&[]), Token::Eof);
+    }
+
+    #[test]
+    fn lexes_fraction_without_leading_zero() {
+        let mut lexer = Lexer::new(".5");
+        assert_eq!(lexer.next_token(&[]), Token::Number(0.5));
+        assert_eq!(lexer.next_token(&[]), Token::Eof);
+    }
+
+    #[test]
+    fn lexes_member_access_dot() {
+        let mut lexer = Lexer::new("console.log");
+        assert_eq!(lexer.next_token(&[]), Token::Ident("console".to_owned()));
+        assert_eq!(lexer.next_token(&[]), Token::Dot);
+        assert_eq!(lexer.next_token(&[]), Token::Ident("log".to_owned()));
+        assert_eq!(lexer.next_token(&[]), Token::Eof);
     }
 }

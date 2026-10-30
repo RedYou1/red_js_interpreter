@@ -1,4 +1,4 @@
-use std::{cell::RefCell, rc::Rc};
+use std::{cell::RefCell, cmp::Ordering, rc::Rc};
 
 use crate::{
     Code, CodeIndex, CodeResult, Environment, JsValue, LogLevel, handle_return, inline_borrow,
@@ -25,6 +25,7 @@ pub enum BinaryOp {
     GtEq,
     BinAnd,
     LogAnd,
+    Nullish,
     BinOr,
     LogOr,
     XOr,
@@ -45,7 +46,16 @@ impl Operator {
     }
 
     fn parse_binary(parser: &mut Parser, min_bp: u8) -> Box<dyn Expr> {
-        let mut lhs = match parser.tokens()[parser.index()] {
+        let lhs = Self::parse_unary_with_root(parser, min_bp == 0);
+        Self::parse_binary_tail(parser, min_bp, lhs)
+    }
+
+    pub fn parse_unary(parser: &mut Parser) -> Box<dyn Expr> {
+        Self::parse_unary_with_root(parser, false)
+    }
+
+    fn parse_unary_with_root(parser: &mut Parser, root: bool) -> Box<dyn Expr> {
+        match parser.tokens()[parser.index()] {
             Token::Plus => {
                 parser.bump();
                 Self::parse_binary(parser, 26)
@@ -78,8 +88,21 @@ impl Operator {
                     expr: Self::parse_binary(parser, 26),
                 }) as Box<dyn Expr>
             }
-            _ => parser.parse_call_or_primary(min_bp == 0),
-        };
+            Token::BitNot => {
+                parser.bump();
+                Box::new(expr::BitNot {
+                    expr: Self::parse_binary(parser, 26),
+                }) as Box<dyn Expr>
+            }
+            _ => parser.parse_call_or_primary(root),
+        }
+    }
+
+    pub fn parse_tail(parser: &mut Parser, lhs: Box<dyn Expr>) -> Box<dyn Expr> {
+        Self::parse_binary_tail(parser, 0, lhs)
+    }
+
+    fn parse_binary_tail(parser: &mut Parser, min_bp: u8, mut lhs: Box<dyn Expr>) -> Box<dyn Expr> {
         // advance tokens for loop
         while let Some((l_bp, r_bp)) = Self::precedence(
             &parser.tokens()[parser.index()],
@@ -123,6 +146,7 @@ impl Operator {
                     parser.bump();
                     expr::BinaryOp::LogAnd
                 }
+                Token::Nullish => expr::BinaryOp::Nullish,
                 Token::And => expr::BinaryOp::BinAnd,
                 Token::Or if let Token::Or = parser.tokens()[parser.index() + 1] => {
                     parser.bump();
@@ -156,6 +180,7 @@ impl Operator {
             // (Token::Comma, _) => Some((2, 3)),
             (Token::QMark | Token::Colon, _) => Some((4, 5)),
             (Token::Or, Some(Token::Or)) => Some((6, 7)),
+            (Token::Nullish, _) => Some((7, 8)),
             (Token::And, Some(Token::And)) => Some((8, 9)),
             (Token::Or, _) => Some((10, 11)),
             (Token::XOr, _) => Some((12, 13)),
@@ -185,6 +210,58 @@ impl Expr for Not {
             CodeResult::Normal(Rc::new(RefCell::new(JsValue::Boolean(
                 !inline_borrow!(value).is_truthy(),
             ))))
+        })]
+    }
+
+    fn duplicate(&self) -> Box<dyn Expr> {
+        Box::new(Self {
+            expr: self.expr.duplicate(),
+        })
+    }
+}
+
+#[derive(Debug)]
+pub struct BitNot {
+    pub expr: Box<dyn Expr>,
+}
+
+#[derive(Debug)]
+pub struct Void {
+    pub expr: Box<dyn Expr>,
+}
+
+impl Expr for Void {
+    fn compile(&self, environment: Environment) -> Vec<Code> {
+        let expression = self.expr.compile(environment);
+        vec![Box::new(move |environment, _| {
+            handle_return!(run_sub(&expression, environment, &mut CodeIndex::new()));
+            CodeResult::Normal(Rc::new(RefCell::new(JsValue::Undefined)))
+        })]
+    }
+
+    fn duplicate(&self) -> Box<dyn Expr> {
+        Box::new(Self {
+            expr: self.expr.duplicate(),
+        })
+    }
+}
+
+impl Expr for BitNot {
+    fn compile(&self, environment: Environment) -> Vec<Code> {
+        let expression = self.expr.compile(environment);
+        vec![Box::new(move |environment, _| {
+            let value = handle_return!(run_sub(&expression, environment, &mut CodeIndex::new()));
+            let integer = match inline_borrow!(value) {
+                JsValue::BigInt(value) => value as i32,
+                JsValue::Number(value) if value.is_finite() => value as i32,
+                JsValue::Boolean(value) => i32::from(value),
+                JsValue::Null => 0,
+                JsValue::String(value) => {
+                    value.trim().parse::<f64>().map_or(0, |value| value as i32)
+                }
+                _ => 0,
+            };
+            CodeResult::Normal(Rc::new(RefCell::new(JsValue::BigInt(i64::from(!integer)))))
         })]
     }
 
@@ -233,11 +310,23 @@ impl Expr for Operator {
                 format!("Entering Expr::Operator op={:?}", op)
             });
             let left_value = handle_return!(run_sub(&left, env.clone(), &mut CodeIndex::new()));
+            if op == BinaryOp::Nullish {
+                if !matches!(
+                    inline_borrow!(left_value.clone()),
+                    JsValue::Null | JsValue::Undefined
+                ) {
+                    return CodeResult::Normal(left_value);
+                }
+                return CodeResult::Normal(handle_return!(run_sub(
+                    &right,
+                    env.clone(),
+                    &mut CodeIndex::new()
+                )));
+            }
             if op == BinaryOp::LogAnd || op == BinaryOp::LogOr {
                 let left_truthy = left_value.borrow().is_truthy();
-                let should_return_left =
-                    (op == BinaryOp::LogAnd && !left_truthy)
-                        || (op == BinaryOp::LogOr && left_truthy);
+                let should_return_left = (op == BinaryOp::LogAnd && !left_truthy)
+                    || (op == BinaryOp::LogOr && left_truthy);
                 if should_return_left {
                     return CodeResult::Normal(left_value);
                 }
@@ -376,38 +465,23 @@ impl Expr for Operator {
                 },
                 BinaryOp::Eq => JsValue::Boolean(l.eq(&r)),
                 BinaryOp::NotEq => JsValue::Boolean(l.ne(&r)),
-                BinaryOp::Lt => match (l, r) {
-                    (JsValue::BigInt(a), JsValue::BigInt(b)) => JsValue::Boolean(a < b),
-                    (JsValue::BigInt(a), JsValue::Number(b)) => JsValue::Boolean((a as f64) < b),
-                    (JsValue::Number(a), JsValue::BigInt(b)) => JsValue::Boolean(a < b as f64),
-                    (JsValue::Number(a), JsValue::Number(b)) => JsValue::Boolean(a < b),
-                    _ => JsValue::Boolean(false),
-                },
-                BinaryOp::Gt => match (l, r) {
-                    (JsValue::BigInt(a), JsValue::BigInt(b)) => JsValue::Boolean(a > b),
-                    (JsValue::BigInt(a), JsValue::Number(b)) => JsValue::Boolean((a as f64) > b),
-                    (JsValue::Number(a), JsValue::BigInt(b)) => JsValue::Boolean(a > b as f64),
-                    (JsValue::Number(a), JsValue::Number(b)) => JsValue::Boolean(a > b),
-                    _ => JsValue::Boolean(false),
-                },
-                BinaryOp::LtEq => match (l, r) {
-                    (JsValue::BigInt(a), JsValue::BigInt(b)) => JsValue::Boolean(a <= b),
-                    (JsValue::BigInt(a), JsValue::Number(b)) => JsValue::Boolean((a as f64) <= b),
-                    (JsValue::Number(a), JsValue::BigInt(b)) => JsValue::Boolean(a <= b as f64),
-                    (JsValue::Number(a), JsValue::Number(b)) => JsValue::Boolean(a <= b),
-                    _ => JsValue::Boolean(false),
-                },
-                BinaryOp::GtEq => match (l, r) {
-                    (JsValue::BigInt(a), JsValue::BigInt(b)) => JsValue::Boolean(a >= b),
-                    (JsValue::BigInt(a), JsValue::Number(b)) => JsValue::Boolean((a as f64) >= b),
-                    (JsValue::Number(a), JsValue::BigInt(b)) => JsValue::Boolean(a >= b as f64),
-                    (JsValue::Number(a), JsValue::Number(b)) => JsValue::Boolean(a >= b),
-                    _ => JsValue::Boolean(false),
-                },
+                BinaryOp::Lt => JsValue::Boolean(
+                    relational_order(&l, &r).is_some_and(|order| order == Ordering::Less),
+                ),
+                BinaryOp::Gt => JsValue::Boolean(
+                    relational_order(&l, &r).is_some_and(|order| order == Ordering::Greater),
+                ),
+                BinaryOp::LtEq => JsValue::Boolean(
+                    relational_order(&l, &r).is_some_and(|order| order != Ordering::Greater),
+                ),
+                BinaryOp::GtEq => JsValue::Boolean(
+                    relational_order(&l, &r).is_some_and(|order| order != Ordering::Less),
+                ),
                 BinaryOp::BinAnd => todo!(),
                 BinaryOp::BinOr => todo!(),
                 BinaryOp::LogAnd => JsValue::Boolean(l.is_truthy() && r.is_truthy()),
                 BinaryOp::LogOr => JsValue::Boolean(l.is_truthy() || r.is_truthy()),
+                BinaryOp::Nullish => unreachable!("nullish operator short-circuits above"),
                 BinaryOp::XOr => todo!(),
                 BinaryOp::ShiftL => todo!(),
                 BinaryOp::ShiftR => todo!(),
@@ -425,6 +499,30 @@ impl Expr for Operator {
             op: self.op.clone(),
             right: self.right.duplicate(),
         })
+    }
+}
+
+fn relational_order(left: &JsValue, right: &JsValue) -> Option<Ordering> {
+    if let (JsValue::String(left), JsValue::String(right)) = (left, right) {
+        return Some(left.encode_utf16().cmp(right.encode_utf16()));
+    }
+    number_value(left)?.partial_cmp(&number_value(right)?)
+}
+
+fn number_value(value: &JsValue) -> Option<f64> {
+    match value {
+        JsValue::BigInt(value) => Some(*value as f64),
+        JsValue::Number(value) => Some(*value),
+        JsValue::Boolean(value) => Some(if *value { 1.0 } else { 0.0 }),
+        JsValue::Null => Some(0.0),
+        JsValue::Undefined
+        | JsValue::Function(_)
+        | JsValue::Generator(_)
+        | JsValue::RedGex(_)
+        | JsValue::Symbol(_, _) => None,
+        JsValue::String(value) if value.trim().is_empty() => Some(0.0),
+        JsValue::String(value) => value.trim().parse().ok(),
+        JsValue::Prototype(_) => None,
     }
 }
 

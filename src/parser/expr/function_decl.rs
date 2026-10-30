@@ -9,6 +9,8 @@ use crate::{
 pub struct FunctionDecl {
     pub name: &'static str,
     pub params: Vec<String>,
+    pub excess: Option<String>,
+    pub parameter_initializers: Vec<Box<dyn Expr>>,
     pub body: Rc<[Box<dyn Expr>]>,
     pub generator: bool,
     pub insert: bool,
@@ -46,12 +48,15 @@ impl FunctionDecl {
             panic!("expected '('");
         }
         parser.bump();
-        let params = parser.parse_param_list();
+        let mut parameter_initializers = Vec::new();
+        let (params, excess) = parser.parse_function_parameters(&mut parameter_initializers);
         parser.skip_to(Token::LBrace);
         let body = Rc::from(parser.parse_block());
         Self {
             name,
             params,
+            excess,
+            parameter_initializers,
             body,
             generator,
             insert,
@@ -69,6 +74,12 @@ impl Expr for FunctionDecl {
 
         let generator = self.generator;
         let params = self.params.clone();
+        let excess = self.excess.clone();
+        let parameter_initializers = self
+            .parameter_initializers
+            .iter()
+            .map(|initializer| initializer.duplicate())
+            .collect::<Vec<_>>();
         let body = self.body.clone();
         let insert = self.insert;
         let lexical_this = self.lexical_this;
@@ -94,15 +105,18 @@ impl Expr for FunctionDecl {
             } else {
                 None
             };
-            let code: Vec<Code> = body
+            let function_environment = Environment {
+                mem: my_mem.clone(),
+                logger: env.logger.clone(),
+            };
+            let mut code: Vec<Code> = parameter_initializers
                 .iter()
-                .flat_map(|stmt| {
-                    stmt.compile(Environment {
-                        mem: my_mem.clone(),
-                        logger: env.logger.clone(),
-                    })
-                })
+                .flat_map(|initializer| initializer.compile(function_environment.clone()))
                 .collect();
+            code.extend(
+                body.iter()
+                    .flat_map(|stmt| stmt.compile(function_environment.clone())),
+            );
 
             let js_func = if generator {
                 new_generator(
@@ -110,7 +124,7 @@ impl Expr for FunctionDecl {
                     name,
                     crate::Generator {
                         params: params.clone(),
-                        excess: None,
+                        excess: excess.clone(),
                         code: Rc::from(code),
                         mem: my_mem.clone(),
                     },
@@ -121,7 +135,7 @@ impl Expr for FunctionDecl {
                     name,
                     crate::Runnable {
                         params: params.clone(),
-                        excess: None,
+                        excess: excess.clone(),
                         code,
                         mem: my_mem.clone(),
                         lexical_this: lexical_this.clone(),
@@ -142,6 +156,12 @@ impl Expr for FunctionDecl {
         Box::new(Self {
             name: self.name,
             params: self.params.clone(),
+            excess: self.excess.clone(),
+            parameter_initializers: self
+                .parameter_initializers
+                .iter()
+                .map(|initializer| initializer.duplicate())
+                .collect(),
             body: self.body.iter().map(|t| t.duplicate()).collect(),
             generator: self.generator,
             insert: self.insert,

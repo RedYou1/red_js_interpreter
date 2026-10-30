@@ -116,7 +116,10 @@ impl Expr for ConstRegex {
             env.logger.borrow_mut().logln(LogLevel::Trace, &|| {
                 format!("Expr::ConstRegex source={source:?} flags={flags:?}")
             });
-            crate::prebuild::regex::new_regex(env.clone(), source.clone(), flags.clone())
+            match crate::prebuild::regex::new_regex(env.clone(), source.clone(), flags.clone()) {
+                CodeResult::Return(value) => CodeResult::Normal(value),
+                result => result,
+            }
         })]
     }
 

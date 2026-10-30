@@ -2,7 +2,9 @@ use std::{cell::RefCell, rc::Rc};
 
 use crate::{
     Code, CodeIndex, CodeResult, Environment, JsValue, LogLevel, Prototype, RUNNABLE, handle_error,
-    inline_borrow, parser::expr::Expr, run_function_object, run_generator_object, run_sub,
+    inline_borrow,
+    parser::expr::{Expr, expand_spread},
+    run_function_object, run_generator_object, run_sub,
 };
 
 #[derive(Debug)]
@@ -19,6 +21,7 @@ impl Expr for Call {
             .iter()
             .map(|arg| arg.compile(env.clone()))
             .collect();
+        let expression = format!("{self:?}");
         vec![Box::new(move |env, _| {
             env.logger
                 .borrow_mut()
@@ -30,12 +33,20 @@ impl Expr for Call {
                 }
                 e => return e,
             };
-            let func_proto = func.borrow().unwrap_proto("expr::Call func_proto");
+            let func_proto = match inline_borrow!(func.clone()) {
+                JsValue::Prototype(function) => function,
+                other => panic!("expr::Call {expression} received {other:?}"),
+            };
             let mut args_evaluated: Vec<Rc<RefCell<JsValue>>> = Vec::new();
             for arg in args.iter() {
                 match run_sub(arg, env.clone(), &mut CodeIndex::new()) {
-                    CodeResult::Normal(res) => args_evaluated.push(res),
-                    CodeResult::NormalMember(res, _, _) => args_evaluated.push(res),
+                    CodeResult::Normal(res) | CodeResult::NormalMember(res, _, _) => {
+                        if let Some(spread) = expand_spread(&res) {
+                            args_evaluated.extend(spread);
+                        } else {
+                            args_evaluated.push(res);
+                        }
+                    }
                     e => return e,
                 }
             }
@@ -129,6 +140,82 @@ impl Expr for Call {
         Box::new(Self {
             func: self.func.as_ref().duplicate(),
             args: self.args.iter().map(|t| t.as_ref().duplicate()).collect(),
+        })
+    }
+}
+
+#[derive(Debug)]
+pub struct OptionalCall {
+    pub func: Box<dyn Expr>,
+    pub args: Vec<Box<dyn Expr>>,
+}
+
+impl Expr for OptionalCall {
+    fn compile(&self, environment: Environment) -> Vec<Code> {
+        let func = self.func.compile(environment.clone());
+        let args = self
+            .args
+            .iter()
+            .map(|argument| argument.compile(environment.clone()))
+            .collect::<Vec<_>>();
+        vec![Box::new(move |environment, _| {
+            let (function, this) = match run_sub(&func, environment.clone(), &mut CodeIndex::new())
+            {
+                CodeResult::Normal(function) => {
+                    (function, Rc::new(RefCell::new(JsValue::Undefined)))
+                }
+                CodeResult::NormalMember(function, owner, _) => {
+                    (function, Rc::new(RefCell::new(JsValue::Prototype(owner))))
+                }
+                result => return result,
+            };
+            if matches!(
+                inline_borrow!(function.clone()),
+                JsValue::Null | JsValue::Undefined
+            ) {
+                return CodeResult::Normal(Rc::new(RefCell::new(JsValue::Undefined)));
+            }
+            let function = function.borrow().unwrap_proto("optional call target");
+            let mut evaluated_arguments = Vec::new();
+            for argument in &args {
+                let result = match run_sub(argument, environment.clone(), &mut CodeIndex::new()) {
+                    CodeResult::Normal(value) | CodeResult::NormalMember(value, _, _) => value,
+                    result => return result,
+                };
+                if let Some(spread) = crate::parser::expr::expand_spread(&result) {
+                    evaluated_arguments.extend(spread);
+                } else {
+                    evaluated_arguments.push(result);
+                }
+            }
+            if !matches!(
+                inline_borrow!(Prototype::find(function.clone(), &RUNNABLE.into()).1),
+                JsValue::Function(_)
+            ) {
+                return CodeResult::Normal(Rc::new(RefCell::new(JsValue::Undefined)));
+            }
+            match run_function_object(
+                function,
+                this,
+                evaluated_arguments,
+                environment.logger.clone(),
+            ) {
+                CodeResult::Normal(value)
+                | CodeResult::NormalMember(value, _, _)
+                | CodeResult::Return(value) => CodeResult::Normal(value),
+                result => result,
+            }
+        })]
+    }
+
+    fn duplicate(&self) -> Box<dyn Expr> {
+        Box::new(Self {
+            func: self.func.duplicate(),
+            args: self
+                .args
+                .iter()
+                .map(|argument| argument.duplicate())
+                .collect(),
         })
     }
 }

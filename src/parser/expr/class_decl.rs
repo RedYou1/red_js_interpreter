@@ -94,6 +94,8 @@ impl Expr for ClassDecl {
             FunctionDecl {
                 name: "constructor",
                 params: vec![],
+                excess: None,
+                parameter_initializers: vec![],
                 body: Rc::new([]),
                 generator: false,
                 insert: false,

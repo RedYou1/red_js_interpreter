@@ -1,5 +1,149 @@
 use crate::prebuild::prelude::*;
 
+pub fn prebuild_numeric_parsers(environment: Environment) {
+    let function = Prototype::find(environment.mem.clone(), &stringify!(Function).into())
+        .1
+        .borrow()
+        .unwrap_proto("numeric parser Function prototype");
+    let parse_integer = new_runnable(
+        function.clone(),
+        "parseInt",
+        prebuild_runnable_direct(
+            environment.clone(),
+            Box::new(|_, _, arguments| {
+                let Some(input) = arguments.first() else {
+                    return CodeResult::Return(Rc::new(RefCell::new(JsValue::Number(f64::NAN))));
+                };
+                let radix = arguments
+                    .get(1)
+                    .and_then(|radix| value_string(radix).parse::<i64>().ok())
+                    .unwrap_or(0);
+                let parsed = parse_integer_prefix(&value_string(input), radix);
+                CodeResult::Return(Rc::new(RefCell::new(JsValue::Number(parsed))))
+            }),
+        ),
+    );
+    let parse_float = new_runnable(
+        function,
+        "parseFloat",
+        prebuild_runnable_direct(
+            environment.clone(),
+            Box::new(|_, _, arguments| {
+                let parsed = arguments
+                    .first()
+                    .map(value_string)
+                    .map_or(f64::NAN, |input| parse_float_prefix(&input));
+                CodeResult::Return(Rc::new(RefCell::new(JsValue::Number(parsed))))
+            }),
+        ),
+    );
+    environment
+        .mem
+        .borrow_mut()
+        .properties
+        .insert("parseInt".into(), parse_integer);
+    environment
+        .mem
+        .borrow_mut()
+        .properties
+        .insert("parseFloat".into(), parse_float);
+}
+
+fn value_string(value: &Rc<RefCell<JsValue>>) -> String {
+    match inline_borrow!(value.clone()) {
+        JsValue::String(value) => value,
+        value => value.print(),
+    }
+}
+
+fn parse_integer_prefix(input: &str, requested_radix: i64) -> f64 {
+    let input = input.trim_start();
+    let (sign, input) = if let Some(input) = input.strip_prefix('-') {
+        (-1.0, input)
+    } else if let Some(input) = input.strip_prefix('+') {
+        (1.0, input)
+    } else {
+        (1.0, input)
+    };
+    let radix = if requested_radix == 0 {
+        if input.starts_with("0x") || input.starts_with("0X") {
+            16
+        } else {
+            10
+        }
+    } else if (2..=36).contains(&requested_radix) {
+        requested_radix as u32
+    } else {
+        return f64::NAN;
+    };
+    let input = if radix == 16 && (input.starts_with("0x") || input.starts_with("0X")) {
+        &input[2..]
+    } else {
+        input
+    };
+    let mut parsed = 0.0;
+    let mut found_digit = false;
+    for character in input.chars() {
+        let Some(digit) = character.to_digit(radix) else {
+            break;
+        };
+        found_digit = true;
+        parsed = parsed * f64::from(radix) + f64::from(digit);
+    }
+    if found_digit { sign * parsed } else { f64::NAN }
+}
+
+fn parse_float_prefix(input: &str) -> f64 {
+    let input = input.trim_start();
+    for (prefix, value) in [
+        ("Infinity", f64::INFINITY),
+        ("+Infinity", f64::INFINITY),
+        ("-Infinity", f64::NEG_INFINITY),
+    ] {
+        if let Some(rest) = input.strip_prefix(prefix) {
+            return if rest.is_empty()
+                || rest.starts_with(|character: char| !character.is_alphanumeric())
+            {
+                value
+            } else {
+                f64::NAN
+            };
+        }
+    }
+    let bytes = input.as_bytes();
+    let mut index = usize::from(matches!(bytes.first(), Some(b'+' | b'-')));
+    let mut digits = 0;
+    while bytes.get(index).is_some_and(u8::is_ascii_digit) {
+        digits += 1;
+        index += 1;
+    }
+    if bytes.get(index) == Some(&b'.') {
+        index += 1;
+        while bytes.get(index).is_some_and(u8::is_ascii_digit) {
+            digits += 1;
+            index += 1;
+        }
+    }
+    if digits == 0 {
+        return f64::NAN;
+    }
+    if matches!(bytes.get(index), Some(b'e' | b'E')) {
+        let exponent_start = index;
+        index += 1;
+        if matches!(bytes.get(index), Some(b'+' | b'-')) {
+            index += 1;
+        }
+        let exponent_digits = index;
+        while bytes.get(index).is_some_and(u8::is_ascii_digit) {
+            index += 1;
+        }
+        if index == exponent_digits {
+            index = exponent_start;
+        }
+    }
+    input[..index].parse().unwrap_or(f64::NAN)
+}
+
 new_class! {
     prebuild_number,
     Number,

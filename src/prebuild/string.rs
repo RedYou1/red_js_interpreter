@@ -196,5 +196,95 @@ new_class! {
         } else {
             JsValue::String("".to_owned())
         })))
+    },
+    match, fn_direct,
+    string_match;
+}
+
+fn string_match(
+    environment: Environment,
+    this: Rc<RefCell<JsValue>>,
+    arguments: Vec<Rc<RefCell<JsValue>>>,
+) -> CodeResult {
+    let text = inline_borrow!(this).print();
+    let search = arguments
+        .first()
+        .cloned()
+        .unwrap_or_else(|| Rc::new(RefCell::new(JsValue::Undefined)));
+    let regex = match string_match_regex(environment.clone(), search) {
+        Ok(regex) => regex,
+        Err(error) => return error,
     };
+    let global = matches!(
+        inline_borrow!(Prototype::find(regex.clone(), &"global".into()).1),
+        JsValue::Boolean(true)
+    );
+    let method_name = if global { "allMatches" } else { "exec" };
+    let method = Prototype::find(regex.clone(), &method_name.into()).1;
+    let JsValue::Prototype(method) = inline_borrow!(method) else {
+        return CodeResult::Return(Rc::new(RefCell::new(JsValue::Null)));
+    };
+    let result = run_function_object(
+        method,
+        Rc::new(RefCell::new(JsValue::Prototype(regex))),
+        vec![Rc::new(RefCell::new(JsValue::String(text)))],
+        environment.logger.clone(),
+    );
+    if global {
+        global_match_strings(environment, result)
+    } else {
+        result
+    }
+}
+
+fn string_match_regex(
+    environment: Environment,
+    search: Rc<RefCell<JsValue>>,
+) -> Result<Rc<RefCell<Prototype>>, CodeResult> {
+    if let JsValue::Prototype(regex) = inline_borrow!(search.clone())
+        && Prototype::opt_find(regex.clone(), &"exec".into()).is_some()
+    {
+        return Ok(regex);
+    }
+    let pattern = if matches!(inline_borrow!(search.clone()), JsValue::Undefined) {
+        String::new()
+    } else {
+        inline_borrow!(search).print()
+    };
+    match crate::prebuild::regex::new_regex(environment, pattern, String::new()) {
+        CodeResult::Return(regex) => match inline_borrow!(regex) {
+            JsValue::Prototype(regex) => Ok(regex),
+            _ => Err(CodeResult::Return(Rc::new(RefCell::new(JsValue::Null)))),
+        },
+        error => Err(error),
+    }
+}
+
+fn global_match_strings(environment: Environment, result: CodeResult) -> CodeResult {
+    let result = match result {
+        CodeResult::Return(value) | CodeResult::Normal(value) => value,
+        CodeResult::Error(error) => return CodeResult::Error(error),
+        _ => return CodeResult::Return(Rc::new(RefCell::new(JsValue::Null))),
+    };
+    let JsValue::Prototype(matches) = inline_borrow!(result) else {
+        return CodeResult::Return(Rc::new(RefCell::new(JsValue::Null)));
+    };
+    let length = Prototype::find(matches.clone(), &"length".into()).1;
+    let JsValue::BigInt(length) = inline_borrow!(length) else {
+        return CodeResult::Return(Rc::new(RefCell::new(JsValue::Null)));
+    };
+    let values = (0..length.max(0))
+        .filter_map(|index| {
+            let matched = Prototype::find(matches.clone(), &JsValue::BigInt(index)).1;
+            let JsValue::Prototype(matched) = inline_borrow!(matched) else {
+                return None;
+            };
+            Some(Prototype::find(matched, &JsValue::BigInt(0)).1)
+        })
+        .collect();
+    let array = Prototype::find(environment.mem.clone(), &stringify!(Array).into())
+        .1
+        .borrow()
+        .unwrap_proto("String.match for Array");
+    CodeResult::Return(crate::new_array(array, values, environment.logger))
 }

@@ -86,11 +86,7 @@ impl Parser {
         Self::with_extensions(input, env, ParserExtensions::default())
     }
 
-    pub fn with_extensions(
-        input: &str,
-        env: Environment,
-        extensions: ParserExtensions,
-    ) -> Self {
+    pub fn with_extensions(input: &str, env: Environment, extensions: ParserExtensions) -> Self {
         let mut lexer = Lexer::new(input);
         let mut tokens = Vec::with_capacity(input.len());
         loop {
@@ -164,33 +160,119 @@ impl Parser {
     }
 
     pub fn parse_param_list(&mut self) -> Vec<String> {
+        self.parse_function_parameters(&mut Vec::new()).0
+    }
+
+    pub fn parse_param_list_with_initializers(
+        &mut self,
+        parameter_initializers: &mut Vec<Box<dyn Expr>>,
+    ) -> Vec<String> {
+        self.parse_function_parameters(parameter_initializers).0
+    }
+
+    pub fn parse_function_parameters(
+        &mut self,
+        parameter_initializers: &mut Vec<Box<dyn Expr>>,
+    ) -> (Vec<String>, Option<String>) {
+        if self.tokens[self.index] == Token::LParen {
+            self.bump();
+        }
         let mut params = Vec::new();
+        let mut excess = None;
         while self.tokens[self.index] != Token::RParen
             && self.tokens[self.index] != Token::Arrow
             && self.tokens[self.index] != Token::Eof
         {
-            if let Token::Ident(s) = &self.tokens[self.index] {
-                params.push(s.clone());
+            if self.tokens[self.index] == Token::Spread {
+                self.bump();
+                excess = Some(self.expect_ident());
+                if self.tokens[self.index] == Token::Comma {
+                    self.bump();
+                    if !matches!(self.tokens[self.index], Token::RParen | Token::Arrow) {
+                        panic!("rest parameter must be last");
+                    }
+                }
+                break;
+            } else if self.tokens[self.index] == Token::LBrace {
+                let parameter = format!("__red_parameter_{}__", params.len());
+                parameter_initializers.push(Box::new(expr::ObjectDestructure::parse_parameter(
+                    self,
+                    parameter.clone(),
+                )));
+                params.push(parameter);
+            } else if self.tokens[self.index] == Token::LBracket {
+                let parameter = format!("__red_parameter_{}__", params.len());
+                parameter_initializers.push(Box::new(expr::ArrayDestructure::parse_parameter(
+                    self,
+                    parameter.clone(),
+                )));
+                params.push(parameter);
+            } else if let Token::Ident(name) = &self.tokens[self.index] {
+                let name = name.clone();
+                params.push(name.clone());
+                self.bump();
+                if self.tokens[self.index] == Token::Assign(None) {
+                    self.bump();
+                    let default = Box::new(self.parse_expression(false));
+                    parameter_initializers.push(Box::new(expr::DefaultParameter { name, default }));
+                }
+            } else {
+                self.bump();
             }
-            self.bump();
             if self.tokens[self.index] == Token::Comma {
                 self.bump();
+            } else {
+                break;
             }
         }
         if self.tokens[self.index] == Token::Arrow {
-            return params;
+            return (params, excess);
         }
         if self.tokens[self.index] != Token::RParen {
+            let start = self.index.saturating_sub(24);
+            let end = (self.index + 12).min(self.tokens.len());
+            let context = &self.tokens[start..end];
             self.env.logger.borrow_mut().logln(LogLevel::Fatal, &|| {
                 format!(
-                    "Parser::parse_param_list expected ')' at index {} but found {:?}",
-                    self.index, self.tokens[self.index]
+                    "Parser::parse_param_list expected ')' at index {} but found {:?}; context {:?}",
+                    self.index, self.tokens[self.index], context
                 )
             });
-            panic!("expected ')'");
+            panic!(
+                "expected ')' at index {} but found {:?}; context {:?}",
+                self.index, self.tokens[self.index], context
+            );
         }
         self.bump();
-        params
+        (params, excess)
+    }
+
+    fn is_arrow_parameter_list(&self, start: usize) -> bool {
+        if self.tokens.get(start) != Some(&Token::LParen) {
+            return false;
+        }
+        let mut closers = vec![Token::RParen];
+        let mut index = start + 1;
+        while let Some(token) = self.tokens.get(index) {
+            match token {
+                Token::LParen => closers.push(Token::RParen),
+                Token::LBracket => closers.push(Token::RBracket),
+                Token::LBrace => closers.push(Token::RBrace),
+                Token::RParen | Token::RBracket | Token::RBrace => {
+                    if closers.last() != Some(token) {
+                        return false;
+                    }
+                    closers.pop();
+                    if closers.is_empty() {
+                        return self.tokens.get(index + 1) == Some(&Token::Arrow);
+                    }
+                }
+                Token::Eof => return false,
+                _ => {}
+            }
+            index += 1;
+        }
+        false
     }
 
     pub fn parse_block(&mut self) -> Vec<Box<dyn Expr>> {
@@ -220,9 +302,13 @@ impl Parser {
                         self.index, self.tokens[self.index]
                     )
                 });
+                let context_start = self.index.saturating_sub(6);
+                let context_end = (self.index + 6).min(self.tokens.len());
                 panic!(
-                    "parser made no progress inside block at token {:?}",
-                    self.tokens[self.index]
+                    "parser made no progress inside block at index {} token {:?}; context {:?}",
+                    self.index,
+                    self.tokens[self.index],
+                    &self.tokens[context_start..context_end]
                 );
             }
             res.append(&mut exprs);
@@ -291,6 +377,15 @@ impl Parser {
         res
     }
 
+    pub fn parse_comma_expression(&mut self) -> Box<dyn Expr> {
+        let mut sequence = self.parse_expression(false);
+        while self.tokens[self.index] == Token::Comma {
+            self.bump();
+            sequence.extend(self.parse_expression(false));
+        }
+        Box::new(sequence)
+    }
+
     fn parse_expression_inner(&mut self) -> Vec<Box<dyn Expr>> {
         let mut res: Vec<Box<dyn Expr>> = Vec::new();
         loop {
@@ -308,7 +403,8 @@ impl Parser {
                 Token::Function => {
                     self.bump();
                     let expr = Box::new(expr::FunctionDecl::parse(self, true));
-                    res.push(self.parse_postfix(expr, true));
+                    let expr = self.parse_postfix(expr, true);
+                    res.push(expr::Operator::parse_tail(self, expr));
                 }
                 Token::Class => {
                     self.bump();
@@ -316,7 +412,13 @@ impl Parser {
                 }
                 Token::Let | Token::Const | Token::Var => {
                     self.bump();
-                    res.push(Box::new(expr::VarDecl::parse(self)));
+                    if self.tokens[self.index] == Token::LBrace {
+                        res.push(Box::new(expr::ObjectDestructure::parse(self)));
+                    } else if self.tokens[self.index] == Token::LBracket {
+                        res.push(Box::new(expr::ArrayDestructure::parse(self)));
+                    } else {
+                        res.push(Box::new(expr::VarDecl::parse(self)));
+                    }
                 }
                 Token::If => {
                     self.bump();
@@ -418,42 +520,18 @@ impl Parser {
                     }
                     res.push(Box::new(CustomExpressionNode(expression)));
                 }
-                _ if (matches!(self.tokens[self.index], Token::LParen)
-                    && self.tokens[self.index..].contains(&Token::Arrow)
-                    && self.tokens[self.index..]
-                        .splitn(2, |t| *t == Token::Arrow)
-                        .next()
-                        .is_some_and(|params| {
-                            params.iter().all(|t| {
-                                matches!(
-                                    *t,
-                                    Token::LParen | Token::RParen | Token::Ident(_) | Token::Comma
-                                )
-                            })
-                        }))
+                _ if self.is_arrow_parameter_list(self.index)
                     || (matches!(&self.tokens[self.index], Token::Ident(name) if name == "async")
-                        && matches!(self.tokens.get(self.index + 1), Some(Token::LParen))
-                        && self.tokens[self.index + 1..]
-                            .splitn(2, |t| *t == Token::Arrow)
-                            .next()
-                            .is_some_and(|params| {
-                                params.iter().all(|t| {
-                                    matches!(
-                                        *t,
-                                        Token::LParen
-                                            | Token::RParen
-                                            | Token::Ident(_)
-                                            | Token::Comma
-                                    )
-                                })
-                            }))
+                        && self.is_arrow_parameter_list(self.index + 1))
                     || (matches!(self.tokens[self.index], Token::Ident(_))
                         && self.tokens[self.index + 1] == Token::Arrow) =>
                 {
                     if matches!(&self.tokens[self.index], Token::Ident(name) if name == "async") {
                         self.bump();
                     }
-                    let params = self.parse_param_list();
+                    let mut parameter_initializers = Vec::new();
+                    let (params, excess) =
+                        self.parse_function_parameters(&mut parameter_initializers);
                     assert_eq!(self.tokens[self.index], Token::Arrow);
                     self.bump();
                     let body: Rc<[Box<dyn Expr>]> = if self.tokens[self.index] == Token::LBrace {
@@ -467,6 +545,8 @@ impl Parser {
                     res.push(Box::new(expr::FunctionDecl {
                         name: "anonymous function",
                         params,
+                        excess,
+                        parameter_initializers,
                         body,
                         generator: false,
                         insert: false,
@@ -518,16 +598,20 @@ impl Parser {
             }
             Token::Void => {
                 self.bump();
-                let mut expr = self.parse_expression(true);
-                expr.push(Box::new(expr::ConstObj {
-                    obj: JsValue::Undefined,
-                }));
-                Box::new(expr)
+                Box::new(expr::Void {
+                    expr: expr::Operator::parse_unary(self),
+                })
             }
             Token::Delete => {
                 self.bump();
                 Box::new(expr::Delete {
                     expr: self.parse_call_or_primary(false),
+                })
+            }
+            Token::Spread => {
+                self.bump();
+                Box::new(expr::Spread {
+                    expression: self.parse_call_or_primary(false),
                 })
             }
             Token::LBrace => Box::new(expr::Object::parse(self)),
@@ -670,6 +754,47 @@ impl Parser {
     fn parse_postfix(&mut self, mut expr: Box<dyn Expr>, root: bool) -> Box<dyn Expr> {
         loop {
             match self.tokens[self.index] {
+                Token::QMark
+                    if self.tokens.get(self.index + 1) == Some(&Token::Dot)
+                        && self.tokens.get(self.index + 2) == Some(&Token::LParen) =>
+                {
+                    self.bump();
+                    self.bump();
+                    self.bump();
+                    let args = self.parse_expression(true);
+                    if self.tokens[self.index] != Token::RParen {
+                        panic!("expected ')' after optional call arguments");
+                    }
+                    self.bump();
+                    expr = Box::new(expr::OptionalCall { func: expr, args });
+                }
+                Token::QMark
+                    if self.tokens.get(self.index + 1) == Some(&Token::Dot)
+                        && self.tokens.get(self.index + 2) == Some(&Token::LBracket) =>
+                {
+                    self.bump();
+                    self.bump();
+                    self.bump();
+                    let property = Box::new(self.parse_expression(true));
+                    if self.tokens[self.index] != Token::RBracket {
+                        panic!("expected ']' after optional computed property");
+                    }
+                    self.bump();
+                    expr = Box::new(expr::OptionalMember {
+                        object: expr,
+                        property,
+                    });
+                }
+                Token::QMark if self.tokens.get(self.index + 1) == Some(&Token::Dot) => {
+                    self.bump();
+                    self.bump();
+                    let property = self.tokens[self.index].as_keyword().to_owned();
+                    self.bump();
+                    expr = Box::new(expr::OptionalMember {
+                        object: expr,
+                        property: Box::new(expr::ConstString { s: property }),
+                    });
+                }
                 Token::QMark if root => {
                     expr = Box::new(expr::ConditionalOp::parse(self, expr));
                 }
