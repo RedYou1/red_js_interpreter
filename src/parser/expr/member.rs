@@ -47,6 +47,14 @@ impl Expr for Member {
             property: self.property.duplicate(),
         })
     }
+
+    fn is_assignment_target(&self) -> bool {
+        !self.object.is_optional_chain()
+    }
+
+    fn is_optional_chain(&self) -> bool {
+        self.object.is_optional_chain()
+    }
 }
 
 #[derive(Debug)]
@@ -94,6 +102,10 @@ impl Expr for OptionalMember {
             object: self.object.duplicate(),
             property: self.property.duplicate(),
         })
+    }
+
+    fn is_optional_chain(&self) -> bool {
+        true
     }
 }
 

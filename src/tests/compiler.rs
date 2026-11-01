@@ -400,6 +400,12 @@ assert_result_fn!(
     console.log(Number.isNaN(NaN));
     console.log(Number.isFinite(5));
     console.log(Number.isInteger(5));
+    console.log(Object.prototype.hasOwnProperty.call(parseInt, "prototype"));
+    console.log(Object.prototype.hasOwnProperty.call(parseFloat, "prototype"));
+    console.log(Object.prototype.hasOwnProperty.call(encodeURI, "prototype"));
+    console.log(Object.prototype.hasOwnProperty.call(JSON.parse, "prototype"));
+    console.log(Object.prototype.hasOwnProperty.call(Promise.resolve, "prototype"));
+    console.log(Object.prototype.hasOwnProperty.call(Object.defineProperty, "prototype"));
     console.log(parseInt("42px", 10));
     console.log(parseInt("101", 2));
     console.log(parseFloat("3.5seconds"));
@@ -415,6 +421,12 @@ assert_result_fn!(
     "true",
     "true",
     "true",
+    "false",
+    "false",
+    "false",
+    "false",
+    "false",
+    "false",
     "42",
     "5",
     "3.5"
@@ -432,12 +444,18 @@ assert_result_fn!(
     console.log(target.propertyIsEnumerable("visible"));
     console.log(target.propertyIsEnumerable("hidden"));
     console.log(Object.getOwnPropertyDescriptor(target, "visible").enumerable);
+    console.log(Object.getOwnPropertyDescriptor(Math, "ceil").enumerable);
+    console.log(Object.prototype.propertyIsEnumerable.call(Object, "prototype"));
+    console.log(Object.prototype.propertyIsEnumerable("propertyIsEnumerable"));
     "#,
     "still visible",
     "no",
     "true",
     "false",
-    "true"
+    "true",
+    "false",
+    "false",
+    "false"
 );
 
 assert_result_fn!(
@@ -1440,6 +1458,26 @@ assert_result_fn!(
     "1",
     "value",
     "a"
+);
+
+assert_result_fn!(
+    test_object_to_string_regexp_tag,
+    r#"
+    console.log(Object.prototype.toString.call(/./));
+    console.log(Object.prototype.toString.call(Object(/./)));
+    console.log(Object.prototype.toString.call(new RegExp()));
+    console.log(Object.prototype.toString.call("text"));
+    console.log(Object.prototype.toString.call(1.5));
+    console.log(Object.prototype.toString.call(true));
+    console.log(Object.prototype.toString.call(1n));
+    "#,
+    "[object RegExp]",
+    "[object RegExp]",
+    "[object RegExp]",
+    "[object String]",
+    "[object Number]",
+    "[object Boolean]",
+    "[object BigInt]"
 );
 
 assert_result_fn!(

@@ -5,7 +5,7 @@ pub fn prebuild_numeric_parsers(environment: Environment) {
         .1
         .borrow()
         .unwrap_proto("numeric parser Function prototype");
-    let parse_integer = new_runnable(
+    let parse_integer = new_builtin_runnable(
         function.clone(),
         "parseInt",
         prebuild_runnable_direct(
@@ -23,7 +23,7 @@ pub fn prebuild_numeric_parsers(environment: Environment) {
             }),
         ),
     );
-    let parse_float = new_runnable(
+    let parse_float = new_builtin_runnable(
         function,
         "parseFloat",
         prebuild_runnable_direct(

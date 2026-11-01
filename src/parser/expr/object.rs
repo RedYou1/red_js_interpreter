@@ -1,6 +1,6 @@
-use std::{cell::RefCell, rc::Rc};
+use std::{cell::RefCell, collections::HashSet, rc::Rc};
 
-use super::expand_spread;
+use super::{expand_spread, infer_anonymous_function_name};
 use crate::{
     Code, CodeIndex, CodeResult, Environment, JsValue, LogLevel, Prototype, inline_borrow,
     new_array,
@@ -20,6 +20,7 @@ struct BindingProperty {
     binding: String,
     default: Option<Box<dyn Expr>>,
     nested: Option<Box<dyn Expr>>,
+    nested_names: Vec<String>,
 }
 
 #[derive(Debug)]
@@ -52,6 +53,28 @@ impl ObjectDestructure {
             initializer: Box::new(expr::Identifier { name: parameter }),
         }
     }
+
+    pub fn binding_names(&self) -> Vec<String> {
+        let mut names = self
+            .properties
+            .iter()
+            .flat_map(BindingProperty::binding_names)
+            .collect::<Vec<_>>();
+        if let Some(rest) = &self.rest {
+            names.push(rest.clone());
+        }
+        names
+    }
+}
+
+impl BindingProperty {
+    fn binding_names(&self) -> Vec<String> {
+        if self.nested.is_some() {
+            self.nested_names.clone()
+        } else {
+            vec![self.binding.clone()]
+        }
+    }
 }
 
 fn parse_binding_pattern(parser: &mut Parser) -> (Vec<BindingProperty>, Option<String>) {
@@ -61,16 +84,28 @@ fn parse_binding_pattern(parser: &mut Parser) -> (Vec<BindingProperty>, Option<S
     parser.bump();
     let mut properties = Vec::new();
     let mut rest = None;
+    let mut bindings = HashSet::new();
     while !matches!(parser.tokens()[parser.index()], Token::RBrace | Token::Eof) {
         if parser.tokens()[parser.index()] == Token::Spread {
             parser.bump();
-            rest = Some(parser.expect_ident());
+            let name = parser.expect_ident();
+            if !bindings.insert(name.clone()) {
+                panic!("duplicate binding name in object pattern");
+            }
+            rest = Some(name);
             if parser.tokens()[parser.index()] == Token::Comma {
                 parser.bump();
+                panic!("object rest binding cannot have a trailing comma");
             }
             break;
         }
-        properties.push(parse_binding_property(parser));
+        let property = parse_binding_property(parser);
+        for binding in property.binding_names() {
+            if !bindings.insert(binding) {
+                panic!("duplicate binding name in object pattern");
+            }
+        }
+        properties.push(property);
         if parser.tokens()[parser.index()] == Token::Comma {
             parser.bump();
         } else {
@@ -85,32 +120,36 @@ fn parse_binding_pattern(parser: &mut Parser) -> (Vec<BindingProperty>, Option<S
 }
 
 fn parse_binding_property(parser: &mut Parser) -> BindingProperty {
-    let property = parser.tokens()[parser.index()].as_keyword().to_owned();
+    let property_token = parser.tokens()[parser.index()].clone();
+    let property = property_token.as_keyword().to_owned();
     parser.bump();
     let mut nested = None;
+    let mut nested_names = Vec::new();
     let binding = if parser.tokens()[parser.index()] == Token::Colon {
         parser.bump();
         match parser.tokens()[parser.index()] {
             Token::LBrace => {
                 let name = format!("__red_nested_destructure_{}__", parser.index());
-                nested = Some(
-                    Box::new(ObjectDestructure::parse_parameter(parser, name.clone()))
-                        as Box<dyn Expr>,
-                );
+                let pattern = ObjectDestructure::parse_parameter(parser, name.clone());
+                nested_names = pattern.binding_names();
+                nested = Some(Box::new(pattern) as Box<dyn Expr>);
                 name
             }
             Token::LBracket => {
                 let name = format!("__red_nested_destructure_{}__", parser.index());
-                nested = Some(Box::new(expr::ArrayDestructure::parse_parameter(
-                    parser,
-                    name.clone(),
-                )) as Box<dyn Expr>);
+                let pattern = expr::ArrayDestructure::parse_parameter(parser, name.clone());
+                nested_names = pattern.binding_names();
+                nested = Some(Box::new(pattern) as Box<dyn Expr>);
                 name
             }
             _ => parser.expect_ident(),
         }
-    } else {
+    } else if matches!(property_token, Token::Ident(_))
+        && matches!(Token::from_keyword(property.clone()), Token::Ident(_))
+    {
         property.clone()
+    } else {
+        panic!("reserved word cannot be a shorthand binding name");
     };
     let default: Option<Box<dyn Expr>> = if parser.tokens()[parser.index()] == Token::Assign(None) {
         parser.bump();
@@ -123,6 +162,7 @@ fn parse_binding_property(parser: &mut Parser) -> BindingProperty {
         binding,
         default,
         nested,
+        nested_names,
     }
 }
 
@@ -176,6 +216,7 @@ impl Expr for ObjectDestructure {
                         CodeResult::Normal(value) | CodeResult::NormalMember(value, _, _) => value,
                         result => return result,
                     };
+                    infer_anonymous_function_name(&value, binding);
                 }
                 environment
                     .mem
@@ -227,6 +268,7 @@ impl Expr for ObjectDestructure {
                     binding: property.binding.clone(),
                     default: property.default.as_ref().map(|value| value.duplicate()),
                     nested: property.nested.as_ref().map(|value| value.duplicate()),
+                    nested_names: property.nested_names.clone(),
                 })
                 .collect(),
             rest: self.rest.clone(),
@@ -239,9 +281,11 @@ impl Expr for ObjectDestructure {
 struct ArrayBinding {
     name: String,
     default: Option<Box<dyn Expr>>,
+    nested: Option<Box<dyn Expr>>,
+    nested_names: Vec<String>,
 }
 
-type CompiledArrayBinding = Option<(String, Option<Vec<Code>>)>;
+type CompiledArrayBinding = Option<(String, Option<Vec<Code>>, Option<Vec<Code>>)>;
 
 #[derive(Debug)]
 pub struct ArrayDestructure {
@@ -272,6 +316,26 @@ impl ArrayDestructure {
             initializer: Box::new(expr::Identifier { name: parameter }),
         }
     }
+
+    pub fn binding_names(&self) -> Vec<String> {
+        let mut names = self
+            .elements
+            .iter()
+            .flat_map(|element| {
+                element.as_ref().map_or_else(Vec::new, |binding| {
+                    if binding.nested.is_some() {
+                        binding.nested_names.clone()
+                    } else {
+                        vec![binding.name.clone()]
+                    }
+                })
+            })
+            .collect::<Vec<_>>();
+        if let Some(rest) = &self.rest {
+            names.push(rest.clone());
+        }
+        names
+    }
 }
 
 fn parse_array_pattern(parser: &mut Parser) -> (Vec<Option<ArrayBinding>>, Option<String>) {
@@ -281,6 +345,7 @@ fn parse_array_pattern(parser: &mut Parser) -> (Vec<Option<ArrayBinding>>, Optio
     parser.bump();
     let mut elements = Vec::new();
     let mut rest = None;
+    let mut bindings = HashSet::new();
     while !matches!(
         parser.tokens()[parser.index()],
         Token::RBracket | Token::Eof
@@ -292,20 +357,59 @@ fn parse_array_pattern(parser: &mut Parser) -> (Vec<Option<ArrayBinding>>, Optio
         }
         if parser.tokens()[parser.index()] == Token::Spread {
             parser.bump();
-            rest = Some(parser.expect_ident());
+            let name = parser.expect_ident();
+            if !bindings.insert(name.clone()) {
+                panic!("duplicate binding name in array pattern");
+            }
+            rest = Some(name);
             if parser.tokens()[parser.index()] == Token::Comma {
                 parser.bump();
+                panic!("array rest binding cannot have a trailing comma");
             }
             break;
         }
-        let name = parser.expect_ident();
+        let mut nested = None;
+        let mut nested_names = Vec::new();
+        let name = match parser.tokens()[parser.index()] {
+            Token::LBracket => {
+                let name = format!("__red_nested_array_destructure_{}__", parser.index());
+                let pattern = ArrayDestructure::parse_parameter(parser, name.clone());
+                nested_names = pattern.binding_names();
+                nested = Some(Box::new(pattern) as Box<dyn Expr>);
+                name
+            }
+            Token::LBrace => {
+                let name = format!("__red_nested_object_destructure_{}__", parser.index());
+                let pattern = ObjectDestructure::parse_parameter(parser, name.clone());
+                nested_names = pattern.binding_names();
+                nested = Some(Box::new(pattern) as Box<dyn Expr>);
+                name
+            }
+            _ => {
+                let name = parser.expect_ident();
+                if !bindings.insert(name.clone()) {
+                    panic!("duplicate binding name in array pattern");
+                }
+                name
+            }
+        };
         let default = if parser.tokens()[parser.index()] == Token::Assign(None) {
             parser.bump();
             Some(Box::new(parser.parse_expression(false)) as Box<dyn Expr>)
         } else {
             None
         };
-        elements.push(Some(ArrayBinding { name, default }));
+        for binding in &nested_names {
+            if !bindings.insert(binding.clone()) {
+                panic!("duplicate binding name in array pattern");
+            }
+        }
+        elements.push(Some(ArrayBinding {
+            name,
+            default,
+            nested,
+            nested_names,
+        }));
         if parser.tokens()[parser.index()] == Token::Comma {
             parser.bump();
         } else {
@@ -322,6 +426,7 @@ fn parse_array_pattern(parser: &mut Parser) -> (Vec<Option<ArrayBinding>>, Optio
 impl Expr for ArrayDestructure {
     fn compile(&self, environment: Environment) -> Vec<Code> {
         let initializer = self.initializer.compile(environment.clone());
+        let empty_pattern = self.elements.is_empty() && self.rest.is_none();
         let elements = self
             .elements
             .iter()
@@ -331,6 +436,10 @@ impl Expr for ArrayDestructure {
                         binding.name.clone(),
                         binding
                             .default
+                            .as_ref()
+                            .map(|value| value.compile(environment.clone())),
+                        binding
+                            .nested
                             .as_ref()
                             .map(|value| value.compile(environment.clone())),
                     )
@@ -343,7 +452,7 @@ impl Expr for ArrayDestructure {
                 CodeResult::Normal(value) | CodeResult::NormalMember(value, _, _) => value,
                 result => return result,
             };
-            let values = match array_destructure_values(&source) {
+            let values = match array_destructure_values(&environment, &source, empty_pattern) {
                 Ok(values) => values,
                 Err(message) => {
                     return CodeResult::Error(Rc::new(RefCell::new(JsValue::String(message))));
@@ -379,6 +488,8 @@ impl Expr for ArrayDestructure {
                     element.as_ref().map(|binding| ArrayBinding {
                         name: binding.name.clone(),
                         default: binding.default.as_ref().map(|value| value.duplicate()),
+                        nested: binding.nested.as_ref().map(|value| value.duplicate()),
+                        nested_names: binding.nested_names.clone(),
                     })
                 })
                 .collect(),
@@ -394,7 +505,7 @@ fn bind_array_elements(
     values: &[Rc<RefCell<JsValue>>],
 ) -> Option<CodeResult> {
     for (index, element) in elements.iter().enumerate() {
-        let Some((name, default)) = element else {
+        let Some((name, default, nested)) = element else {
             continue;
         };
         let mut value = values
@@ -408,18 +519,27 @@ fn bind_array_elements(
                 CodeResult::Normal(value) | CodeResult::NormalMember(value, _, _) => value,
                 result => return Some(result),
             };
+            infer_anonymous_function_name(&value, name);
         }
         environment
             .mem
             .borrow_mut()
             .properties
             .insert(name.as_str().into(), value);
+        if let Some(nested) = nested {
+            match run_sub(nested, environment.clone(), &mut CodeIndex::new()) {
+                CodeResult::Normal(_) | CodeResult::NormalMember(_, _, _) => {}
+                result => return Some(result),
+            }
+        }
     }
     None
 }
 
 fn array_destructure_values(
+    environment: &Environment,
     source: &Rc<RefCell<JsValue>>,
+    empty_pattern: bool,
 ) -> Result<Vec<Rc<RefCell<JsValue>>>, String> {
     match inline_borrow!(source.clone()) {
         JsValue::String(text) => Ok(text
@@ -427,19 +547,35 @@ fn array_destructure_values(
             .map(|character| Rc::new(RefCell::new(JsValue::String(character.to_string()))))
             .collect()),
         JsValue::Prototype(array) => {
-            let length = Prototype::find(array.clone(), &"length".into()).1;
-            let JsValue::BigInt(length) = inline_borrow!(length) else {
-                return Err("array destructuring source has no length".to_owned());
-            };
-            Ok((0..length.max(0))
-                .map(|index| Prototype::find(array.clone(), &JsValue::BigInt(index)).1)
-                .collect())
+            if let Some((_, length)) = Prototype::opt_find(array.clone(), &"length".into()) {
+                let JsValue::BigInt(length) = inline_borrow!(length) else {
+                    return Err("array destructuring source has no length".to_owned());
+                };
+                Ok((0..length.max(0))
+                    .map(|index| Prototype::find(array.clone(), &JsValue::BigInt(index)).1)
+                    .collect())
+            } else if empty_pattern && has_iterator_method(environment, &array) {
+                Ok(Vec::new())
+            } else {
+                Err("array destructuring source is not iterable".to_owned())
+            }
         }
         JsValue::Null | JsValue::Undefined => {
             Err("cannot destructure null or undefined".to_owned())
         }
         _ => Err("array destructuring source is not iterable".to_owned()),
     }
+}
+
+fn has_iterator_method(environment: &Environment, object: &Rc<RefCell<Prototype>>) -> bool {
+    let symbol = Prototype::find(environment.mem.clone(), &stringify!(Symbol).into()).1;
+    let JsValue::Prototype(symbol) = inline_borrow!(symbol) else {
+        return false;
+    };
+    let iterator = Prototype::find(symbol, &"iterator".into()).1;
+    let iterator = inline_borrow!(iterator);
+    matches!(iterator, JsValue::Symbol(_, _))
+        && Prototype::opt_find(object.clone(), &iterator).is_some()
 }
 
 #[derive(Debug)]
@@ -585,11 +721,18 @@ impl Expr for Object {
                 .collect(),
         })
     }
+
+    fn is_assignment_target(&self) -> bool {
+        self.properties
+            .iter()
+            .all(|(_, value)| value.is_assignment_pattern_element())
+    }
 }
 
 #[derive(Debug)]
 pub struct Array {
     pub elems: Vec<Box<dyn Expr>>,
+    pub trailing_rest_comma: bool,
 }
 
 impl Expr for Array {
@@ -630,6 +773,15 @@ impl Expr for Array {
     fn duplicate(&self) -> Box<dyn Expr> {
         Box::new(Self {
             elems: self.elems.iter().map(|a| a.duplicate()).collect(),
+            trailing_rest_comma: self.trailing_rest_comma,
         })
+    }
+
+    fn is_assignment_target(&self) -> bool {
+        !self.trailing_rest_comma
+            && self.elems.iter().enumerate().all(|(index, element)| {
+                element.is_assignment_pattern_element()
+                    && (!element.is_rest_element() || index + 1 == self.elems.len())
+            })
     }
 }

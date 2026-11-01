@@ -234,6 +234,67 @@ impl<'a> Lexer<'a> {
         })
     }
 
+    fn read_identifier_escape(&mut self) -> Option<char> {
+        if self.bump()? != '\\' || self.bump()? != 'u' {
+            return None;
+        }
+        let mut value = 0u32;
+        if self.peek() == Some('{') {
+            self.bump();
+            let mut digits = 0;
+            while let Some(character) = self.peek() {
+                if character == '}' {
+                    self.bump();
+                    break;
+                }
+                value = value.checked_mul(16)? + character.to_digit(16)?;
+                self.bump();
+                digits += 1;
+            }
+            if digits == 0 {
+                return None;
+            }
+        } else {
+            for _ in 0..4 {
+                value = value.checked_mul(16)? + self.bump()?.to_digit(16)?;
+            }
+        }
+        char::from_u32(value)
+    }
+
+    fn read_identifier(&mut self) -> String {
+        let mut identifier = String::new();
+        loop {
+            let character = if self.peek() == Some('\\') {
+                self.read_identifier_escape()
+                    .expect("invalid Unicode escape in identifier")
+            } else {
+                let Some(character) = self.peek() else {
+                    break;
+                };
+                let is_valid = if identifier.is_empty() {
+                    is_ident_start(character)
+                } else {
+                    is_ident_continue(character)
+                };
+                if !is_valid {
+                    break;
+                }
+                self.bump().expect("identifier character should be present")
+            };
+            let is_valid = if identifier.is_empty() {
+                is_ident_start(character)
+            } else {
+                is_ident_continue(character)
+            };
+            if !is_valid {
+                panic!("Unicode escape is not valid in this identifier position");
+            }
+            identifier.push(character);
+        }
+        identifier
+    }
+
     fn starts_with_ellipsis(&self) -> bool {
         if self.peek() != Some('.') {
             return false;
@@ -665,7 +726,10 @@ impl<'a> Lexer<'a> {
                     return Token::Str(s);
                 }
                 c if is_ident_start(c) => {
-                    return Token::from_keyword(self.eat_while(is_ident_continue));
+                    return Token::from_keyword(self.read_identifier());
+                }
+                '\\' => {
+                    return Token::from_keyword(self.read_identifier());
                 }
                 _ if let Some((s, power)) = self.read_number() => {
                     if let Ok(n) = s.parse::<i64>() {
@@ -743,6 +807,14 @@ mod tests {
         assert_eq!(lexer.next_token(&[]), Token::Ident("console".to_owned()));
         assert_eq!(lexer.next_token(&[]), Token::Dot);
         assert_eq!(lexer.next_token(&[]), Token::Ident("log".to_owned()));
+        assert_eq!(lexer.next_token(&[]), Token::Eof);
+    }
+
+    #[test]
+    fn decodes_unicode_escapes_before_classifying_identifiers() {
+        let mut lexer = Lexer::new(r"\u0063onst \u0061");
+        assert_eq!(lexer.next_token(&[]), Token::Const);
+        assert_eq!(lexer.next_token(&[]), Token::Ident("a".to_owned()));
         assert_eq!(lexer.next_token(&[]), Token::Eof);
     }
 }

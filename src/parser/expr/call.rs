@@ -218,4 +218,8 @@ impl Expr for OptionalCall {
                 .collect(),
         })
     }
+
+    fn is_optional_chain(&self) -> bool {
+        true
+    }
 }

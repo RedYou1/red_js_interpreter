@@ -34,11 +34,10 @@ pub fn prebuild_uri(environment: Environment) {
                 }
             }),
         );
-        environment
-            .mem
-            .borrow_mut()
-            .properties
-            .insert(name.into(), new_runnable(function.clone(), name, runnable));
+        environment.mem.borrow_mut().properties.insert(
+            name.into(),
+            new_builtin_runnable(function.clone(), name, runnable),
+        );
     }
 }
 

@@ -75,6 +75,9 @@ impl LoopExpr {
                     if let Token::Assign(t) = &parser.tokens()[parser.index()] {
                         assert_eq!(*t, Option::<BinaryOp>::None);
                         parser.bump();
+                        if contains_top_level_for_in_or_of(parser.tokens(), parser.index()) {
+                            panic!("for-in/of declarations cannot have initializers");
+                        }
                         Some(Box::new(parser.parse_expression(true)))
                     } else if let Token::Of = parser.tokens()[parser.index()] {
                         parser.bump();
@@ -200,6 +203,27 @@ impl LoopExpr {
             for_in,
         }
     }
+}
+
+fn contains_top_level_for_in_or_of(tokens: &[Token], start: usize) -> bool {
+    let mut closers = Vec::new();
+    for token in &tokens[start..] {
+        match token {
+            Token::LParen => closers.push(Token::RParen),
+            Token::LBracket => closers.push(Token::RBracket),
+            Token::LBrace => closers.push(Token::RBrace),
+            Token::RParen | Token::RBracket | Token::RBrace if closers.is_empty() => return false,
+            Token::RParen | Token::RBracket | Token::RBrace => {
+                if closers.pop() != Some(token.clone()) {
+                    return false;
+                }
+            }
+            Token::In | Token::Of if closers.is_empty() => return true,
+            Token::Semicolon if closers.is_empty() => return false,
+            _ => {}
+        }
+    }
+    false
 }
 
 fn for_in_property_names(value: Rc<RefCell<JsValue>>) -> Vec<String> {

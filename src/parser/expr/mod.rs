@@ -8,6 +8,22 @@ use crate::{
 pub trait Expr: Debug {
     fn compile(&self, env: Environment) -> Vec<Code>;
     fn duplicate(&self) -> Box<dyn Expr>;
+
+    fn is_assignment_target(&self) -> bool {
+        false
+    }
+
+    fn is_assignment_pattern_element(&self) -> bool {
+        self.is_assignment_target()
+    }
+
+    fn is_rest_element(&self) -> bool {
+        false
+    }
+
+    fn is_optional_chain(&self) -> bool {
+        false
+    }
 }
 
 impl Expr for Option<Box<dyn Expr>> {
@@ -97,6 +113,21 @@ pub struct DefaultParameter {
     pub default: Box<dyn Expr>,
 }
 
+pub(crate) fn infer_anonymous_function_name(value: &Rc<RefCell<JsValue>>, name: &str) {
+    let JsValue::Prototype(function) = inline_borrow!(value.clone()) else {
+        return;
+    };
+    let Some((_, name_property)) = Prototype::opt_find(function, &"name".into()) else {
+        return;
+    };
+    if matches!(
+        inline_borrow!(name_property.clone()),
+        JsValue::String(current) if current == "anonymous function"
+    ) {
+        *name_property.borrow_mut() = JsValue::String(name.to_owned());
+    }
+}
+
 impl Expr for DefaultParameter {
     fn compile(&self, environment: Environment) -> Vec<Code> {
         let name = self.name.clone();
@@ -108,6 +139,7 @@ impl Expr for DefaultParameter {
                     CodeResult::Normal(value) | CodeResult::NormalMember(value, _, _) => value,
                     result => return result,
                 };
+                infer_anonymous_function_name(&value, &name);
                 environment
                     .mem
                     .borrow_mut()
@@ -157,6 +189,14 @@ impl Expr for Spread {
         Box::new(Self {
             expression: self.expression.duplicate(),
         })
+    }
+
+    fn is_assignment_pattern_element(&self) -> bool {
+        self.expression.is_assignment_target()
+    }
+
+    fn is_rest_element(&self) -> bool {
+        true
     }
 }
 
@@ -219,6 +259,10 @@ impl Expr for Identifier {
     }
     fn duplicate(&self) -> Box<dyn Expr> {
         Box::new(self.clone())
+    }
+
+    fn is_assignment_target(&self) -> bool {
+        !matches!(self.name.as_str(), "this" | "super")
     }
 }
 

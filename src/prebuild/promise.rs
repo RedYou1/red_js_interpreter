@@ -18,12 +18,12 @@ pub fn prebuild_promise(environment: Environment) {
         .unwrap_proto("Promise Function prototype");
     let promise_prototype = Prototype::new_child(object_prototype.clone(), Some("Promise"), []);
 
-    let then = new_runnable(
+    let then = new_builtin_runnable(
         function_prototype.clone(),
         "Promise.then",
         prebuild_runnable_direct(environment.clone(), Box::new(then_method)),
     );
-    let catch = new_runnable(
+    let catch = new_builtin_runnable(
         function_prototype.clone(),
         "Promise.catch",
         prebuild_runnable_direct(environment.clone(), Box::new(catch_method)),
@@ -37,7 +37,7 @@ pub fn prebuild_promise(environment: Environment) {
         .properties
         .insert("catch".into(), catch);
 
-    let resolve = new_runnable(
+    let resolve = new_builtin_runnable(
         function_prototype.clone(),
         "Promise.resolve",
         prebuild_runnable_direct(
@@ -48,7 +48,7 @@ pub fn prebuild_promise(environment: Environment) {
             }),
         ),
     );
-    let reject = new_runnable(
+    let reject = new_builtin_runnable(
         function_prototype,
         "Promise.reject",
         prebuild_runnable_direct(

@@ -2,7 +2,7 @@
 
 use std::{
     cell::RefCell,
-    collections::{HashMap, VecDeque},
+    collections::{HashMap, HashSet, VecDeque},
     fmt::Debug,
     num::NonZero,
     rc::Rc,
@@ -296,7 +296,7 @@ pub fn prebuild_prototypes(
 
     object.borrow_mut().properties.insert(
         "defineProperty".into(),
-        new_runnable_with_object(
+        new_builtin_runnable_with_object(
             function.clone(),
             object.clone(),
             "Object.defineProperty",
@@ -445,6 +445,11 @@ pub fn prebuild_prototypes(
                     let tag = match inline_borrow!(this) {
                         JsValue::Null => "Null",
                         JsValue::Undefined => "Undefined",
+                        JsValue::Prototype(object)
+                            if prebuild::regex::has_regexp_brand(&object) =>
+                        {
+                            "RegExp"
+                        }
                         JsValue::Prototype(object) => object
                             .borrow()
                             .name
@@ -457,6 +462,11 @@ pub fn prebuild_prototypes(
                             })
                             .unwrap_or("Object"),
                         JsValue::Function(_) => "Function",
+                        JsValue::String(_) => "String",
+                        JsValue::Number(_) => "Number",
+                        JsValue::BigInt(_) => "BigInt",
+                        JsValue::Boolean(_) => "Boolean",
+                        JsValue::Symbol(_, _) => "Symbol",
                         _ => "Object",
                     };
                     CodeResult::Return(Rc::new(RefCell::new(JsValue::String(format!(
@@ -680,7 +690,33 @@ pub fn prebuild_prototypes(
         Rc::new(RefCell::new(JsValue::Number(f64::INFINITY))),
     );
     prebuild_regex(env.clone());
+    mark_builtin_properties_non_enumerable(&env.mem);
     env.mem
+}
+
+fn mark_builtin_properties_non_enumerable(root: &Rc<RefCell<Prototype>>) {
+    let mut pending = vec![root.clone()];
+    let mut visited = HashSet::new();
+    while let Some(object) = pending.pop() {
+        if !visited.insert(Rc::as_ptr(&object) as usize) {
+            continue;
+        }
+        let children = {
+            let mut object = object.borrow_mut();
+            let keys = object.properties.keys().cloned().collect::<Vec<_>>();
+            let children = object
+                .properties
+                .values()
+                .filter_map(|value| match &*value.borrow() {
+                    JsValue::Prototype(child) => Some(child.clone()),
+                    _ => None,
+                })
+                .collect::<Vec<_>>();
+            object.non_enumerable.extend(keys);
+            children
+        };
+        pending.extend(children);
+    }
 }
 
 /// Initializes the built-in objects and returns an environment ready for runtime configuration.

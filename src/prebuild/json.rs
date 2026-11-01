@@ -16,12 +16,12 @@ pub fn prebuild_json(environment: Environment) {
         .1
         .borrow()
         .unwrap_proto("JSON Function prototype");
-    let parse = new_runnable(
+    let parse = new_builtin_runnable(
         function_prototype.clone(),
         "JSON.parse",
         prebuild_runnable(environment.clone(), Box::new(parse_json)),
     );
-    let stringify = new_runnable(
+    let stringify = new_builtin_runnable(
         function_prototype,
         "JSON.stringify",
         prebuild_runnable(environment.clone(), Box::new(stringify_json)),

@@ -67,6 +67,35 @@ pub fn new_runnable_with_object(
     Rc::new(RefCell::new(JsValue::Prototype(function_obj)))
 }
 
+pub fn new_builtin_runnable_with_object(
+    function: Rc<RefCell<Prototype>>,
+    object_proto: Rc<RefCell<Prototype>>,
+    name: &'static str,
+    runnable: Runnable,
+) -> Rc<RefCell<JsValue>> {
+    let function_object = new_runnable_with_object(function, object_proto, name, runnable);
+    let function_prototype = function_object
+        .borrow()
+        .unwrap_proto("builtin function object");
+    function_prototype
+        .borrow_mut()
+        .properties
+        .remove(&PROTOTYPE_NAME.into());
+    function_object
+}
+
+pub fn new_builtin_runnable(
+    function: Rc<RefCell<Prototype>>,
+    name: &'static str,
+    runnable: Runnable,
+) -> Rc<RefCell<JsValue>> {
+    let object_proto = function
+        .borrow()
+        .parent()
+        .expect("Function prototype should inherit from Object");
+    new_builtin_runnable_with_object(function, object_proto, name, runnable)
+}
+
 pub fn new_runnable(
     function: Rc<RefCell<Prototype>>,
     name: &'static str,

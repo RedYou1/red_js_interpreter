@@ -241,6 +241,10 @@ fn regex_parts(this: &Rc<RefCell<JsValue>>) -> Option<(Rc<RefCell<Prototype>>, S
     Some((object, source, flags))
 }
 
+pub(crate) fn has_regexp_brand(object: &Rc<RefCell<Prototype>>) -> bool {
+    Prototype::opt_find(object.clone(), &REGEX_SOURCE.into()).is_some()
+}
+
 fn string_value(value: &Rc<RefCell<JsValue>>) -> String {
     inline_borrow!(value.clone()).print()
 }
