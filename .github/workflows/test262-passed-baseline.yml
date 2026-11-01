@@ -37,6 +37,7 @@ jobs:
         shell: bash
         run: |
           mkdir -p artifacts
+          : > artifacts/test262-retry-output.txt
           set +e
           mapfile -t annex_b_tests < <(
             find test262/test/annexB -type f -name '*.js' \
@@ -69,6 +70,42 @@ jobs:
           cat artifacts/test262-output.txt
           exit 0
 
+      - name: Prepare retries for expected and new passes
+        id: retries
+        if: steps.test262.outputs.exit_code != '2'
+        run: |
+          python3 scripts/test262_pass_regression.py \
+            --runner-output artifacts/test262-output.txt \
+            --baseline passed_test262.txt \
+            --prepare-retries \
+            --retry-list artifacts/retry-tests.txt \
+            --github-output "$GITHUB_OUTPUT"
+
+      - name: Retry failed expected tests and new passes
+        id: retry
+        if: >-
+          steps.test262.outputs.exit_code != '2' &&
+          steps.retries.outputs.retry_count != '' &&
+          steps.retries.outputs.retry_count != '0'
+        shell: bash
+        run: |
+          mapfile -t retry_tests < artifacts/retry-tests.txt
+          set +e
+          cargo +nightly run --release --manifest-path test262_runner/Cargo.toml -- \
+            --test262-dir test262 \
+            --skip-feature IsHTMLDDA \
+            "${retry_tests[@]}" > artifacts/test262-retry-output.txt 2>&1
+          status=$?
+          echo "exit_code=$status" >> "$GITHUB_OUTPUT"
+          cat artifacts/test262-retry-output.txt
+          exit 0
+
+      - name: Fail workflow on runner infrastructure errors
+        if: steps.test262.outputs.exit_code == '2' || steps.retry.outputs.exit_code == '2'
+        run: |
+          echo "The Test262 runner hit an infrastructure error; see the test262 output artifact for details."
+          exit 1
+
       - name: Preserve runner output
         if: always()
         uses: actions/upload-artifact@v4
@@ -78,18 +115,13 @@ jobs:
           if-no-files-found: error
           retention-days: 14
 
-      - name: Fail workflow on runner infrastructure errors
-        if: steps.test262.outputs.exit_code == '2'
-        run: |
-          echo "The Test262 runner hit an infrastructure error; see the test262 output artifact for details."
-          exit 1
-
       - name: Check for pass regressions and refresh baseline
         id: baseline
         run: |
           python3 scripts/test262_pass_regression.py \
             --runner-output artifacts/test262-output.txt \
             --baseline passed_test262.txt \
+            --retry-output artifacts/test262-retry-output.txt \
             --github-output "$GITHUB_OUTPUT"
 
       - name: Commit updated passed_test262 baseline
