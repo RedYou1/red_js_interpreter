@@ -1,7 +1,8 @@
 use std::{cell::RefCell, rc::Rc};
 
 use crate::{
-    Code, CodeIndex, CodeResult, Environment, JsValue, LogLevel, handle_return, inline_borrow,
+    Code, CodeIndex, CodeResult, Environment, JsValue, LogLevel, Prototype, handle_return,
+    inline_borrow,
     parser::{
         expr::{self, Expr},
         lexer::Token,
@@ -23,6 +24,7 @@ pub enum BinaryOp {
     Gt,
     LtEq,
     GtEq,
+    In,
     BinAnd,
     LogAnd,
     BinOr,
@@ -100,6 +102,7 @@ impl Operator {
                 Token::Gt => expr::BinaryOp::Gt,
                 Token::LtEq => expr::BinaryOp::LtEq,
                 Token::GtEq => expr::BinaryOp::GtEq,
+                Token::In => expr::BinaryOp::In,
                 Token::InstanceOf => {
                     parser.bump();
                     let class = Self::parse_binary(parser, 19);
@@ -161,9 +164,10 @@ impl Operator {
             (Token::XOr, _) => Some((12, 13)),
             (Token::And, _) => Some((14, 15)),
             (Token::Eq | Token::NotEq, _) => Some((16, 17)),
-            (Token::InstanceOf | Token::Lt | Token::Gt | Token::LtEq | Token::GtEq, _) => {
-                Some((18, 19))
-            }
+            (
+                Token::In | Token::InstanceOf | Token::Lt | Token::Gt | Token::LtEq | Token::GtEq,
+                _,
+            ) => Some((18, 19)),
             (Token::ShiftL | Token::ShiftR, _) => Some((20, 21)),
             (Token::Plus | Token::Minus, _) => Some((22, 23)),
             (Token::Star | Token::Slash | Token::Mod, _) => Some((24, 25)),
@@ -404,6 +408,27 @@ impl Expr for Operator {
                     (JsValue::Number(a), JsValue::Number(b)) => JsValue::Boolean(a >= b),
                     _ => JsValue::Boolean(false),
                 },
+                BinaryOp::In => {
+                    let target = r.unwrap_proto("right operand of 'in'");
+                    let key = match &l {
+                        JsValue::Symbol(_, _) => l.clone(),
+                        _ => JsValue::String(l.print()),
+                    };
+                    let index_key = match &key {
+                        JsValue::String(value) => value
+                            .parse::<i64>()
+                            .ok()
+                            .filter(|index| index.to_string() == *value)
+                            .map(JsValue::BigInt),
+                        _ => None,
+                    };
+                    JsValue::Boolean(
+                        Prototype::inner_find(target.clone(), &l).is_some()
+                            || Prototype::inner_find(target.clone(), &key).is_some()
+                            || index_key
+                                .is_some_and(|key| Prototype::inner_find(target, &key).is_some()),
+                    )
+                }
                 BinaryOp::BinAnd => todo!(),
                 BinaryOp::BinOr => todo!(),
                 BinaryOp::LogAnd => JsValue::Boolean(l.is_truthy() && r.is_truthy()),

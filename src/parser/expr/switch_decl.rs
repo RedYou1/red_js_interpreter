@@ -103,7 +103,7 @@ impl SwitchExpr {
                     }
 
                     let before = parser.index();
-                    let mut exprs = parser.parse_expression(true);
+                    let mut exprs = parser.parse_statement();
                     if exprs.is_empty() && parser.index() == before {
                         parser.bump();
                         continue;

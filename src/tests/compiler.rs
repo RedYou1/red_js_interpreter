@@ -1219,6 +1219,34 @@ assert_result_fn!(
 );
 
 assert_result_fn!(
+    test_function_declaration_before_parenthesized_assignment,
+    r#"
+    let target = {};
+    function foo() {}
+    (target.value = 1, target).answer = 42;
+    console.log(target.answer);
+    "#,
+    "42"
+);
+
+assert_result_fn!(
+    test_in_operator_checks_prototype_chain,
+    r#"
+    let prototype = {inherited: 1};
+    let object = Object.create(prototype);
+    object.own = 2;
+    console.log("own" in object);
+    console.log("inherited" in object);
+    console.log("missing" in object);
+    console.log("0" in [1]);
+    "#,
+    "true",
+    "true",
+    "false",
+    "true"
+);
+
+assert_result_fn!(
     test_edge_case_automatic_semi_insertion,
     r#"
     let x = 

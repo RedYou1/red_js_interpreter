@@ -57,31 +57,33 @@ impl LoopExpr {
                 Token::Let | Token::Const | Token::Var
             ) || matches!(parser.tokens()[parser.index() + 1], Token::In | Token::Of)
             {
-                if !matches!(parser.tokens()[parser.index() + 1], Token::In | Token::Of) {
+                if matches!(
+                    parser.tokens()[parser.index()],
+                    Token::Let | Token::Const | Token::Var
+                ) {
                     parser.bump();
                 }
                 let name = parser.expect_ident();
-                let initializer: Option<Box<dyn Expr>> =
+                let mut initializer: Option<Box<dyn Expr>> =
                     if let Token::Assign(t) = &parser.tokens()[parser.index()] {
                         assert_eq!(*t, Option::<BinaryOp>::None);
                         parser.bump();
-                        Some(Box::new(parser.parse_expression(true)))
-                    } else if let Token::Of = parser.tokens()[parser.index()] {
+                        Some(Box::new(parser.parse_expression(false)))
+                    } else {
+                        None
+                    };
+                if initializer.is_none() {
+                    if let Token::Of = parser.tokens()[parser.index()] {
                         parser.bump();
                         of = true;
-                        Some(Box::new(parser.parse_expression(true)))
+                        initializer = Some(Box::new(parser.parse_expression(true)));
                     } else if let Token::In = parser.tokens()[parser.index()] {
                         parser.bump();
                         for_in = Some((
                             name.clone(),
                             Box::new(parser.parse_expression(true)) as Box<dyn Expr>,
                         ));
-                        None
-                    } else {
-                        None
-                    };
-                if let Token::Semicolon = parser.tokens()[parser.index()] {
-                    parser.bump();
+                    }
                 }
                 if of {
                     (
@@ -129,8 +131,38 @@ impl LoopExpr {
                             }),
                         })),
                     )
+                } else if for_in.is_some() {
+                    (
+                        Some(Box::new(expr::VarDecl {
+                            name,
+                            initializer: None,
+                        })),
+                        None,
+                    )
                 } else {
-                    (Some(Box::new(expr::VarDecl { name, initializer })), None)
+                    let mut declarations: Vec<Box<dyn Expr>> =
+                        vec![Box::new(expr::VarDecl { name, initializer })];
+                    while let Token::Comma = parser.tokens()[parser.index()] {
+                        parser.bump();
+                        let name = parser.expect_ident();
+                        let initializer: Option<Box<dyn Expr>> =
+                            if let Token::Assign(t) = &parser.tokens()[parser.index()] {
+                                assert_eq!(*t, Option::<BinaryOp>::None);
+                                parser.bump();
+                                Some(Box::new(parser.parse_expression(false)))
+                            } else {
+                                None
+                            };
+                        declarations.push(Box::new(expr::VarDecl { name, initializer }));
+                    }
+                    if let Token::Semicolon = parser.tokens()[parser.index()] {
+                        parser.bump();
+                    }
+                    if declarations.len() == 1 {
+                        (Some(declarations.pop().unwrap()), None)
+                    } else {
+                        (Some(Box::new(declarations)), None)
+                    }
                 }
             } else {
                 let expr = Box::new(parser.parse_expression(true));

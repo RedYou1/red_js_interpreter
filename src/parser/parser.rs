@@ -193,9 +193,18 @@ impl Parser {
         params
     }
 
+    pub fn parse_statement(&mut self) -> Vec<Box<dyn Expr>> {
+        if self.tokens[self.index] == Token::Function {
+            self.bump();
+            vec![Box::new(expr::FunctionDecl::parse(self, true))]
+        } else {
+            self.parse_expression(true)
+        }
+    }
+
     pub fn parse_block(&mut self) -> Vec<Box<dyn Expr>> {
         if self.tokens[self.index] != Token::LBrace {
-            let res = self.parse_expression(true);
+            let res = self.parse_statement();
 
             if let Token::Semicolon = self.tokens[self.index] {
                 self.bump();
@@ -208,7 +217,7 @@ impl Parser {
         let mut res: Vec<Box<dyn Expr>> = Vec::new();
         while !matches!(self.tokens[self.index], Token::Eof | Token::RBrace) {
             let before = self.index;
-            let mut exprs = self.parse_expression(true);
+            let mut exprs = self.parse_statement();
             if exprs.is_empty() && self.index == before {
                 if self.tokens[self.index] == Token::Comma {
                     self.bump();
@@ -268,7 +277,7 @@ impl Parser {
                 );
                 panic!("parse_all_expressions requires can_multi");
             }
-            let mut exprs = self.parse_expression(true);
+            let mut exprs = self.parse_statement();
             if exprs.is_empty() {
                 break;
             }
@@ -304,11 +313,6 @@ impl Parser {
                 Token::Try => {
                     self.bump();
                     res.push(Box::new(expr::Try::parse(self)));
-                }
-                Token::Function => {
-                    self.bump();
-                    let expr = Box::new(expr::FunctionDecl::parse(self, true));
-                    res.push(self.parse_postfix(expr, true));
                 }
                 Token::Class => {
                     self.bump();

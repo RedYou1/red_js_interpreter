@@ -622,10 +622,10 @@ impl<'a> Lexer<'a> {
 }
 
 const fn is_ident_start(c: char) -> bool {
-    c.is_ascii_alphabetic() || c == '_'
+    c.is_ascii_alphabetic() || c == '_' || c == '$'
 }
 const fn is_ident_continue(c: char) -> bool {
-    c.is_ascii_alphanumeric() || c == '_'
+    c.is_ascii_alphanumeric() || c == '_' || c == '$'
 }
 
 #[cfg(test)]
@@ -645,6 +645,15 @@ mod tests {
             let mut lexer = Lexer::new(source);
             assert_eq!(lexer.next_token(&[]), expected);
             assert_eq!(lexer.next_token(&[expected]), Token::Eof);
+        }
+    }
+
+    #[test]
+    fn lexes_dollar_identifiers() {
+        for source in ["$", "$$", "$captcha", "grecaptcha$"] {
+            let mut lexer = Lexer::new(source);
+            assert_eq!(lexer.next_token(&[]), Token::Ident(source.to_owned()));
+            assert_eq!(lexer.next_token(&[]), Token::Eof);
         }
     }
 }
