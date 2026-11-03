@@ -47,7 +47,7 @@ impl IfExpr {
         parser.bump();
 
         let mut blocks: Vec<(Box<dyn Expr>, Vec<Box<dyn Expr>>)> =
-            vec![(condition, parser.parse_block())];
+            vec![(condition, parser.parse_if_statement())];
 
         while let Token::Else = parser.tokens()[parser.index()] {
             parser.bump();
@@ -81,7 +81,7 @@ impl IfExpr {
             } else {
                 Box::new(expr::ConstBoolean { b: true })
             };
-            blocks.push((condition, parser.parse_block()));
+            blocks.push((condition, parser.parse_if_statement()));
         }
 
         Self { blocks }

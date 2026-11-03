@@ -85,10 +85,11 @@ impl Expr for Assign {
 pub struct VarDecl {
     pub name: String,
     pub initializer: Option<Box<dyn Expr>>,
+    pub lexical: bool,
 }
 
 impl VarDecl {
-    pub fn parse(parser: &mut Parser) -> Self {
+    pub fn parse(parser: &mut Parser, lexical: bool) -> Self {
         let name = parser.expect_ident();
         parser.env.logger.borrow_mut().logln(LogLevel::Info, &|| {
             format!("Entering VarDecl::parse name={}", name)
@@ -101,13 +102,18 @@ impl VarDecl {
             } else {
                 None
             };
-        Self { name, initializer }
+        Self {
+            name,
+            initializer,
+            lexical,
+        }
     }
 }
 
 impl Expr for VarDecl {
     fn compile(&self, env: Environment) -> Vec<Code> {
         let name = self.name.clone();
+        let lexical = self.lexical;
         let code = self.initializer.compile(env);
         vec![Box::new(move |env, _| {
             env.logger.borrow_mut().logln(LogLevel::Trace, &|| {
@@ -118,6 +124,12 @@ impl Expr for VarDecl {
                 .borrow_mut()
                 .properties
                 .insert(name.clone().into(), value.clone());
+            if lexical {
+                env.mem
+                    .borrow_mut()
+                    .non_enumerable
+                    .insert(name.clone().into());
+            }
             env.logger.borrow_mut().logln(LogLevel::Trace, &|| {
                 format!("Exiting Expr::VarDecl name={} value={:?}", name, value)
             });
@@ -128,6 +140,7 @@ impl Expr for VarDecl {
         Box::new(Self {
             name: self.name.clone(),
             initializer: self.initializer.as_ref().map(|a| a.as_ref().duplicate()),
+            lexical: self.lexical,
         })
     }
 }

@@ -14,6 +14,7 @@ pub struct FunctionDecl {
     pub body: Rc<[Box<dyn Expr>]>,
     pub generator: bool,
     pub insert: bool,
+    pub insert_if_absent: bool,
     pub lexical_this: bool,
 }
 
@@ -60,6 +61,7 @@ impl FunctionDecl {
             body,
             generator,
             insert,
+            insert_if_absent: false,
             lexical_this: false,
         }
     }
@@ -82,6 +84,7 @@ impl Expr for FunctionDecl {
             .collect::<Vec<_>>();
         let body = self.body.clone();
         let insert = self.insert;
+        let insert_if_absent = self.insert_if_absent;
         let lexical_this = self.lexical_this;
 
         env.logger.borrow_mut().logln(LogLevel::Info, &|| {
@@ -144,10 +147,14 @@ impl Expr for FunctionDecl {
             };
 
             if insert {
-                env.mem
-                    .borrow_mut()
-                    .properties
-                    .insert(name.into(), js_func.clone());
+                let key = name.into();
+                let lexical_binding = env.mem.borrow().non_enumerable.contains(&key);
+                if !insert_if_absent || !lexical_binding {
+                    env.mem
+                        .borrow_mut()
+                        .properties
+                        .insert(key, js_func.clone());
+                }
             }
             CodeResult::Normal(js_func.clone())
         })]
@@ -165,6 +172,7 @@ impl Expr for FunctionDecl {
             body: self.body.iter().map(|t| t.duplicate()).collect(),
             generator: self.generator,
             insert: self.insert,
+            insert_if_absent: self.insert_if_absent,
             lexical_this: self.lexical_this,
         })
     }

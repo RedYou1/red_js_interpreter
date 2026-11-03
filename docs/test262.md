@@ -29,7 +29,7 @@ cargo run --release -- `
   ..\..\test262\test\language\expressions\addition
 ```
 
-Each test has a 2-second timeout. A test that does not finish before the
+Each test has a 500-millisecond timeout. A test that does not finish before the
 deadline is killed and reported as `FAIL`; use `--timeout-ms <milliseconds>`
 to choose a different limit.
 

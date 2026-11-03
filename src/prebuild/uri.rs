@@ -1,94 +1,124 @@
 use crate::prebuild::prelude::*;
-
-const UNRESERVED: &str = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_.!~*'()";
-const URI_RESERVED: &str = ";/?:@&=+$,#[]";
-
-pub fn prebuild_uri(environment: Environment) {
-    let function = Prototype::find(environment.mem.clone(), &stringify!(Function).into())
-        .1
-        .borrow()
-        .unwrap_proto("URI functions for Function");
-    for (name, encoder, preserve_reserved) in [
-        ("encodeURI", true, true),
-        ("encodeURIComponent", true, false),
-        ("decodeURI", false, true),
-        ("decodeURIComponent", false, false),
-    ] {
-        let runnable = prebuild_runnable(
-            environment.clone(),
-            Box::new(move |_, _, [input]| {
-                let input = match inline_borrow!(input) {
-                    JsValue::String(value) => value,
-                    value => value.print(),
-                };
-                let result = if encoder {
-                    encode_uri(&input, preserve_reserved)
-                } else {
-                    decode_uri(&input, preserve_reserved)
-                };
-                match result {
-                    Ok(result) => {
-                        CodeResult::Return(Rc::new(RefCell::new(JsValue::String(result))))
-                    }
-                    Err(error) => CodeResult::Error(Rc::new(RefCell::new(JsValue::String(error)))),
-                }
-            }),
-        );
-        environment.mem.borrow_mut().properties.insert(
-            name.into(),
-            new_builtin_runnable(function.clone(), name, runnable),
-        );
-    }
+#[derive(Clone, Copy)]
+enum UriMode {
+    EncodeUri,
+    EncodeComponent,
+    DecodeUri,
+    DecodeComponent,
 }
 
-fn encode_uri(input: &str, preserve_reserved: bool) -> Result<String, String> {
+fn encode_uri(value: &str, component: bool) -> String {
+    const HEX: &[u8; 16] = b"0123456789ABCDEF";
     let mut encoded = String::new();
-    for byte in input.as_bytes() {
-        let character = *byte as char;
-        if character.is_ascii()
-            && (UNRESERVED.contains(character)
-                || preserve_reserved && URI_RESERVED.contains(character))
-        {
-            encoded.push(character);
+    for byte in value.bytes() {
+        let unescaped = byte.is_ascii_alphanumeric()
+            || matches!(byte, b'-' | b'_' | b'.' | b'!' | b'~' | b'*' | b'\'' | b'(' | b')')
+            || (!component
+                && matches!(
+                    byte,
+                    b';' | b',' | b'/' | b'?' | b':' | b'@' | b'&' | b'=' | b'+' | b'$' | b'#'
+                ));
+        if unescaped {
+            encoded.push(byte as char);
         } else {
-            use std::fmt::Write;
-            write!(&mut encoded, "%{byte:02X}").map_err(|error| error.to_string())?;
+            encoded.push('%');
+            encoded.push(HEX[(byte >> 4) as usize] as char);
+            encoded.push(HEX[(byte & 0x0f) as usize] as char);
         }
     }
-    Ok(encoded)
+    encoded
 }
 
-fn decode_uri(input: &str, preserve_reserved: bool) -> Result<String, String> {
-    let bytes = input.as_bytes();
-    let mut decoded = Vec::with_capacity(bytes.len());
+fn hex_byte(bytes: &[u8], index: usize) -> Option<u8> {
+    let high = (*bytes.get(index + 1)? as char).to_digit(16)?;
+    let low = (*bytes.get(index + 2)? as char).to_digit(16)?;
+    Some((high * 16 + low) as u8)
+}
+
+fn is_reserved(byte: u8) -> bool {
+    matches!(
+        byte,
+        b';' | b'/' | b'?' | b':' | b'@' | b'&' | b'=' | b'+' | b'$' | b',' | b'#'
+    )
+}
+
+fn decode_uri(value: &str, preserve_reserved: bool) -> Result<String, ()> {
+    let bytes = value.as_bytes();
+    let mut decoded = String::new();
     let mut index = 0;
     while index < bytes.len() {
         if bytes[index] != b'%' {
-            decoded.push(bytes[index]);
-            index += 1;
+            let character = value[index..].chars().next().ok_or(())?;
+            decoded.push(character);
+            index += character.len_utf8();
             continue;
         }
-        if index + 2 >= bytes.len() {
-            return Err("malformed URI escape".to_owned());
+
+        let first = hex_byte(bytes, index).ok_or(())?;
+        if preserve_reserved && is_reserved(first) {
+            decoded.push_str(&value[index..index + 3]);
+            index += 3;
+            continue;
         }
-        let high = hex_digit(bytes[index + 1]).ok_or_else(|| "malformed URI escape".to_owned())?;
-        let low = hex_digit(bytes[index + 2]).ok_or_else(|| "malformed URI escape".to_owned())?;
-        let decoded_byte = high * 16 + low;
-        if preserve_reserved && URI_RESERVED.contains(decoded_byte as char) {
-            decoded.extend_from_slice(&bytes[index..index + 3]);
-        } else {
-            decoded.push(decoded_byte);
+
+        let mut encoded = Vec::new();
+        while index < bytes.len() && bytes[index] == b'%' {
+            let byte = hex_byte(bytes, index).ok_or(())?;
+            if preserve_reserved && is_reserved(byte) {
+                break;
+            }
+            encoded.push(byte);
+            index += 3;
         }
-        index += 3;
+        decoded.push_str(&String::from_utf8(encoded).map_err(|_| ())?);
     }
-    String::from_utf8(decoded).map_err(|error| error.to_string())
+    Ok(decoded)
 }
 
-fn hex_digit(byte: u8) -> Option<u8> {
-    match byte {
-        b'0'..=b'9' => Some(byte - b'0'),
-        b'a'..=b'f' => Some(byte - b'a' + 10),
-        b'A'..=b'F' => Some(byte - b'A' + 10),
-        _ => None,
-    }
+fn uri_error(env: Environment) -> CodeResult {
+    let error = Prototype::find(env.mem, &stringify!(URIError).into())
+        .1
+        .borrow()
+        .unwrap_proto("URIError");
+    CodeResult::Error(Rc::new(RefCell::new(JsValue::Prototype(
+        Prototype::new_child(error, None, []),
+    ))))
+}
+
+fn install_uri_function(env: Environment, name: &'static str, mode: UriMode) {
+    let function = Prototype::find(env.mem.clone(), &stringify!(Function).into())
+        .1
+        .borrow()
+        .unwrap_proto("URI function");
+    let runnable = prebuild_runnable_direct(
+        env.clone(),
+        Box::new(move |env, _, arguments| {
+            let value = arguments
+                .first()
+                .map(|value| inline_borrow!(value.clone()))
+                .unwrap_or(JsValue::Undefined);
+            let value = value.print();
+            let result = match mode {
+                UriMode::EncodeUri => Ok(encode_uri(&value, false)),
+                UriMode::EncodeComponent => Ok(encode_uri(&value, true)),
+                UriMode::DecodeUri => decode_uri(&value, true),
+                UriMode::DecodeComponent => decode_uri(&value, false),
+            };
+            match result {
+                Ok(value) => CodeResult::Return(Rc::new(RefCell::new(JsValue::String(value)))),
+                Err(()) => uri_error(env),
+            }
+        }),
+    );
+    env.mem
+        .borrow_mut()
+        .properties
+        .insert(name.into(), new_builtin_runnable(function, name, runnable));
+}
+
+pub fn prebuild_uri(env: Environment) {
+    install_uri_function(env.clone(), "encodeURI", UriMode::EncodeUri);
+    install_uri_function(env.clone(), "encodeURIComponent", UriMode::EncodeComponent);
+    install_uri_function(env.clone(), "decodeURI", UriMode::DecodeUri);
+    install_uri_function(env, "decodeURIComponent", UriMode::DecodeComponent);
 }

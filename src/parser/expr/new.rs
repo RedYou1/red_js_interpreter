@@ -101,11 +101,10 @@ impl Expr for New {
                     .borrow()
                     .unwrap_proto("expr::New for constructor");
             let constructor = if Prototype::opt_find(class.clone(), &RUNNABLE.into()).is_some() {
+                let constructor = class.clone();
                 class = inline_borrow!(Prototype::find(class.clone(), &PROTOTYPE_NAME.into()).1)
                     .unwrap_proto("expr::New get prototype");
-
-                inline_borrow!(Prototype::find(class.clone(), &"constructor".into()).1)
-                    .unwrap_proto("expr::New get prototype constructor")
+                constructor
             } else {
                 inline_borrow!(
                     Prototype::find(class.clone(), &JsValue::String("constructor".to_owned())).1

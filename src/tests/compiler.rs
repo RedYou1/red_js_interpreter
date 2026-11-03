@@ -1283,6 +1283,119 @@ assert_result_fn!(
 );
 
 assert_result_fn!(
+    test_function_declaration_before_parenthesized_assignment,
+    r#"
+    let target = {};
+    function foo() {}
+    (target.value = 1, target).answer = 42;
+    console.log(target.answer);
+    "#,
+    "42"
+);
+
+assert_result_fn!(
+    test_function_declaration_after_unterminated_var_declaration,
+    r#"
+    var value = 0
+    function updateValue() {
+        value = 1;
+    }
+    updateValue();
+    console.log(value);
+    "#,
+    "1"
+);
+
+assert_result_fn!(
+    test_in_operator_checks_prototype_chain,
+    r#"
+    let prototype = {inherited: 1};
+    let object = Object.create(prototype);
+    object.own = 2;
+    console.log("own" in object);
+    console.log("inherited" in object);
+    console.log("missing" in object);
+    console.log("0" in [1]);
+    function Robin() { this.name = "robin"; }
+    Robin.prototype = prototype;
+    let robin = new Robin();
+    console.log("inherited" in robin);
+    console.log(robin.hasOwnProperty("inherited"));
+    "#,
+    "true",
+    "true",
+    "false",
+    "true",
+    "true",
+    "false"
+);
+
+assert_result_fn!(
+    test_unicode_regexp_rejects_identity_escape_of_nul,
+    r#"
+    let threw = false;
+    try {
+        RegExp("\\" + String.fromCharCode(0), "u");
+    } catch (error) {
+        threw = error instanceof SyntaxError;
+    }
+    console.log(threw);
+    "#,
+    "true"
+);
+
+assert_result_fn!(
+    test_string_from_char_code_and_primitive_access,
+    r#"
+    console.log(String.fromCharCode(65, 66));
+    console.log("0123456789ABCDEF"[10]);
+    console.log("abc".length);
+    console.log(new String("hello").indexOf("e"));
+    "#,
+    "AB",
+    "A",
+    "3",
+    "1"
+);
+
+assert_result_fn!(
+    test_uri_encoders_and_decoders,
+    r#"
+    console.log(encodeURI("a b/") === "a%20b/");
+    console.log(encodeURIComponent("a b/") === "a%20b%2F");
+    console.log(decodeURI("a%20b%2F") === "a b%2F");
+    console.log(decodeURIComponent("a%20b%2F") === "a b/");
+    try {
+        decodeURIComponent("%");
+    } catch (error) {
+        console.log(error instanceof URIError);
+    }
+    let unpaired = String.fromCharCode(0xD800);
+    console.log(unpaired.length === 1);
+    console.log(unpaired[0] === 0xD800);
+    "#,
+    "true",
+    "true",
+    "true",
+    "true",
+    "true",
+    "true",
+    "true"
+);
+
+assert_result_fn!(
+    test_unsigned_right_shift_and_bitwise_and,
+    r#"
+    var value = 192;
+    value >>>= 4;
+    console.log(value);
+    console.log(15 & 5);
+    "#,
+    "12",
+    "5"
+);
+
+assert_result_fn!(
     test_edge_case_automatic_semi_insertion,
     r#"
     let x = 

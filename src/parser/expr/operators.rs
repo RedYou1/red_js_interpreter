@@ -1,7 +1,8 @@
 use std::{cell::RefCell, cmp::Ordering, rc::Rc};
 
 use crate::{
-    Code, CodeIndex, CodeResult, Environment, JsValue, LogLevel, handle_return, inline_borrow,
+    Code, CodeIndex, CodeResult, Environment, JsValue, LogLevel, Prototype, handle_return,
+    inline_borrow,
     parser::{
         expr::{self, Expr},
         lexer::Token,
@@ -23,6 +24,7 @@ pub enum BinaryOp {
     Gt,
     LtEq,
     GtEq,
+    In,
     BinAnd,
     LogAnd,
     Nullish,
@@ -31,6 +33,31 @@ pub enum BinaryOp {
     XOr,
     ShiftL,
     ShiftR,
+    ShiftRU,
+}
+
+fn to_uint32(value: &JsValue) -> u32 {
+    let number = match value {
+        JsValue::BigInt(value) => return *value as u32,
+        JsValue::Number(value) => *value,
+        JsValue::Boolean(value) => {
+            if *value { 1.0 } else { 0.0 }
+        }
+        JsValue::Null => 0.0,
+        JsValue::Undefined => f64::NAN,
+        JsValue::String(value) if value.trim().is_empty() => 0.0,
+        JsValue::String(value) => value.trim().parse().unwrap_or(f64::NAN),
+        _ => f64::NAN,
+    };
+    if number.is_finite() {
+        number.trunc().rem_euclid(4_294_967_296.0) as u32
+    } else {
+        0
+    }
+}
+
+fn to_int32(value: &JsValue) -> i32 {
+    to_uint32(value) as i32
 }
 
 #[derive(Debug)]
@@ -123,6 +150,7 @@ impl Operator {
                 Token::Gt => expr::BinaryOp::Gt,
                 Token::LtEq => expr::BinaryOp::LtEq,
                 Token::GtEq => expr::BinaryOp::GtEq,
+                Token::In => expr::BinaryOp::In,
                 Token::InstanceOf => {
                     parser.bump();
                     let class = Self::parse_binary(parser, 19);
@@ -156,6 +184,7 @@ impl Operator {
                 Token::XOr => expr::BinaryOp::XOr,
                 Token::ShiftL => expr::BinaryOp::ShiftL,
                 Token::ShiftR => expr::BinaryOp::ShiftR,
+                Token::ShiftRU => expr::BinaryOp::ShiftRU,
                 Token::QMark if min_bp == 0 => {
                     lhs = Box::new(expr::ConditionalOp::parse(parser, lhs));
                     continue;
@@ -186,10 +215,11 @@ impl Operator {
             (Token::XOr, _) => Some((12, 13)),
             (Token::And, _) => Some((14, 15)),
             (Token::Eq | Token::NotEq, _) => Some((16, 17)),
-            (Token::InstanceOf | Token::Lt | Token::Gt | Token::LtEq | Token::GtEq, _) => {
-                Some((18, 19))
-            }
-            (Token::ShiftL | Token::ShiftR, _) => Some((20, 21)),
+            (
+                Token::In | Token::InstanceOf | Token::Lt | Token::Gt | Token::LtEq | Token::GtEq,
+                _,
+            ) => Some((18, 19)),
+            (Token::ShiftL | Token::ShiftR | Token::ShiftRU, _) => Some((20, 21)),
             (Token::Plus | Token::Minus, _) => Some((22, 23)),
             (Token::Star | Token::Slash | Token::Mod, _) => Some((24, 25)),
             _ => None,
@@ -477,14 +507,78 @@ impl Expr for Operator {
                 BinaryOp::GtEq => JsValue::Boolean(
                     relational_order(&l, &r).is_some_and(|order| order != Ordering::Less),
                 ),
-                BinaryOp::BinAnd => todo!(),
-                BinaryOp::BinOr => todo!(),
+                BinaryOp::In => {
+                    let target = r.unwrap_proto("right operand of 'in'");
+                    let key = match &l {
+                        JsValue::Symbol(_, _) => l.clone(),
+                        _ => JsValue::String(l.print()),
+                    };
+                    let index_key = match &key {
+                        JsValue::String(value) => value
+                            .parse::<i64>()
+                            .ok()
+                            .filter(|index| index.to_string() == *value)
+                            .map(JsValue::BigInt),
+                        _ => None,
+                    };
+                    JsValue::Boolean(
+                        Prototype::inner_find(target.clone(), &l).is_some()
+                            || Prototype::inner_find(target.clone(), &key).is_some()
+                            || index_key
+                                .is_some_and(|key| Prototype::inner_find(target, &key).is_some()),
+                    )
+                }
+                BinaryOp::BinAnd => match (l, r) {
+                    (JsValue::BigInt(left), JsValue::BigInt(right)) => {
+                        JsValue::BigInt(left & right)
+                    }
+                    (left, right) => {
+                        JsValue::Number((to_int32(&left) & to_int32(&right)) as f64)
+                    }
+                },
+                BinaryOp::BinOr => match (l, r) {
+                    (JsValue::BigInt(left), JsValue::BigInt(right)) => {
+                        JsValue::BigInt(left | right)
+                    }
+                    (left, right) => {
+                        JsValue::Number((to_int32(&left) | to_int32(&right)) as f64)
+                    }
+                },
                 BinaryOp::LogAnd => JsValue::Boolean(l.is_truthy() && r.is_truthy()),
                 BinaryOp::LogOr => JsValue::Boolean(l.is_truthy() || r.is_truthy()),
                 BinaryOp::Nullish => unreachable!("nullish operator short-circuits above"),
-                BinaryOp::XOr => todo!(),
-                BinaryOp::ShiftL => todo!(),
-                BinaryOp::ShiftR => todo!(),
+                BinaryOp::XOr => match (l, r) {
+                    (JsValue::BigInt(left), JsValue::BigInt(right)) => {
+                        JsValue::BigInt(left ^ right)
+                    }
+                    (left, right) => {
+                        JsValue::Number((to_int32(&left) ^ to_int32(&right)) as f64)
+                    }
+                },
+                BinaryOp::ShiftL => match (l, r) {
+                    (JsValue::BigInt(left), JsValue::BigInt(right)) => {
+                        JsValue::BigInt(left.wrapping_shl((right as u32) & 63))
+                    }
+                    (left, right) => JsValue::Number(
+                        to_int32(&left).wrapping_shl(to_uint32(&right) & 31) as f64,
+                    ),
+                },
+                BinaryOp::ShiftR => match (l, r) {
+                    (JsValue::BigInt(left), JsValue::BigInt(right)) => {
+                        JsValue::BigInt(left >> ((right as u32) & 63))
+                    }
+                    (left, right) => JsValue::Number(
+                        (to_int32(&left) >> (to_uint32(&right) & 31)) as f64,
+                    ),
+                },
+                BinaryOp::ShiftRU => match (l, r) {
+                    (JsValue::BigInt(left), JsValue::BigInt(right)) => {
+                        JsValue::BigInt(((left as u32) >> ((right as u32) & 31)) as i64)
+                    }
+                    (left, right) => JsValue::Number(
+                        (to_uint32(&left) >> (to_uint32(&right) & 31)) as f64,
+                    ),
+                },
             };
             let out = Rc::new(RefCell::new(value));
             env.logger.borrow_mut().logln(LogLevel::Trace, &|| {

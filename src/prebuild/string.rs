@@ -1,16 +1,56 @@
 use crate::prebuild::prelude::*;
 
+const STRING_DATA_KEY: &str = "__string_data__";
+
+fn string_receiver(this: &Rc<RefCell<JsValue>>) -> Option<String> {
+    match inline_borrow!(this.clone()) {
+        JsValue::String(value) => Some(value),
+        JsValue::Prototype(object) => {
+            let value = object
+                .borrow()
+                .properties
+                .get(&STRING_DATA_KEY.into())?
+                .clone();
+            match inline_borrow!(value) {
+                JsValue::String(value) => Some(value),
+                _ => None,
+            }
+        }
+        _ => None,
+    }
+}
+
+fn to_uint16(value: &JsValue) -> u16 {
+    let number = match value {
+        JsValue::BigInt(value) => *value as f64,
+        JsValue::Number(value) => *value,
+        JsValue::Boolean(value) => {
+            if *value { 1.0 } else { 0.0 }
+        }
+        JsValue::Null => 0.0,
+        JsValue::Undefined => f64::NAN,
+        JsValue::String(value) if value.trim().is_empty() => 0.0,
+        JsValue::String(value) => value.trim().parse().unwrap_or(f64::NAN),
+        _ => f64::NAN,
+    };
+    if number.is_finite() {
+        number.trunc().rem_euclid(65536.0) as u16
+    } else {
+        0
+    }
+}
+
 new_class! {
     prebuild_string,
     String,
     Object,;
     constructor, fn,
-    |env, _, [arg]| {
+    |env, this, [arg]| {
         let arg = match inline_borrow!(arg) {
             JsValue::Symbol(_, ref t) =>  *t.clone(),
             v => v
         };
-        match &arg {
+        let result = match &arg {
             JsValue::Prototype(proto) => run_function_object(Prototype::find(proto.clone(), &"toString".into()).1.borrow().unwrap_proto("String.constructor for toString"), Rc::new(RefCell::new(arg.clone())), vec![], env.logger),
             JsValue::String(s) => CodeResult::Return(Rc::new(RefCell::new(JsValue::String(s.clone())))),
             JsValue::Null | JsValue::Undefined => CodeResult::Return(Rc::new(RefCell::new(JsValue::String("".to_owned())))),
@@ -18,15 +58,51 @@ new_class! {
             JsValue::Number(o) => CodeResult::Return(Rc::new(RefCell::new(JsValue::String(format!("{}", *o))))),
             JsValue::Boolean(o) => CodeResult::Return(Rc::new(RefCell::new(JsValue::String(format!("{}", *o))))),
             JsValue::Symbol(_, _) | JsValue::Function(_) | JsValue::Generator(_) | JsValue::RedGex(_) => panic!("not implemented"),
+        };
+        if let CodeResult::Return(value) = &result
+            && let JsValue::String(value) = inline_borrow!(value.clone())
+            && let JsValue::Prototype(receiver) = inline_borrow!(this.clone())
+        {
+            let length = value.encode_utf16().count() as i64;
+            let mut receiver = receiver.borrow_mut();
+            receiver.properties.insert(
+                STRING_DATA_KEY.into(),
+                Rc::new(RefCell::new(JsValue::String(value))),
+            );
+            receiver.properties.insert(
+                "length".into(),
+                Rc::new(RefCell::new(JsValue::BigInt(length))),
+            );
+        }
+        result
+    },
+    fromCharCode, fn_direct,
+    |env, _, arguments| {
+        let code_units = arguments
+            .iter()
+            .map(|argument| to_uint16(&inline_borrow!(argument.clone())))
+            .collect::<Vec<_>>();
+        match String::from_utf16(&code_units) {
+            Ok(value) => CodeResult::Return(Rc::new(RefCell::new(JsValue::String(value)))),
+            Err(_) => {
+                let array = Prototype::find(env.mem.clone(), &stringify!(Array).into())
+                    .1
+                    .borrow()
+                    .unwrap_proto("String.fromCharCode for Array");
+                let elements = code_units
+                    .into_iter()
+                    .map(|unit| Rc::new(RefCell::new(JsValue::BigInt(i64::from(unit)))))
+                    .collect();
+                CodeResult::Return(new_array(array, elements, env.logger))
+            }
         }
     },
     length, fn,
     |_, this, []| {
-        CodeResult::Return(Rc::new(RefCell::new(if let JsValue::String(s) = inline_borrow!(this) {
-            JsValue::BigInt(s.len() as i64)
-        } else {
-            JsValue::BigInt(0)
-        })))
+        CodeResult::Return(Rc::new(RefCell::new(JsValue::BigInt(
+            string_receiver(&this)
+                .map_or(0, |value| value.encode_utf16().count() as i64),
+        ))))
     },
     charAt, fn,
     |_, this, [index]| {
@@ -93,7 +169,7 @@ new_class! {
     },
     indexOf, fn,
     |_, this, [search, from_index]| {
-        if let JsValue::String(s) = inline_borrow!(this)
+        if let Some(s) = string_receiver(&this)
             && let JsValue::String(search_str) = inline_borrow!(search) {
             let mut start = 0usize;
             if let JsValue::BigInt(from) = inline_borrow!(from_index) {
