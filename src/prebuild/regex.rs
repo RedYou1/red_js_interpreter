@@ -39,18 +39,19 @@ fn normalize_control_escapes(source: &str) -> String {
     let mut normalized = String::new();
     let mut index = 0;
     while index < chars.len() {
-        if chars[index] == '\\'
-            && chars.get(index + 1) == Some(&'\\')
-        {
+        if chars[index] == '\\' && chars.get(index + 1) == Some(&'\\') {
             normalized.push('\\');
             normalized.push('\\');
             index += 2;
         } else if chars[index] == '\\'
             && chars.get(index + 1) == Some(&'c')
-            && chars.get(index + 2).is_some_and(|character| character.is_ascii_alphabetic())
+            && chars
+                .get(index + 2)
+                .is_some_and(|character| character.is_ascii_alphabetic())
         {
             let control = (chars[index + 2].to_ascii_uppercase() as u32) - ('A' as u32) + 1;
-            normalized.push(char::from_u32(control).expect("control escape should be a code point"));
+            normalized
+                .push(char::from_u32(control).expect("control escape should be a code point"));
             index += 3;
         } else {
             normalized.push(chars[index]);
@@ -80,15 +81,29 @@ fn has_invalid_unicode_identity_escape(source: &str) -> bool {
                 };
                 if matches!(
                     escaped,
-                    '^' | '$' | '\\' | '.' | '*' | '+' | '?' | '(' | ')' | '[' | ']' | '{'
-                        | '}' | '|' | '/'
+                    '^' | '$'
+                        | '\\'
+                        | '.'
+                        | '*'
+                        | '+'
+                        | '?'
+                        | '('
+                        | ')'
+                        | '['
+                        | ']'
+                        | '{'
+                        | '}'
+                        | '|'
+                        | '/'
                 ) || (in_class && escaped == '-')
                 {
                     index += 2;
                     continue;
                 }
-                if matches!(escaped, 'b' | 'f' | 'n' | 'r' | 't' | 'v' | 'd' | 'D' | 's' | 'S' | 'w' | 'W')
-                    && !(in_class && escaped == 'B')
+                if matches!(
+                    escaped,
+                    'b' | 'f' | 'n' | 'r' | 't' | 'v' | 'd' | 'D' | 's' | 'S' | 'w' | 'W'
+                ) && !(in_class && escaped == 'B')
                 {
                     index += 2;
                     continue;
@@ -121,20 +136,23 @@ fn has_invalid_unicode_identity_escape(source: &str) -> bool {
                     continue;
                 }
                 if escaped == 'u' {
-                    if chars
-                        .get(index + 2..index + 6)
-                        .is_some_and(|digits| digits.iter().all(|character| character.is_ascii_hexdigit()))
-                    {
+                    if chars.get(index + 2..index + 6).is_some_and(|digits| {
+                        digits.iter().all(|character| character.is_ascii_hexdigit())
+                    }) {
                         index += 6;
                         continue;
                     }
                     if chars.get(index + 2) == Some(&'{') {
-                        let Some(end) = chars[index + 3..].iter().position(|character| *character == '}')
+                        let Some(end) = chars[index + 3..]
+                            .iter()
+                            .position(|character| *character == '}')
                         else {
                             return true;
                         };
                         let digits = &chars[index + 3..index + 3 + end];
-                        if !digits.is_empty() && digits.iter().all(|character| character.is_ascii_hexdigit()) {
+                        if !digits.is_empty()
+                            && digits.iter().all(|character| character.is_ascii_hexdigit())
+                        {
                             index += end + 4;
                             continue;
                         }
@@ -142,7 +160,9 @@ fn has_invalid_unicode_identity_escape(source: &str) -> bool {
                     return true;
                 }
                 if escaped == 'k' && chars.get(index + 2) == Some(&'<') {
-                    let Some(end) = chars[index + 3..].iter().position(|character| *character == '>')
+                    let Some(end) = chars[index + 3..]
+                        .iter()
+                        .position(|character| *character == '>')
                     else {
                         return true;
                     };
@@ -390,6 +410,63 @@ fn array_prototype(env: &Environment) -> Rc<RefCell<Prototype>> {
         .1
         .borrow()
         .unwrap_proto("Regex for Array")
+}
+
+pub(crate) fn string_match(
+    env: Environment,
+    receiver: Rc<RefCell<JsValue>>,
+    pattern: Rc<RefCell<JsValue>>,
+) -> CodeResult {
+    let input = match to_string(env.clone(), receiver) {
+        Ok(input) => input,
+        Err(error) => return error,
+    };
+    let regex = if regex_parts(&pattern).is_some() {
+        pattern
+    } else {
+        let source = if matches!(inline_borrow!(pattern.clone()), JsValue::Undefined) {
+            String::new()
+        } else {
+            match to_string(env.clone(), pattern) {
+                Ok(source) => source,
+                Err(error) => return error,
+            }
+        };
+        match new_regex(env.clone(), source, String::new()) {
+            CodeResult::Return(regex) => regex,
+            result => return result,
+        }
+    };
+    let Some((object, _, flags)) = regex_parts(&regex) else {
+        return regex_error(env, "TypeError");
+    };
+    if flags.contains('g') {
+        let Some(matcher) = regex_matcher(&object) else {
+            return CodeResult::Return(Rc::new(RefCell::new(JsValue::Null)));
+        };
+        set_last_index(&object, 0);
+        let matches = matcher
+            .all_matchs(&input)
+            .map(|captures| Rc::new(RefCell::new(JsValue::String(captures[0].to_owned()))))
+            .collect::<Vec<_>>();
+        set_last_index(&object, 0);
+        if matches.is_empty() {
+            CodeResult::Return(Rc::new(RefCell::new(JsValue::Null)))
+        } else {
+            CodeResult::Return(new_array(array_prototype(&env), matches, env.logger))
+        }
+    } else {
+        let exec = Prototype::find(object, &"exec".into()).1;
+        let JsValue::Prototype(exec) = inline_borrow!(exec) else {
+            return regex_error(env, "TypeError");
+        };
+        run_function_object(
+            exec,
+            regex,
+            vec![Rc::new(RefCell::new(JsValue::String(input)))],
+            env.logger,
+        )
+    }
 }
 
 fn match_array(

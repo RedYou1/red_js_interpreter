@@ -46,8 +46,11 @@ pub enum Token {
     Comma,
     Semicolon,
     Dot,
+    Spread,
     Assign(Option<BinaryOp>),
     QMark,
+    OptionalChain,
+    NullishCoalesce,
     Colon,
 
     Plus,
@@ -245,7 +248,8 @@ impl<'a> Lexer<'a> {
             self.read_unicode_escape()
                 .expect("invalid Unicode escape in identifier")
         } else {
-            self.bump().expect("identifier should have a first character")
+            self.bump()
+                .expect("identifier should have a first character")
         };
         if !is_ident_start(first) {
             panic!("invalid identifier start character {first:?}");
@@ -524,6 +528,14 @@ impl<'a> Lexer<'a> {
                 }
                 '?' => {
                     self.bump();
+                    if self.peek() == Some('?') {
+                        self.bump();
+                        return Token::NullishCoalesce;
+                    }
+                    if self.peek() == Some('.') {
+                        self.bump();
+                        return Token::OptionalChain;
+                    }
                     return Token::QMark;
                 }
                 '<' => {
@@ -666,10 +678,16 @@ impl<'a> Lexer<'a> {
                     });
                     return Token::Number(value);
                 }
-                c if is_ident_start(c)
-                    || (c == '\\' && self.chars.clone().next() == Some('u')) =>
-                {
+                c if is_ident_start(c) || (c == '\\' && self.chars.clone().next() == Some('u')) => {
                     return Token::from_keyword(self.read_identifier());
+                }
+                '.' if self.chars.clone().next() == Some('.')
+                    && self.chars.clone().nth(1) == Some('.') =>
+                {
+                    self.bump();
+                    self.bump();
+                    self.bump();
+                    return Token::Spread;
                 }
                 _ if let mut s = self.eat_while(|ch| ch.is_ascii_digit() || ch == '.')
                     && !s.is_empty() =>
@@ -786,11 +804,7 @@ mod tests {
 
     #[test]
     fn lexes_unicode_escaped_identifier_characters() {
-        for (source, expected) in [
-            ("$\\u0030", "$0"),
-            ("\\u0061", "a"),
-            ("foo\\u0030", "foo0"),
-        ] {
+        for (source, expected) in [("$\\u0030", "$0"), ("\\u0061", "a"), ("foo\\u0030", "foo0")] {
             let mut lexer = Lexer::new(source);
             let token = Token::Ident(expected.to_owned());
             assert_eq!(lexer.next_token(&[]), token);

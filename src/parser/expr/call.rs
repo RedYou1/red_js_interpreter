@@ -6,9 +6,15 @@ use crate::{
 };
 
 #[derive(Debug)]
+pub enum CallArgument {
+    Value(Box<dyn Expr>),
+    Spread(Box<dyn Expr>),
+}
+
+#[derive(Debug)]
 pub struct Call {
     pub func: Box<dyn Expr>,
-    pub args: Vec<Box<dyn Expr>>,
+    pub args: Vec<CallArgument>,
 }
 
 impl Expr for Call {
@@ -17,8 +23,15 @@ impl Expr for Call {
         let args: Vec<Vec<Code>> = self
             .args
             .iter()
-            .map(|arg| arg.compile(env.clone()))
+            .map(|arg| match arg {
+                CallArgument::Value(arg) | CallArgument::Spread(arg) => arg.compile(env.clone()),
+            })
             .collect();
+        let spread = self
+            .args
+            .iter()
+            .map(|arg| matches!(arg, CallArgument::Spread(_)))
+            .collect::<Vec<_>>();
         vec![Box::new(move |env, _| {
             env.logger
                 .borrow_mut()
@@ -32,10 +45,18 @@ impl Expr for Call {
             };
             let func_proto = func.borrow().unwrap_proto("expr::Call func_proto");
             let mut args_evaluated: Vec<Rc<RefCell<JsValue>>> = Vec::new();
-            for arg in args.iter() {
+            for (arg, spread) in args.iter().zip(&spread) {
                 match run_sub(arg, env.clone(), &mut CodeIndex::new()) {
-                    CodeResult::Normal(res) => args_evaluated.push(res),
-                    CodeResult::NormalMember(res, _, _) => args_evaluated.push(res),
+                    CodeResult::Normal(res) | CodeResult::NormalMember(res, _, _) => {
+                        if *spread {
+                            match crate::prebuild::array::iterable_values(&env, res) {
+                                Ok(values) => args_evaluated.extend(values),
+                                Err(error) => return error,
+                            }
+                        } else {
+                            args_evaluated.push(res);
+                        }
+                    }
                     e => return e,
                 }
             }
@@ -128,7 +149,14 @@ impl Expr for Call {
     fn duplicate(&self) -> Box<dyn Expr> {
         Box::new(Self {
             func: self.func.as_ref().duplicate(),
-            args: self.args.iter().map(|t| t.as_ref().duplicate()).collect(),
+            args: self
+                .args
+                .iter()
+                .map(|argument| match argument {
+                    CallArgument::Value(argument) => CallArgument::Value(argument.duplicate()),
+                    CallArgument::Spread(argument) => CallArgument::Spread(argument.duplicate()),
+                })
+                .collect(),
         })
     }
 }

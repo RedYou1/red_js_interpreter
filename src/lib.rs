@@ -25,6 +25,7 @@ pub use parser::parse_with_extensions;
 pub use parser::parser::{CustomCode, CustomExpression, Parser, ParserExtensions};
 pub use prebuild::array::new_array;
 pub use prebuild::console::default_console_config;
+pub use prebuild::promise::{promise_reject, promise_resolve};
 pub use prototype::Prototype;
 pub use runnable::*;
 
@@ -153,9 +154,11 @@ use crate::prebuild::{
     date::prebuild_date,
     error::{prebuild_error, prebuild_syntax_error, prebuild_type_error, prebuild_uri_error},
     iterator::{prebuild_iterator, prebuild_itergen},
+    json::prebuild_json,
     math::prebuild_math,
     number::prebuild_number,
     prebuild_runnable, prebuild_runnable_direct,
+    promise::prebuild_promise,
     regex::prebuild_regex,
     string::prebuild_string,
     symbol::prebuild_symbol,
@@ -273,6 +276,7 @@ pub fn prebuild_prototypes(
                     let Some(property) = target.borrow().properties.get(&key).cloned() else {
                         return CodeResult::Return(Rc::new(RefCell::new(JsValue::Undefined)));
                     };
+                    let enumerable = !target.borrow().non_enumerable.contains(&key);
                     let writable = !matches!(key, JsValue::String(ref key) if key == "name" || key == "length");
                     let descriptor = Prototype::new_child(
                         descriptor_object.clone(),
@@ -280,12 +284,66 @@ pub fn prebuild_prototypes(
                         [
                             ("value".into(), property),
                             ("writable".into(), Rc::new(RefCell::new(JsValue::Boolean(writable)))),
-                            ("enumerable".into(), Rc::new(RefCell::new(JsValue::Boolean(false)))),
+                            ("enumerable".into(), Rc::new(RefCell::new(JsValue::Boolean(enumerable)))),
                             ("configurable".into(), Rc::new(RefCell::new(JsValue::Boolean(true)))),
                         ],
                     );
                     descriptor.borrow_mut().properties.remove(&PROTO_NAME.into());
                     CodeResult::Return(Rc::new(RefCell::new(JsValue::Prototype(descriptor))))
+                }),
+            ),
+        ),
+    );
+
+    object.borrow_mut().properties.insert(
+        "defineProperty".into(),
+        new_runnable_with_object(
+            function.clone(),
+            object.clone(),
+            "Object.defineProperty",
+            prebuild_runnable(
+                env.clone(),
+                Box::new(|env, _, [target, key, descriptor]| {
+                    let JsValue::Prototype(target_object) = inline_borrow!(target.clone()) else {
+                        return type_error(env);
+                    };
+                    let key = match inline_borrow!(key) {
+                        JsValue::Symbol(id, description) => JsValue::Symbol(id, description),
+                        key => JsValue::String(key.print()),
+                    };
+                    let JsValue::Prototype(descriptor) = inline_borrow!(descriptor) else {
+                        return type_error(env);
+                    };
+                    let descriptor = descriptor.borrow();
+                    if ["get", "set", "writable", "configurable"]
+                        .iter()
+                        .any(|name| descriptor.properties.contains_key(&JsValue::from(*name)))
+                    {
+                        return type_error(env);
+                    }
+                    let value = descriptor.properties.get(&JsValue::from("value")).cloned();
+                    let enumerable = descriptor
+                        .properties
+                        .get(&JsValue::from("enumerable"))
+                        .map(|value| inline_borrow!(value.clone()).is_truthy());
+                    drop(descriptor);
+                    let mut target_object = target_object.borrow_mut();
+                    let exists = target_object.properties.contains_key(&key);
+                    if let Some(value) = value {
+                        target_object.properties.insert(key.clone(), value);
+                    } else if !exists {
+                        target_object
+                            .properties
+                            .insert(key.clone(), Rc::new(RefCell::new(JsValue::Undefined)));
+                    }
+                    let enumerable = enumerable
+                        .unwrap_or_else(|| exists && !target_object.non_enumerable.contains(&key));
+                    if enumerable {
+                        target_object.non_enumerable.remove(&key);
+                    } else {
+                        target_object.non_enumerable.insert(key);
+                    }
+                    CodeResult::Return(target)
                 }),
             ),
         ),
@@ -354,8 +412,16 @@ pub fn prebuild_prototypes(
             "Object.prototype.propertyIsEnumerable",
             prebuild_runnable(
                 env.clone(),
-                Box::new(|_env, _this, [_key]| {
-                    CodeResult::Return(Rc::new(RefCell::new(JsValue::Boolean(false))))
+                Box::new(|_env, this, [key]| {
+                    let JsValue::Prototype(target) = inline_borrow!(this) else {
+                        return CodeResult::Return(Rc::new(RefCell::new(JsValue::Boolean(false))));
+                    };
+                    let key = inline_borrow!(key);
+                    let target = target.borrow();
+                    CodeResult::Return(Rc::new(RefCell::new(JsValue::Boolean(
+                        target.properties.contains_key(&key)
+                            && !target.non_enumerable.contains(&key),
+                    ))))
                 }),
             ),
         ),
@@ -607,7 +673,9 @@ pub fn prebuild_prototypes(
     prebuild_type_error(env.clone());
     prebuild_syntax_error(env.clone());
     prebuild_uri_error(env.clone());
+    prebuild_json(env.clone());
     prebuild_uri(env.clone());
+    prebuild_promise(env.clone());
     env.mem.borrow().properties[&JsValue::String("console".to_owned())]
         .borrow()
         .unwrap_proto("prebuild_prototypes adding config to console")

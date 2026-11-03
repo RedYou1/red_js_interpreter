@@ -415,6 +415,115 @@ assert_result_fn!(
 );
 
 assert_result_fn!(
+    test_parse_number_globals,
+    r#"
+    console.log(parseInt("  -0xFzz"));
+    console.log(parseInt("101tail", 2));
+    console.log(parseInt("15", 8));
+    console.log(parseInt("no digits"));
+    console.log(parseFloat("  -1.25e2tail"));
+    console.log(parseFloat(".5rest"));
+    console.log(parseFloat("1e+tail"));
+    "#,
+    "-15",
+    "5",
+    "13",
+    "NaN",
+    "-125",
+    "0.5",
+    "1"
+);
+
+assert_result_fn!(
+    test_json_parse_stringify_and_errors,
+    r#"
+    const parsed = JSON.parse('{"items":[1,true,null],"name":"Ada"}');
+    console.log(parsed.name);
+    console.log(parsed.items[0]);
+    console.log(parsed.items[1]);
+    console.log(JSON.stringify({ name: "Ada", score: 2 }));
+    console.log(JSON.stringify([undefined, 1]));
+    console.log(JSON.stringify(undefined) === undefined);
+    try {
+        JSON.parse("{");
+    } catch (error) {
+        console.log(error instanceof SyntaxError);
+    }
+    try {
+        JSON.stringify(1n);
+    } catch (error) {
+        console.log(error instanceof TypeError);
+    }
+    "#,
+    "Ada",
+    "1",
+    "true",
+    r#"{"name":"Ada","score":2}"#,
+    "[null,1]",
+    "true",
+    "true",
+    "true"
+);
+
+assert_result_fn!(
+    test_synchronous_promise_chaining_and_rejections,
+    r#"
+    Promise.resolve(3)
+        .then(value => value + 1)
+        .then(value => console.log(value));
+    Promise.resolve("kept")
+        .then()
+        .then(value => console.log(value));
+    Promise.reject("failure")
+        .then(value => value)
+        .catch(reason => console.log(reason));
+    Promise.resolve(1)
+        .then(() => { throw "thrown"; })
+        .catch(reason => console.log(reason));
+    Promise.resolve(1).catch(reason => console.log(reason));
+    "#,
+    "4",
+    "kept",
+    "failure",
+    "thrown"
+);
+
+#[test]
+fn test_host_created_promises_use_javascript_methods() {
+    let wanted = ["host value".to_owned(), "host failure".to_owned()];
+    let mut data = super::AssertResultData {
+        wanted: &wanted,
+        current: 0,
+    };
+    let env = super::prebuild_prototypes_test(&mut super::Loggable {
+        logger: &(super::append as fn(&mut i64, String)),
+        data: &mut data as *mut super::AssertResultData as i64,
+    });
+    let resolved = crate::promise_resolve(
+        &env,
+        Rc::new(RefCell::new(JsValue::String("host value".to_owned()))),
+    );
+    let rejected = crate::promise_reject(
+        &env,
+        Rc::new(RefCell::new(JsValue::String("host failure".to_owned()))),
+    );
+    env.mem
+        .borrow_mut()
+        .properties
+        .insert("hostResolved".into(), resolved);
+    env.mem
+        .borrow_mut()
+        .properties
+        .insert("hostRejected".into(), rejected);
+    crate::parse(
+        "hostResolved.then(value => console.log(value)); hostRejected.catch(reason => console.log(reason));",
+        env.clone(),
+    )
+    .compile_and_run(env);
+    assert_eq!(data.current, wanted.len());
+}
+
+assert_result_fn!(
     test_regex_global_test_updates_last_index,
     r#"
     const regex = /test/g;
@@ -1295,6 +1404,150 @@ assert_result_fn!(
 );
 
 assert_result_fn!(
+    test_string_match_global_and_captures,
+    r#"
+    const captured = "id=abc42".match(/([a-z]+)([0-9]+)/);
+    console.log(captured[0]);
+    console.log(captured[1]);
+    console.log(captured[2]);
+    console.log(captured.index);
+    console.log(captured.input);
+    console.log("a1a2".match(/a/g).join("-"));
+    console.log("abc".match(/z/) === null);
+    console.log("aba".match("a+")[0]);
+    const global = /a/g;
+    global.lastIndex = 2;
+    console.log("aba".match(global).join("-"));
+    console.log(global.lastIndex);
+    "#,
+    "abc42",
+    "abc",
+    "42",
+    "3",
+    "id=abc42",
+    "a-a",
+    "true",
+    "a",
+    "a-a",
+    "0"
+);
+
+assert_result_fn!(
+    test_nullish_coalescing_short_circuits_only_nullish_values,
+    r#"
+    let fallbacks = 0;
+    function fallback() {
+        fallbacks++;
+        return "fallback";
+    }
+    console.log(null ?? "nullish");
+    console.log(undefined ?? fallback());
+    console.log(false ?? "wrong");
+    console.log(0 ?? "wrong");
+    console.log("" ?? "wrong");
+    console.log(fallbacks);
+    console.log(.5 ?? 1);
+    "#,
+    "nullish",
+    "fallback",
+    "false",
+    "0",
+    "",
+    "1",
+    "0.5"
+);
+
+assert_result_fn!(
+    test_optional_chaining_access_calls_and_short_circuit,
+    r#"
+    let calls = 0;
+    function index() {
+        calls++;
+        return "value";
+    }
+    const box = {
+        nested: {
+            value: 5,
+            add: function(amount) { return this.value + amount; }
+        }
+    };
+    const absent = null;
+    console.log(box?.nested.value);
+    console.log(box?.["nested"].add(2));
+    console.log(absent?.nested.value);
+    console.log(absent?.nested[index()]);
+    console.log(absent?.());
+    console.log(calls);
+    console.log(box?.nested?.value);
+    "#,
+    "5",
+    "7",
+    "undefined",
+    "undefined",
+    "undefined",
+    "0",
+    "5"
+);
+
+assert_result_fn!(
+    test_array_and_object_spread_respects_enumerability,
+    r#"
+    const values = [1, 2];
+    const expanded = [0, ...values, ..."ab", 3];
+    console.log(expanded.join(","));
+    function* sequence() { yield 4; yield 5; }
+    console.log([...sequence()].join(","));
+    function sum(a, b, c) { return a + b + c; }
+    console.log(sum(...values, 3));
+    const source = { a: 1, hidden: 2 };
+    Object.defineProperty(source, "hidden", { enumerable: false });
+    const copy = { ...source, b: 4 };
+    console.log(copy.a);
+    console.log(copy.hidden === undefined);
+    console.log(copy.b);
+    console.log(Object.getOwnPropertyNames(copy).length);
+    const overwritten = { x: 1, ...{ x: 2 }, x: 3 };
+    console.log(overwritten.x);
+    "#,
+    "0,1,2,a,b,3",
+    "4,5",
+    "6",
+    "1",
+    "true",
+    "4",
+    "2",
+    "3"
+);
+
+assert_result_fn!(
+    test_array_and_object_destructuring_declarations,
+    r#"
+    const [first, , third] = [10, 20, 30];
+    const { name, age: years, nested: { score } } = {
+        name: "Ada",
+        age: 37,
+        nested: { score: 9 }
+    };
+    let [left, [right]] = [1, [2]];
+    var { missing } = {};
+    console.log(first);
+    console.log(third);
+    console.log(name);
+    console.log(years);
+    console.log(score);
+    console.log(left + right);
+    console.log(missing === undefined);
+    "#,
+    "10",
+    "30",
+    "Ada",
+    "37",
+    "9",
+    "3",
+    "true"
+);
+
+assert_result_fn!(
     test_uri_encoders_and_decoders,
     r#"
     console.log(encodeURI("a b/") === "a%20b/");
@@ -1502,11 +1755,42 @@ assert_result_fn!(
     "#,
     "[object Object]",
     "true",
-    "false",
+    "true",
     "[object Object]",
     "1",
     "value",
     "a"
+);
+
+assert_result_fn!(
+    test_object_define_property_enumerability_and_rejections,
+    r#"
+    const target = {};
+    Object.defineProperty(target, "hidden", { value: 7 });
+    console.log(target.hidden);
+    console.log(Object.prototype.propertyIsEnumerable.call(target, "hidden"));
+    console.log(Object.getOwnPropertyDescriptor(target, "hidden").enumerable);
+    Object.defineProperty(target, "hidden", { enumerable: true });
+    console.log(Object.prototype.propertyIsEnumerable.call(target, "hidden"));
+    console.log(Object.getOwnPropertyDescriptor(target, "hidden").value);
+    try {
+        Object.defineProperty(target, "bad", { writable: true });
+    } catch (error) {
+        console.log(error instanceof TypeError);
+    }
+    try {
+        Object.defineProperty(target, "bad", { get: 1 });
+    } catch (error) {
+        console.log(error instanceof TypeError);
+    }
+    "#,
+    "7",
+    "false",
+    "false",
+    "true",
+    "7",
+    "true",
+    "true"
 );
 
 assert_result_fn!(
