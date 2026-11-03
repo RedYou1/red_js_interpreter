@@ -34,6 +34,133 @@ fn checked_flags(flags: &str) -> Option<String> {
     )
 }
 
+fn normalize_control_escapes(source: &str) -> String {
+    let chars: Vec<char> = source.chars().collect();
+    let mut normalized = String::new();
+    let mut index = 0;
+    while index < chars.len() {
+        if chars[index] == '\\'
+            && chars.get(index + 1) == Some(&'\\')
+        {
+            normalized.push('\\');
+            normalized.push('\\');
+            index += 2;
+        } else if chars[index] == '\\'
+            && chars.get(index + 1) == Some(&'c')
+            && chars.get(index + 2).is_some_and(|character| character.is_ascii_alphabetic())
+        {
+            let control = (chars[index + 2].to_ascii_uppercase() as u32) - ('A' as u32) + 1;
+            normalized.push(char::from_u32(control).expect("control escape should be a code point"));
+            index += 3;
+        } else {
+            normalized.push(chars[index]);
+            index += 1;
+        }
+    }
+    normalized
+}
+
+fn has_invalid_unicode_identity_escape(source: &str) -> bool {
+    let chars: Vec<char> = source.chars().collect();
+    let mut in_class = false;
+    let mut index = 0;
+    while index < chars.len() {
+        match chars[index] {
+            '[' => {
+                in_class = true;
+                index += 1;
+            }
+            ']' => {
+                in_class = false;
+                index += 1;
+            }
+            '\\' => {
+                let Some(&escaped) = chars.get(index + 1) else {
+                    return true;
+                };
+                if matches!(
+                    escaped,
+                    '^' | '$' | '\\' | '.' | '*' | '+' | '?' | '(' | ')' | '[' | ']' | '{'
+                        | '}' | '|' | '/'
+                ) || (in_class && escaped == '-')
+                {
+                    index += 2;
+                    continue;
+                }
+                if matches!(escaped, 'b' | 'f' | 'n' | 'r' | 't' | 'v' | 'd' | 'D' | 's' | 'S' | 'w' | 'W')
+                    && !(in_class && escaped == 'B')
+                {
+                    index += 2;
+                    continue;
+                }
+                if escaped == '0'
+                    && !chars
+                        .get(index + 2)
+                        .is_some_and(|character| character.is_ascii_digit())
+                {
+                    index += 2;
+                    continue;
+                }
+                if escaped == 'c'
+                    && chars
+                        .get(index + 2)
+                        .is_some_and(|character| character.is_ascii_alphabetic())
+                {
+                    index += 3;
+                    continue;
+                }
+                if escaped == 'x'
+                    && chars
+                        .get(index + 2)
+                        .is_some_and(|character| character.is_ascii_hexdigit())
+                    && chars
+                        .get(index + 3)
+                        .is_some_and(|character| character.is_ascii_hexdigit())
+                {
+                    index += 4;
+                    continue;
+                }
+                if escaped == 'u' {
+                    if chars
+                        .get(index + 2..index + 6)
+                        .is_some_and(|digits| digits.iter().all(|character| character.is_ascii_hexdigit()))
+                    {
+                        index += 6;
+                        continue;
+                    }
+                    if chars.get(index + 2) == Some(&'{') {
+                        let Some(end) = chars[index + 3..].iter().position(|character| *character == '}')
+                        else {
+                            return true;
+                        };
+                        let digits = &chars[index + 3..index + 3 + end];
+                        if !digits.is_empty() && digits.iter().all(|character| character.is_ascii_hexdigit()) {
+                            index += end + 4;
+                            continue;
+                        }
+                    }
+                    return true;
+                }
+                if escaped == 'k' && chars.get(index + 2) == Some(&'<') {
+                    let Some(end) = chars[index + 3..].iter().position(|character| *character == '>')
+                    else {
+                        return true;
+                    };
+                    index += end + 4;
+                    continue;
+                }
+                if matches!(escaped, '1'..='9') {
+                    index += 2;
+                    continue;
+                }
+                return true;
+            }
+            _ => index += 1,
+        }
+    }
+    false
+}
+
 fn compile_matcher(source: &str) -> Result<Rc<RedGex>, ()> {
     let source = if source == "(?:)" { "" } else { source };
     catch_unwind(AssertUnwindSafe(|| Rc::new(RedGex::new(source)))).map_err(|_| ())
@@ -45,7 +172,12 @@ fn make_regex(
     flags: String,
 ) -> Result<Rc<RefCell<JsValue>>, CodeResult> {
     let flags = checked_flags(&flags).ok_or_else(|| regex_error(env.clone(), "SyntaxError"))?;
-    let matcher = compile_matcher(&source).map_err(|_| regex_error(env.clone(), "SyntaxError"))?;
+    if flags.contains('u') && has_invalid_unicode_identity_escape(&source) {
+        return Err(regex_error(env.clone(), "SyntaxError"));
+    }
+    let normalized_source = normalize_control_escapes(&source);
+    let matcher =
+        compile_matcher(&normalized_source).map_err(|_| regex_error(env.clone(), "SyntaxError"))?;
     let regex = Prototype::find(env.mem.clone(), &stringify!(RegExp).into())
         .1
         .borrow()

@@ -13,6 +13,7 @@ mod prelude;
 pub mod regex;
 pub mod string;
 pub mod symbol;
+pub mod uri;
 
 pub fn prebuild_runnable<const WANTED_PARAM: usize>(
     env: Environment,

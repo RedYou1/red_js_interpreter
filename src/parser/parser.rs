@@ -202,6 +202,17 @@ impl Parser {
         }
     }
 
+    pub fn parse_if_statement(&mut self) -> Vec<Box<dyn Expr>> {
+        if self.tokens[self.index] == Token::Function {
+            self.bump();
+            let mut function = expr::FunctionDecl::parse(self, true);
+            function.insert_if_absent = true;
+            vec![Box::new(function)]
+        } else {
+            self.parse_block()
+        }
+    }
+
     pub fn parse_block(&mut self) -> Vec<Box<dyn Expr>> {
         if self.tokens[self.index] != Token::LBrace {
             let res = self.parse_statement();
@@ -314,13 +325,42 @@ impl Parser {
                     self.bump();
                     res.push(Box::new(expr::Try::parse(self)));
                 }
+                Token::Function
+                    if self.can_multi
+                        && !res.is_empty()
+                        && self.index > 0
+                        && matches!(
+                            &self.tokens[self.index - 1],
+                            Token::Ident(_)
+                                | Token::BigInt(_)
+                                | Token::Number(_)
+                                | Token::Str(_)
+                                | Token::True
+                                | Token::False
+                                | Token::Undefined
+                                | Token::Null
+                                | Token::RParen
+                                | Token::RBracket
+                                | Token::RBrace
+                                | Token::TemplateEnd
+                                | Token::PlusPlus
+                                | Token::MinusMinus
+                        ) =>
+                {
+                    self.bump();
+                    res.push(Box::new(expr::FunctionDecl::parse(self, true)));
+                }
                 Token::Class => {
                     self.bump();
                     res.push(Box::new(expr::ClassDecl::parse(self)));
                 }
-                Token::Let | Token::Const | Token::Var => {
+                Token::Let | Token::Const => {
                     self.bump();
-                    res.push(Box::new(expr::VarDecl::parse(self)));
+                    res.push(Box::new(expr::VarDecl::parse(self, true)));
+                }
+                Token::Var => {
+                    self.bump();
+                    res.push(Box::new(expr::VarDecl::parse(self, false)));
                 }
                 Token::If => {
                     self.bump();
@@ -330,6 +370,12 @@ impl Parser {
                 Token::For => res.push(Box::new(expr::LoopExpr::parse(self))),
                 Token::Do => {
                     self.bump();
+                    if self.tokens[self.index] == Token::Function {
+                        panic!("function declarations are not allowed as do-while bodies");
+                    }
+                    if self.tokens[self.index] == Token::Function {
+                        panic!("function declarations are not allowed as do-while bodies");
+                    }
                     let body = self.parse_block();
 
                     if self.tokens[self.index] != Token::While {
@@ -474,6 +520,7 @@ impl Parser {
                         body,
                         generator: false,
                         insert: false,
+                        insert_if_absent: false,
                         lexical_this: true,
                     }))
                 }

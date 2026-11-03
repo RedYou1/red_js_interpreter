@@ -57,6 +57,10 @@ impl LoopExpr {
                 Token::Let | Token::Const | Token::Var
             ) || matches!(parser.tokens()[parser.index() + 1], Token::In | Token::Of)
             {
+                let lexical = matches!(
+                    parser.tokens()[parser.index()],
+                    Token::Let | Token::Const
+                );
                 if matches!(
                     parser.tokens()[parser.index()],
                     Token::Let | Token::Const | Token::Var
@@ -104,10 +108,12 @@ impl LoopExpr {
                                     }),
                                     args: Vec::new(),
                                 })),
+                                lexical: false,
                             }) as Box<dyn Expr>,
                             Box::new(expr::VarDecl {
                                 name: name.clone(),
                                 initializer: None,
+                                lexical,
                             }),
                         ])),
                         Some(Box::new(expr::Operator {
@@ -136,12 +142,16 @@ impl LoopExpr {
                         Some(Box::new(expr::VarDecl {
                             name,
                             initializer: None,
+                            lexical,
                         })),
                         None,
                     )
                 } else {
-                    let mut declarations: Vec<Box<dyn Expr>> =
-                        vec![Box::new(expr::VarDecl { name, initializer })];
+                    let mut declarations: Vec<Box<dyn Expr>> = vec![Box::new(expr::VarDecl {
+                        name,
+                        initializer,
+                        lexical,
+                    })];
                     while let Token::Comma = parser.tokens()[parser.index()] {
                         parser.bump();
                         let name = parser.expect_ident();
@@ -153,7 +163,11 @@ impl LoopExpr {
                             } else {
                                 None
                             };
-                        declarations.push(Box::new(expr::VarDecl { name, initializer }));
+                        declarations.push(Box::new(expr::VarDecl {
+                            name,
+                            initializer,
+                            lexical,
+                        }));
                     }
                     if let Token::Semicolon = parser.tokens()[parser.index()] {
                         parser.bump();

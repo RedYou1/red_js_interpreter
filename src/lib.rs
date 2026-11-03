@@ -151,7 +151,7 @@ use crate::prebuild::{
     array::prebuild_array,
     console::prebuild_console,
     date::prebuild_date,
-    error::{prebuild_error, prebuild_syntax_error, prebuild_type_error},
+    error::{prebuild_error, prebuild_syntax_error, prebuild_type_error, prebuild_uri_error},
     iterator::{prebuild_iterator, prebuild_itergen},
     math::prebuild_math,
     number::prebuild_number,
@@ -159,6 +159,7 @@ use crate::prebuild::{
     regex::prebuild_regex,
     string::prebuild_string,
     symbol::prebuild_symbol,
+    uri::prebuild_uri,
 };
 
 #[macro_export]
@@ -356,6 +357,30 @@ pub fn prebuild_prototypes(
                 Box::new(|_env, _this, [_key]| {
                     CodeResult::Return(Rc::new(RefCell::new(JsValue::Boolean(false))))
                 }),
+            ),
+        ),
+    );
+    object.borrow_mut().properties.insert(
+        "valueOf".into(),
+        new_runnable_with_object(
+            function.clone(),
+            object.clone(),
+            "Object.prototype.valueOf",
+            prebuild_runnable(
+                env.clone(),
+                Box::new(|_env, this, []| CodeResult::Return(this)),
+            ),
+        ),
+    );
+    object.borrow_mut().properties.insert(
+        "valueOf".into(),
+        new_runnable_with_object(
+            function.clone(),
+            object.clone(),
+            "Object.prototype.valueOf",
+            prebuild_runnable(
+                env.clone(),
+                Box::new(|_env, this, []| CodeResult::Return(this)),
             ),
         ),
     );
@@ -581,6 +606,8 @@ pub fn prebuild_prototypes(
     prebuild_error(env.clone());
     prebuild_type_error(env.clone());
     prebuild_syntax_error(env.clone());
+    prebuild_uri_error(env.clone());
+    prebuild_uri(env.clone());
     env.mem.borrow().properties[&JsValue::String("console".to_owned())]
         .borrow()
         .unwrap_proto("prebuild_prototypes adding config to console")
