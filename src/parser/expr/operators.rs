@@ -29,6 +29,7 @@ pub enum BinaryOp {
     LogAnd,
     BinOr,
     LogOr,
+    NullishCoalesce,
     XOr,
     ShiftL,
     ShiftR,
@@ -40,7 +41,11 @@ fn to_uint32(value: &JsValue) -> u32 {
         JsValue::BigInt(value) => return *value as u32,
         JsValue::Number(value) => *value,
         JsValue::Boolean(value) => {
-            if *value { 1.0 } else { 0.0 }
+            if *value {
+                1.0
+            } else {
+                0.0
+            }
         }
         JsValue::Null => 0.0,
         JsValue::Undefined => f64::NAN,
@@ -132,7 +137,7 @@ impl Operator {
                     parser.bump();
                     let class = Self::parse_binary(parser, 19);
                     lhs = Box::new(expr::Call {
-                        args: vec![lhs],
+                        args: vec![expr::CallArgument::Value(lhs)],
                         func: Box::new(expr::Member {
                             object: class,
                             property: Box::new(expr::Member {
@@ -156,6 +161,7 @@ impl Operator {
                     parser.bump();
                     expr::BinaryOp::LogOr
                 }
+                Token::NullishCoalesce => expr::BinaryOp::NullishCoalesce,
                 Token::Or => expr::BinaryOp::BinOr,
                 Token::XOr => expr::BinaryOp::XOr,
                 Token::ShiftL => expr::BinaryOp::ShiftL,
@@ -185,6 +191,7 @@ impl Operator {
             // (Token::Comma, _) => Some((2, 3)),
             (Token::QMark | Token::Colon, _) => Some((4, 5)),
             (Token::Or, Some(Token::Or)) => Some((6, 7)),
+            (Token::NullishCoalesce, _) => Some((6, 7)),
             (Token::And, Some(Token::And)) => Some((8, 9)),
             (Token::Or, _) => Some((10, 11)),
             (Token::XOr, _) => Some((12, 13)),
@@ -263,11 +270,19 @@ impl Expr for Operator {
                 format!("Entering Expr::Operator op={:?}", op)
             });
             let left_value = handle_return!(run_sub(&left, env.clone(), &mut CodeIndex::new()));
-            if op == BinaryOp::LogAnd || op == BinaryOp::LogOr {
+            if matches!(
+                op,
+                BinaryOp::LogAnd | BinaryOp::LogOr | BinaryOp::NullishCoalesce
+            ) {
                 let left_truthy = left_value.borrow().is_truthy();
-                let should_return_left =
-                    (op == BinaryOp::LogAnd && !left_truthy)
-                        || (op == BinaryOp::LogOr && left_truthy);
+                let should_return_left = match op {
+                    BinaryOp::LogAnd => !left_truthy,
+                    BinaryOp::LogOr => left_truthy,
+                    BinaryOp::NullishCoalesce => {
+                        !matches!(*left_value.borrow(), JsValue::Null | JsValue::Undefined)
+                    }
+                    _ => unreachable!(),
+                };
                 if should_return_left {
                     return CodeResult::Normal(left_value);
                 }
@@ -463,51 +478,46 @@ impl Expr for Operator {
                     (JsValue::BigInt(left), JsValue::BigInt(right)) => {
                         JsValue::BigInt(left & right)
                     }
-                    (left, right) => {
-                        JsValue::Number((to_int32(&left) & to_int32(&right)) as f64)
-                    }
+                    (left, right) => JsValue::Number((to_int32(&left) & to_int32(&right)) as f64),
                 },
                 BinaryOp::BinOr => match (l, r) {
                     (JsValue::BigInt(left), JsValue::BigInt(right)) => {
                         JsValue::BigInt(left | right)
                     }
-                    (left, right) => {
-                        JsValue::Number((to_int32(&left) | to_int32(&right)) as f64)
-                    }
+                    (left, right) => JsValue::Number((to_int32(&left) | to_int32(&right)) as f64),
                 },
                 BinaryOp::LogAnd => JsValue::Boolean(l.is_truthy() && r.is_truthy()),
                 BinaryOp::LogOr => JsValue::Boolean(l.is_truthy() || r.is_truthy()),
+                BinaryOp::NullishCoalesce => unreachable!(),
                 BinaryOp::XOr => match (l, r) {
                     (JsValue::BigInt(left), JsValue::BigInt(right)) => {
                         JsValue::BigInt(left ^ right)
                     }
-                    (left, right) => {
-                        JsValue::Number((to_int32(&left) ^ to_int32(&right)) as f64)
-                    }
+                    (left, right) => JsValue::Number((to_int32(&left) ^ to_int32(&right)) as f64),
                 },
                 BinaryOp::ShiftL => match (l, r) {
                     (JsValue::BigInt(left), JsValue::BigInt(right)) => {
                         JsValue::BigInt(left.wrapping_shl((right as u32) & 63))
                     }
-                    (left, right) => JsValue::Number(
-                        to_int32(&left).wrapping_shl(to_uint32(&right) & 31) as f64,
-                    ),
+                    (left, right) => {
+                        JsValue::Number(to_int32(&left).wrapping_shl(to_uint32(&right) & 31) as f64)
+                    }
                 },
                 BinaryOp::ShiftR => match (l, r) {
                     (JsValue::BigInt(left), JsValue::BigInt(right)) => {
                         JsValue::BigInt(left >> ((right as u32) & 63))
                     }
-                    (left, right) => JsValue::Number(
-                        (to_int32(&left) >> (to_uint32(&right) & 31)) as f64,
-                    ),
+                    (left, right) => {
+                        JsValue::Number((to_int32(&left) >> (to_uint32(&right) & 31)) as f64)
+                    }
                 },
                 BinaryOp::ShiftRU => match (l, r) {
                     (JsValue::BigInt(left), JsValue::BigInt(right)) => {
                         JsValue::BigInt(((left as u32) >> ((right as u32) & 31)) as i64)
                     }
-                    (left, right) => JsValue::Number(
-                        (to_uint32(&left) >> (to_uint32(&right) & 31)) as f64,
-                    ),
+                    (left, right) => {
+                        JsValue::Number((to_uint32(&left) >> (to_uint32(&right) & 31)) as f64)
+                    }
                 },
             };
             let out = Rc::new(RefCell::new(value));

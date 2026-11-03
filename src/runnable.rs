@@ -59,6 +59,14 @@ pub fn new_runnable_with_object(
         PROTOTYPE_NAME.into(),
         Rc::new(RefCell::new(JsValue::Prototype(prototype_obj))),
     );
+    function_obj
+        .borrow_mut()
+        .non_enumerable
+        .insert("name".into());
+    function_obj
+        .borrow_mut()
+        .non_enumerable
+        .insert("length".into());
     Rc::new(RefCell::new(JsValue::Prototype(function_obj)))
 }
 

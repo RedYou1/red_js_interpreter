@@ -1,7 +1,8 @@
 use crate::prebuild::prelude::*;
+use crate::{new_runnable, prebuild_runnable_direct};
 
 new_class! {
-    prebuild_number,
+    prebuild_number_class,
     Number,
     Object,
     MAX_VALUE, JsValue::BigInt(i64::MAX),
@@ -76,6 +77,138 @@ new_class! {
             JsValue::String("0".to_owned())
         })))
     };
+}
+
+pub fn prebuild_number(env: Environment) {
+    prebuild_number_class(env.clone());
+    let function = Prototype::find(env.mem.clone(), &stringify!(Function).into())
+        .1
+        .borrow()
+        .unwrap_proto("prebuild_number for Function");
+    for (name, parse) in [
+        ("parseInt", parse_int as fn(&[Rc<RefCell<JsValue>>]) -> f64),
+        (
+            "parseFloat",
+            parse_float as fn(&[Rc<RefCell<JsValue>>]) -> f64,
+        ),
+    ] {
+        let runnable = prebuild_runnable_direct(
+            env.clone(),
+            Box::new(move |_, _, arguments| {
+                CodeResult::Return(Rc::new(RefCell::new(JsValue::Number(parse(&arguments)))))
+            }),
+        );
+        env.mem
+            .borrow_mut()
+            .properties
+            .insert(name.into(), new_runnable(function.clone(), name, runnable));
+    }
+}
+
+fn parse_int(arguments: &[Rc<RefCell<JsValue>>]) -> f64 {
+    let value = arguments
+        .first()
+        .map(|value| inline_borrow!(value.clone()).print())
+        .unwrap_or_else(|| "undefined".to_owned());
+    let radix = arguments
+        .get(1)
+        .map_or(0, |value| match inline_borrow!(value.clone()) {
+            JsValue::BigInt(value) => value as i32,
+            JsValue::Number(value) if value.is_finite() => value.trunc() as i32,
+            JsValue::Boolean(value) => i32::from(value),
+            JsValue::Null => 0,
+            JsValue::String(value) => value.trim().parse::<f64>().unwrap_or(f64::NAN) as i32,
+            _ => i32::MAX,
+        });
+    let value = value.trim_start();
+    let (negative, value) = match value.strip_prefix('-') {
+        Some(value) => (true, value),
+        None => match value.strip_prefix('+') {
+            Some(value) => (false, value),
+            None => (false, value),
+        },
+    };
+    let (radix, value) = if radix == 0 {
+        if value.starts_with("0x") || value.starts_with("0X") {
+            (16, &value[2..])
+        } else {
+            (10, value)
+        }
+    } else if radix == 16 && (value.starts_with("0x") || value.starts_with("0X")) {
+        (radix, &value[2..])
+    } else {
+        (radix, value)
+    };
+    if !(2..=36).contains(&radix) {
+        return f64::NAN;
+    }
+    let mut result = 0.0;
+    let mut digits = 0;
+    for character in value.chars() {
+        let Some(digit) = character.to_digit(radix as u32) else {
+            break;
+        };
+        result = result * radix as f64 + f64::from(digit);
+        digits += 1;
+    }
+    if digits == 0 {
+        f64::NAN
+    } else if negative {
+        -result
+    } else {
+        result
+    }
+}
+
+fn parse_float(arguments: &[Rc<RefCell<JsValue>>]) -> f64 {
+    let value = arguments
+        .first()
+        .map(|value| inline_borrow!(value.clone()).print())
+        .unwrap_or_else(|| "undefined".to_owned());
+    let value = value.trim_start();
+    let sign_end = usize::from(value.starts_with(['+', '-']));
+    let unsigned = &value[sign_end..];
+    for (prefix, result) in [
+        ("Infinity", f64::INFINITY),
+        ("-Infinity", f64::NEG_INFINITY),
+        ("+Infinity", f64::INFINITY),
+    ] {
+        if value.starts_with(prefix) {
+            return result;
+        }
+    }
+    let bytes = unsigned.as_bytes();
+    let mut index = 0;
+    let mut digits = 0;
+    while bytes.get(index).is_some_and(u8::is_ascii_digit) {
+        index += 1;
+        digits += 1;
+    }
+    if bytes.get(index) == Some(&b'.') {
+        index += 1;
+        while bytes.get(index).is_some_and(u8::is_ascii_digit) {
+            index += 1;
+            digits += 1;
+        }
+    }
+    if digits == 0 {
+        return f64::NAN;
+    }
+    let exponent_start = index;
+    if matches!(bytes.get(index), Some(b'e' | b'E')) {
+        index += 1;
+        if matches!(bytes.get(index), Some(b'+' | b'-')) {
+            index += 1;
+        }
+        let exponent_digits = index;
+        while bytes.get(index).is_some_and(u8::is_ascii_digit) {
+            index += 1;
+        }
+        if exponent_digits == index {
+            index = exponent_start;
+        }
+    }
+    value[..sign_end + index].parse().unwrap_or(f64::NAN)
 }
 
 fn radix_fmt(mut n: i64, base: u32) -> String {

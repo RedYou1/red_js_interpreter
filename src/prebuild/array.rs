@@ -1,4 +1,4 @@
-use crate::{CodeResult, LogLevel, Logger, handle_error, prebuild::prelude::*};
+use crate::{CodeResult, LogLevel, Logger, RUNNABLE, handle_error, prebuild::prelude::*};
 
 fn value(value: JsValue) -> Rc<RefCell<JsValue>> {
     Rc::new(RefCell::new(value))
@@ -101,6 +101,7 @@ pub fn new_array(
         "length".into(),
         Rc::new(RefCell::new(JsValue::BigInt(len as i64))),
     );
+    proto.borrow_mut().non_enumerable.insert("length".into());
     Rc::new(RefCell::new(JsValue::Prototype(proto)))
 }
 
@@ -117,7 +118,134 @@ pub fn new_array_with_length(
         "length".into(),
         Rc::new(RefCell::new(JsValue::BigInt(length))),
     );
+    proto.borrow_mut().non_enumerable.insert("length".into());
     Rc::new(RefCell::new(JsValue::Prototype(proto)))
+}
+
+pub(crate) fn iterable_values(
+    env: &Environment,
+    iterable: Rc<RefCell<JsValue>>,
+) -> Result<Vec<Rc<RefCell<JsValue>>>, CodeResult> {
+    if let JsValue::String(value) = inline_borrow!(iterable.clone()) {
+        return Ok(value
+            .chars()
+            .map(|character| Rc::new(RefCell::new(JsValue::String(character.to_string()))))
+            .collect());
+    }
+    let JsValue::Prototype(object) = inline_borrow!(iterable.clone()) else {
+        return Err(iterable_type_error(env));
+    };
+    if object
+        .borrow()
+        .parent()
+        .is_some_and(|parent| parent.borrow().name == Some("Array"))
+    {
+        let length = array_length(&object);
+        return Ok((0..length)
+            .map(|index| array_element(&object, index))
+            .collect());
+    }
+    let iterator_key = match inline_borrow!(
+        Prototype::find(env.mem.clone(), &stringify!(Symbol).into())
+            .1
+            .borrow()
+            .find(&"iterator".into(), "iterable_values for Symbol.iterator")
+            .1
+    ) {
+        JsValue::Symbol(_, iterator) => *iterator,
+        _ => return Err(iterable_type_error(env)),
+    };
+    let iterator_method =
+        Prototype::opt_find(object.clone(), &iterator_key).map(|(_, method)| method);
+    let iterator = if let Some(method) = iterator_method {
+        let JsValue::Prototype(method) = inline_borrow!(method) else {
+            return Err(iterable_type_error(env));
+        };
+        let runnable = Prototype::opt_find(method.clone(), &RUNNABLE.into())
+            .map(|(_, runnable)| inline_borrow!(runnable));
+        match runnable {
+            Some(JsValue::Generator(_)) => {
+                let mut values = Vec::new();
+                for result in run_generator_object(method, iterable, vec![], env.logger.clone()) {
+                    match result {
+                        CodeResult::Normal(value)
+                        | CodeResult::Return(value)
+                        | CodeResult::NormalMember(value, _, _) => values.push(value),
+                        CodeResult::Error(error) => return Err(CodeResult::Error(error)),
+                        _ => {}
+                    }
+                }
+                return Ok(values);
+            }
+            Some(JsValue::Function(_)) => {
+                match run_function_object(method, iterable.clone(), vec![], env.logger.clone()) {
+                    CodeResult::Return(iterator)
+                    | CodeResult::Normal(iterator)
+                    | CodeResult::NormalMember(iterator, _, _) => iterator,
+                    other => return Err(other),
+                }
+            }
+            _ => return Err(iterable_type_error(env)),
+        }
+    } else {
+        iterable
+    };
+    let JsValue::Prototype(iterator) = inline_borrow!(iterator) else {
+        return Err(iterable_type_error(env));
+    };
+    let Some(next) = Prototype::opt_find(iterator.clone(), &"next".into()).map(|(_, next)| next)
+    else {
+        return Err(iterable_type_error(env));
+    };
+    let JsValue::Prototype(next) = inline_borrow!(next) else {
+        return Err(iterable_type_error(env));
+    };
+    let legacy_generator = Prototype::opt_find(iterator.clone(), &"__code__".into()).is_some();
+    let this = Rc::new(RefCell::new(JsValue::Prototype(iterator)));
+    let mut values = Vec::new();
+    loop {
+        let result =
+            match run_function_object(next.clone(), this.clone(), vec![], env.logger.clone()) {
+                CodeResult::Return(value)
+                | CodeResult::Normal(value)
+                | CodeResult::NormalMember(value, _, _) => value,
+                CodeResult::Error(error) => return Err(CodeResult::Error(error)),
+                other => return Err(other),
+            };
+        if legacy_generator {
+            if matches!(inline_borrow!(result.clone()), JsValue::Undefined) {
+                break;
+            }
+            values.push(result);
+        } else if let JsValue::Prototype(result_object) = inline_borrow!(result.clone()) {
+            if Prototype::opt_find(result_object.clone(), &"done".into())
+                .is_some_and(|(_, done)| inline_borrow!(done).is_truthy())
+            {
+                break;
+            }
+            if let Some((_, value)) = Prototype::opt_find(result_object, &"value".into()) {
+                values.push(value);
+            } else {
+                values.push(result);
+            }
+        } else if matches!(inline_borrow!(result.clone()), JsValue::Undefined) {
+            break;
+        } else {
+            values.push(result);
+        }
+    }
+    Ok(values)
+}
+
+fn iterable_type_error(env: &Environment) -> CodeResult {
+    let prototype = Prototype::find(env.mem.clone(), &stringify!(TypeError).into())
+        .1
+        .borrow()
+        .unwrap_proto("iterable_values TypeError");
+    let constructor = Rc::new(RefCell::new(JsValue::Prototype(prototype.clone())));
+    CodeResult::Error(Rc::new(RefCell::new(JsValue::Prototype(
+        Prototype::new_child(prototype, None, [("constructor".into(), constructor)]),
+    ))))
 }
 
 new_class! {

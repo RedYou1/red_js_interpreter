@@ -25,7 +25,11 @@ fn to_uint16(value: &JsValue) -> u16 {
         JsValue::BigInt(value) => *value as f64,
         JsValue::Number(value) => *value,
         JsValue::Boolean(value) => {
-            if *value { 1.0 } else { 0.0 }
+            if *value {
+                1.0
+            } else {
+                0.0
+            }
         }
         JsValue::Null => 0.0,
         JsValue::Undefined => f64::NAN,
@@ -41,7 +45,7 @@ fn to_uint16(value: &JsValue) -> u16 {
 }
 
 new_class! {
-    prebuild_string,
+    prebuild_string_class,
     String,
     Object,;
     constructor, fn,
@@ -272,5 +276,30 @@ new_class! {
         } else {
             JsValue::String("".to_owned())
         })))
+    },
+    match_, fn_direct,
+    |env, this, arguments| {
+        let pattern = arguments
+            .first()
+            .cloned()
+            .unwrap_or_else(|| Rc::new(RefCell::new(JsValue::Undefined)));
+        crate::prebuild::regex::string_match(env, this, pattern)
     };
+}
+
+pub fn prebuild_string(env: Environment) {
+    prebuild_string_class(env.clone());
+    let string = Prototype::find(env.mem, &stringify!(String).into())
+        .1
+        .borrow()
+        .unwrap_proto("prebuild_string for String");
+    let method = string
+        .borrow_mut()
+        .properties
+        .remove(&"match_".into())
+        .expect("String.match method");
+    string
+        .borrow_mut()
+        .properties
+        .insert("match".into(), method);
 }

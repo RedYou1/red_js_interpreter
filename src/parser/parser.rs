@@ -86,11 +86,7 @@ impl Parser {
         Self::with_extensions(input, env, ParserExtensions::default())
     }
 
-    pub fn with_extensions(
-        input: &str,
-        env: Environment,
-        extensions: ParserExtensions,
-    ) -> Self {
+    pub fn with_extensions(input: &str, env: Environment, extensions: ParserExtensions) -> Self {
         let mut lexer = Lexer::new(input);
         let mut tokens = Vec::with_capacity(input.len());
         loop {
@@ -356,11 +352,19 @@ impl Parser {
                 }
                 Token::Let | Token::Const => {
                     self.bump();
-                    res.push(Box::new(expr::VarDecl::parse(self, true)));
+                    if matches!(self.tokens[self.index], Token::LBracket | Token::LBrace) {
+                        res.push(Box::new(expr::DestructuringDecl::parse(self, true)));
+                    } else {
+                        res.push(Box::new(expr::VarDecl::parse(self, true)));
+                    }
                 }
                 Token::Var => {
                     self.bump();
-                    res.push(Box::new(expr::VarDecl::parse(self, false)));
+                    if matches!(self.tokens[self.index], Token::LBracket | Token::LBrace) {
+                        res.push(Box::new(expr::DestructuringDecl::parse(self, false)));
+                    } else {
+                        res.push(Box::new(expr::VarDecl::parse(self, false)));
+                    }
                 }
                 Token::If => {
                     self.bump();
@@ -555,6 +559,36 @@ impl Parser {
         res
     }
 
+    pub fn parse_call_arguments(&mut self) -> Vec<expr::CallArgument> {
+        if self.tokens[self.index] != Token::LParen {
+            panic!("expected '(' before call arguments");
+        }
+        self.bump();
+        let mut arguments = Vec::new();
+        while !matches!(self.tokens[self.index], Token::RParen | Token::Eof) {
+            let spread = self.tokens[self.index] == Token::Spread;
+            if spread {
+                self.bump();
+            }
+            let value = Box::new(self.parse_expression(false));
+            arguments.push(if spread {
+                expr::CallArgument::Spread(value)
+            } else {
+                expr::CallArgument::Value(value)
+            });
+            if self.tokens[self.index] == Token::Comma {
+                self.bump();
+            } else {
+                break;
+            }
+        }
+        if self.tokens[self.index] != Token::RParen {
+            panic!("expected ')' after call arguments");
+        }
+        self.bump();
+        arguments
+    }
+
     pub fn parse_primary(&mut self) -> Box<dyn Expr> {
         self.env.logger.borrow_mut().logln(LogLevel::Trace, &|| {
             format!(
@@ -582,15 +616,44 @@ impl Parser {
                 })
             }
             Token::LBrace => Box::new(expr::Object::parse(self)),
-            Token::LBracket | Token::LParen => {
-                let end = if let Token::LBracket = self.tokens[self.index] {
-                    Token::RBracket
-                } else {
-                    Token::RParen
-                };
+            Token::LBracket => {
+                self.bump();
+                let mut elements = Vec::new();
+                while !matches!(self.tokens[self.index], Token::RBracket | Token::Eof) {
+                    let spread = self.tokens[self.index] == Token::Spread;
+                    if spread {
+                        self.bump();
+                    }
+                    let value = Box::new(self.parse_expression(false));
+                    elements.push(if spread {
+                        expr::ArrayElement::Spread(value)
+                    } else {
+                        expr::ArrayElement::Value(value)
+                    });
+                    if self.tokens[self.index] == Token::Comma {
+                        self.bump();
+                    } else {
+                        break;
+                    }
+                }
+                if self.tokens[self.index] != Token::RBracket {
+                    self.env.logger.borrow_mut().logln(LogLevel::Fatal, &|| {
+                        format!(
+                            "Parser::parse_primary expected ']' at index {} but found {:?}",
+                            self.index, self.tokens[self.index]
+                        )
+                    });
+                    panic!("expected ']' at end of array literal");
+                }
+                self.bump();
+                Box::new(expr::Array { elems: elements })
+            }
+            Token::LParen => {
                 self.bump();
                 let mut elements: Vec<Box<dyn Expr>> = Vec::new();
-                while self.tokens[self.index] != Token::Eof && self.tokens[self.index] != end {
+                while self.tokens[self.index] != Token::Eof
+                    && self.tokens[self.index] != Token::RParen
+                {
                     let before = self.index;
                     let mut exprs = self.parse_expression(true);
                     if exprs.is_empty() && self.index == before {
@@ -601,26 +664,15 @@ impl Parser {
                                 self.index, self.tokens[self.index]
                             ),
                         );
-                        panic!(
-                            "parser made no progress in grouped expression at token {:?}",
-                            self.tokens[self.index]
-                        );
+                        panic!("parser made no progress in grouped expression");
                     }
                     elements.append(&mut exprs);
                 }
-                if self.tokens[self.index] != end {
-                    self.env.logger.borrow_mut().logln(LogLevel::Fatal, &|| {
-                        format!(
-                            "Parser::parse_primary expected {:?} at index {} but found {:?}",
-                            end, self.index, self.tokens[self.index]
-                        )
-                    });
-                    panic!("expected ']' at end of array literal");
+                if self.tokens[self.index] != Token::RParen {
+                    panic!("expected ')' at end of grouped expression");
                 }
                 self.bump();
-                if end == Token::RBracket {
-                    Box::new(expr::Array { elems: elements })
-                } else if elements.len() == 1 {
+                if elements.len() == 1 {
                     elements.pop().unwrap()
                 } else {
                     Box::new(elements)
@@ -724,6 +776,9 @@ impl Parser {
                 Token::QMark if root => {
                     expr = Box::new(expr::ConditionalOp::parse(self, expr));
                 }
+                Token::OptionalChain => {
+                    expr = Box::new(expr::OptionalChain::parse(self, expr));
+                }
                 Token::Dot => {
                     self.bump();
                     let prop = self.tokens[self.index].as_keyword().to_owned();
@@ -753,14 +808,10 @@ impl Parser {
                     });
                 }
                 Token::LParen => {
-                    self.bump();
                     expr = Box::new(expr::Call {
                         func: expr,
-                        args: self.parse_expression(true),
+                        args: self.parse_call_arguments(),
                     });
-                    if self.tokens[self.index] == Token::RParen {
-                        self.bump();
-                    }
                 }
                 Token::PlusPlus => {
                     self.bump();
