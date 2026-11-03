@@ -71,6 +71,7 @@ pub enum Token {
     XOr,
     ShiftL,
     ShiftR,
+    ShiftRU,
 
     Try,
     Catch,
@@ -210,6 +211,66 @@ impl<'a> Lexer<'a> {
             }
         }
         s
+    }
+
+    fn read_unicode_escape(&mut self) -> Option<char> {
+        if self.bump()? != '\\' || self.bump()? != 'u' {
+            return None;
+        }
+        let digits = if self.peek() == Some('{') {
+            self.bump();
+            let digits = self.eat_while(|ch| ch.is_ascii_hexdigit());
+            if digits.is_empty() || self.bump() != Some('}') {
+                return None;
+            }
+            digits
+        } else {
+            let mut digits = String::new();
+            for _ in 0..4 {
+                let digit = self.bump()?;
+                if !digit.is_ascii_hexdigit() {
+                    return None;
+                }
+                digits.push(digit);
+            }
+            digits
+        };
+        u32::from_str_radix(&digits, 16)
+            .ok()
+            .and_then(char::from_u32)
+    }
+
+    fn read_identifier(&mut self) -> String {
+        let first = if self.peek() == Some('\\') {
+            self.read_unicode_escape()
+                .expect("invalid Unicode escape in identifier")
+        } else {
+            self.bump().expect("identifier should have a first character")
+        };
+        if !is_ident_start(first) {
+            panic!("invalid identifier start character {first:?}");
+        }
+
+        let mut identifier = String::from(first);
+        loop {
+            match self.peek() {
+                Some(character) if is_ident_continue(character) => {
+                    self.bump();
+                    identifier.push(character);
+                }
+                Some('\\') if self.chars.clone().next() == Some('u') => {
+                    let character = self
+                        .read_unicode_escape()
+                        .expect("invalid Unicode escape in identifier");
+                    if !is_ident_continue(character) {
+                        panic!("invalid identifier continuation character {character:?}");
+                    }
+                    identifier.push(character);
+                }
+                _ => break,
+            }
+        }
+        identifier
     }
 
     fn read_escaped_char(&mut self) -> Option<char> {
@@ -488,14 +549,25 @@ impl<'a> Lexer<'a> {
                         return Token::GtEq;
                     } else if self.peek() == Some('>') {
                         self.bump();
-                        if self.peek() == Some('>') {
+                        let unsigned = if self.peek() == Some('>') {
                             self.bump();
-                        }
+                            true
+                        } else {
+                            false
+                        };
                         if self.peek() == Some('=') {
                             self.bump();
-                            return Token::Assign(Some(BinaryOp::ShiftR));
+                            return Token::Assign(Some(if unsigned {
+                                BinaryOp::ShiftRU
+                            } else {
+                                BinaryOp::ShiftR
+                            }));
                         }
-                        return Token::ShiftR;
+                        return if unsigned {
+                            Token::ShiftRU
+                        } else {
+                            Token::ShiftR
+                        };
                     } else {
                         return Token::Gt;
                     }
@@ -565,8 +637,39 @@ impl<'a> Lexer<'a> {
                     }
                     return Token::Str(s);
                 }
-                c if is_ident_start(c) => {
-                    return Token::from_keyword(self.eat_while(is_ident_continue));
+                '0' if matches!(
+                    self.chars.clone().next(),
+                    Some('x' | 'X' | 'b' | 'B' | 'o' | 'O')
+                ) =>
+                {
+                    self.bump();
+                    let prefix = self.bump().expect("radix prefix should follow zero");
+                    let radix = match prefix {
+                        'x' | 'X' => 16,
+                        'b' | 'B' => 2,
+                        'o' | 'O' => 8,
+                        _ => unreachable!(),
+                    };
+                    let digits = self.eat_while(|ch| ch.to_digit(radix).is_some());
+                    if digits.is_empty() {
+                        panic!("radix literal must contain digits");
+                    }
+                    let bigint = matches!(self.peek(), Some('n'));
+                    if bigint {
+                        self.bump();
+                    }
+                    if let Ok(value) = i64::from_str_radix(&digits, radix) {
+                        return Token::BigInt(value);
+                    }
+                    let value = digits.chars().fold(0.0, |value, digit| {
+                        value * radix as f64 + digit.to_digit(radix).unwrap() as f64
+                    });
+                    return Token::Number(value);
+                }
+                c if is_ident_start(c)
+                    || (c == '\\' && self.chars.clone().next() == Some('u')) =>
+                {
+                    return Token::from_keyword(self.read_identifier());
                 }
                 _ if let mut s = self.eat_while(|ch| ch.is_ascii_digit() || ch == '.')
                     && !s.is_empty() =>
@@ -622,15 +725,15 @@ impl<'a> Lexer<'a> {
 }
 
 const fn is_ident_start(c: char) -> bool {
-    c.is_ascii_alphabetic() || c == '_'
+    c.is_ascii_alphabetic() || c == '_' || c == '$'
 }
 const fn is_ident_continue(c: char) -> bool {
-    c.is_ascii_alphanumeric() || c == '_'
+    c.is_ascii_alphanumeric() || c == '_' || c == '$'
 }
 
 #[cfg(test)]
 mod tests {
-    use super::{Lexer, Token};
+    use super::{BinaryOp, Lexer, Token};
 
     #[test]
     fn lexes_decimal_exponents() {
@@ -645,6 +748,53 @@ mod tests {
             let mut lexer = Lexer::new(source);
             assert_eq!(lexer.next_token(&[]), expected);
             assert_eq!(lexer.next_token(&[expected]), Token::Eof);
+        }
+    }
+
+    #[test]
+    fn lexes_dollar_identifiers() {
+        for source in ["$", "$$", "$captcha", "grecaptcha$"] {
+            let mut lexer = Lexer::new(source);
+            assert_eq!(lexer.next_token(&[]), Token::Ident(source.to_owned()));
+            assert_eq!(lexer.next_token(&[]), Token::Eof);
+        }
+    }
+
+    #[test]
+    fn lexes_radix_integer_literals() {
+        for (source, expected) in [
+            ("0x0041", Token::BigInt(65)),
+            ("0X5A", Token::BigInt(90)),
+            ("0b1010", Token::BigInt(10)),
+            ("0o77", Token::BigInt(63)),
+        ] {
+            let mut lexer = Lexer::new(source);
+            assert_eq!(lexer.next_token(&[]), expected);
+            assert_eq!(lexer.next_token(&[expected]), Token::Eof);
+        }
+    }
+
+    #[test]
+    fn lexes_unsigned_right_shift_operators() {
+        let mut lexer = Lexer::new(">>> >>>=");
+        assert_eq!(lexer.next_token(&[]), Token::ShiftRU);
+        assert_eq!(
+            lexer.next_token(&[Token::ShiftRU]),
+            Token::Assign(Some(BinaryOp::ShiftRU))
+        );
+    }
+
+    #[test]
+    fn lexes_unicode_escaped_identifier_characters() {
+        for (source, expected) in [
+            ("$\\u0030", "$0"),
+            ("\\u0061", "a"),
+            ("foo\\u0030", "foo0"),
+        ] {
+            let mut lexer = Lexer::new(source);
+            let token = Token::Ident(expected.to_owned());
+            assert_eq!(lexer.next_token(&[]), token);
+            assert_eq!(lexer.next_token(&[token]), Token::Eof);
         }
     }
 }

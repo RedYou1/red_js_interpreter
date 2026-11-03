@@ -97,6 +97,7 @@ impl Expr for ClassDecl {
                 body: Rc::new([]),
                 generator: false,
                 insert: false,
+                insert_if_absent: false,
                 lexical_this: false,
             }
             .compile(env.clone())

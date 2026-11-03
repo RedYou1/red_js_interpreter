@@ -108,7 +108,6 @@ macro_rules! test_only_parse (
     ($fn_name:ident, $name:expr) => {
         #[test]
         #[serial(zzzzzzz)]
-        #[ignore]
         fn $fn_name() {
             let env = prebuild_prototypes_test(unsafe { null_mut::<Loggable<()>>().as_mut_unchecked() });
 
@@ -124,3 +123,4 @@ macro_rules! test_only_parse (
 );
 
 test_only_parse!(only_parses_recaptcha, "recaptcha");
+test_only_parse!(only_parses_one_of_mozilla, "one_of_mozilla");

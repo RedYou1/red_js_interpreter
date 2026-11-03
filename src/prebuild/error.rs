@@ -47,3 +47,19 @@ new_class! {
         CodeResult::Return(Rc::new(RefCell::new(JsValue::Prototype(proto))))
     };
 }
+
+new_class! {
+    prebuild_uri_error,
+    URIError,
+    Error,;
+    constructor, fn,
+    |env, _, [arg]| {
+        let error = Prototype::find(env.mem.clone(), &stringify!(URIError).into()).1.borrow().unwrap_proto("URIError.constructor for URIError");
+        let proto = Prototype::new_child(
+            error,
+            None,
+            vec![("message".into(), arg)],
+        );
+        CodeResult::Return(Rc::new(RefCell::new(JsValue::Prototype(proto))))
+    };
+}

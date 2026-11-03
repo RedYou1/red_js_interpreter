@@ -71,7 +71,7 @@ impl Logger for Test262Logger {
 }
 
 const STACK_OVERFLOW_EXIT_CODE: i32 = -1_073_741_571;
-const DEFAULT_TEST_TIMEOUT: Duration = Duration::from_secs(2);
+const DEFAULT_TEST_TIMEOUT: Duration = Duration::from_millis(500);
 
 fn main() {
     let arguments = match parse_arguments(env::args().skip(1)) {
