@@ -1,6 +1,6 @@
 use std::{
     cell::RefCell,
-    collections::HashMap,
+    collections::{HashMap, HashSet},
     fmt::Debug,
     io::{Write, stdout},
     rc::Rc,
@@ -14,6 +14,84 @@ use crate::{Code, CodeResult, Environment, JsValue, LogLevel, Prototype};
 /// Custom runtime code receives the current scope without an interpreter instruction index.
 pub type CustomCode = Box<dyn Fn(Rc<RefCell<Prototype>>) -> CodeResult>;
 type CustomParser = Rc<dyn Fn(&mut Parser) -> CustomExpression>;
+
+fn validate_nullish_logical_mixing(tokens: &[Token]) {
+    let mut groups = vec![(false, false)];
+    for (index, token) in tokens.iter().enumerate() {
+        match token {
+            Token::LParen | Token::LBracket | Token::LBrace | Token::TemplateExprStart => {
+                groups.push((false, false));
+            }
+            Token::RParen | Token::RBracket | Token::RBrace | Token::TemplateEnd => {
+                if groups.len() > 1 {
+                    groups.pop();
+                }
+            }
+            Token::Comma | Token::Semicolon | Token::Colon | Token::Arrow => {
+                if let Some(group) = groups.last_mut() {
+                    *group = (false, false);
+                }
+            }
+            Token::QMark if tokens.get(index + 1) != Some(&Token::Dot) => {
+                if let Some(group) = groups.last_mut() {
+                    *group = (false, false);
+                }
+            }
+            Token::Nullish => {
+                let group = groups.last_mut().expect("root expression group");
+                group.0 = true;
+                if group.1 {
+                    panic!(
+                        "nullish coalescing cannot be mixed with logical operators without parentheses"
+                    );
+                }
+            }
+            Token::And if tokens.get(index + 1) == Some(&Token::And) => {
+                let group = groups.last_mut().expect("root expression group");
+                group.1 = true;
+                if group.0 {
+                    panic!(
+                        "nullish coalescing cannot be mixed with logical operators without parentheses"
+                    );
+                }
+            }
+            Token::Or if tokens.get(index + 1) == Some(&Token::Or) => {
+                let group = groups.last_mut().expect("root expression group");
+                group.1 = true;
+                if group.0 {
+                    panic!(
+                        "nullish coalescing cannot be mixed with logical operators without parentheses"
+                    );
+                }
+            }
+            _ => {}
+        }
+    }
+}
+
+fn has_use_strict_directive(tokens: &[Token], mut index: usize, block: bool) -> bool {
+    if block {
+        if tokens.get(index) != Some(&Token::LBrace) {
+            return false;
+        }
+        index += 1;
+    }
+    loop {
+        match tokens.get(index) {
+            Some(Token::Str(value)) if value == "use strict" => return true,
+            Some(Token::Str(_)) => {
+                index += 1;
+                if tokens.get(index) == Some(&Token::Semicolon) {
+                    index += 1;
+                } else {
+                    break;
+                }
+            }
+            _ => break,
+        }
+    }
+    false
+}
 
 #[derive(Clone)]
 pub struct CustomExpression {
@@ -86,11 +164,7 @@ impl Parser {
         Self::with_extensions(input, env, ParserExtensions::default())
     }
 
-    pub fn with_extensions(
-        input: &str,
-        env: Environment,
-        extensions: ParserExtensions,
-    ) -> Self {
+    pub fn with_extensions(input: &str, env: Environment, extensions: ParserExtensions) -> Self {
         let mut lexer = Lexer::new(input);
         let mut tokens = Vec::with_capacity(input.len());
         loop {
@@ -101,6 +175,7 @@ impl Parser {
             }
             tokens.push(value);
         }
+        validate_nullish_logical_mixing(&tokens);
         let parser = Self {
             tokens,
             index: 0,
@@ -140,10 +215,13 @@ impl Parser {
 
     pub fn expect_ident(&mut self) -> String {
         match &self.tokens[self.index] {
-            Token::Ident(s) => {
+            Token::Ident(s) if matches!(Token::from_keyword(s.clone()), Token::Ident(_)) => {
                 let name = s.clone();
                 self.bump();
                 name
+            }
+            Token::Ident(name) => {
+                panic!("reserved word {name:?} cannot be used as a binding identifier");
             }
             t => {
                 self.env.logger.borrow_mut().logln(LogLevel::Error, &|| {
@@ -164,33 +242,149 @@ impl Parser {
     }
 
     pub fn parse_param_list(&mut self) -> Vec<String> {
+        self.parse_function_parameters(&mut Vec::new()).0
+    }
+
+    pub fn parse_param_list_with_initializers(
+        &mut self,
+        parameter_initializers: &mut Vec<Box<dyn Expr>>,
+    ) -> Vec<String> {
+        self.parse_function_parameters(parameter_initializers).0
+    }
+
+    pub fn parse_function_parameters(
+        &mut self,
+        parameter_initializers: &mut Vec<Box<dyn Expr>>,
+    ) -> (Vec<String>, Option<String>) {
+        let initializers_start = parameter_initializers.len();
+        if self.tokens[self.index] == Token::LParen {
+            self.bump();
+        }
         let mut params = Vec::new();
+        let mut excess = None;
+        let mut parameter_names = HashSet::new();
+        let mut duplicate_parameters = false;
         while self.tokens[self.index] != Token::RParen
             && self.tokens[self.index] != Token::Arrow
             && self.tokens[self.index] != Token::Eof
         {
-            if let Token::Ident(s) = &self.tokens[self.index] {
-                params.push(s.clone());
-            }
-            self.bump();
-            if self.tokens[self.index] == Token::Comma {
+            if self.tokens[self.index] == Token::Spread {
+                self.bump();
+                let name = self.expect_ident();
+                duplicate_parameters |= !parameter_names.insert(name.clone());
+                excess = Some(name);
+                if self.tokens[self.index] == Token::Comma {
+                    self.bump();
+                    panic!("rest parameter cannot have a trailing comma");
+                }
+                break;
+            } else if self.tokens[self.index] == Token::LBrace {
+                let parameter = format!("__red_parameter_{}__", params.len());
+                let pattern = expr::ObjectDestructure::parse_parameter(self, parameter.clone());
+                for name in pattern.binding_names() {
+                    duplicate_parameters |= !parameter_names.insert(name);
+                }
+                parameter_initializers.push(Box::new(pattern));
+                params.push(parameter);
+            } else if self.tokens[self.index] == Token::LBracket {
+                let parameter = format!("__red_parameter_{}__", params.len());
+                let pattern = expr::ArrayDestructure::parse_parameter(self, parameter.clone());
+                for name in pattern.binding_names() {
+                    duplicate_parameters |= !parameter_names.insert(name);
+                }
+                parameter_initializers.push(Box::new(pattern));
+                params.push(parameter);
+            } else if let Token::Ident(name) = &self.tokens[self.index] {
+                let name = name.clone();
+                duplicate_parameters |= !parameter_names.insert(name.clone());
+                params.push(name.clone());
+                self.bump();
+                if self.tokens[self.index] == Token::Assign(None) {
+                    self.bump();
+                    if self.tokens[self.index] == Token::Yield {
+                        panic!("yield expressions are not allowed in parameter initializers");
+                    }
+                    let default = Box::new(self.parse_expression(false));
+                    parameter_initializers.push(Box::new(expr::DefaultParameter { name, default }));
+                }
+            } else {
                 self.bump();
             }
+            if self.tokens[self.index] == Token::Comma {
+                self.bump();
+            } else {
+                break;
+            }
+        }
+        let is_arrow = self.tokens[self.index] == Token::Arrow
+            || (self.tokens[self.index] == Token::RParen
+                && self.tokens.get(self.index + 1) == Some(&Token::Arrow));
+        let is_non_simple = parameter_initializers.len() > initializers_start || excess.is_some();
+        let body_start = if self.tokens[self.index] == Token::Arrow {
+            self.index + 1
+        } else if is_arrow {
+            self.index + 2
+        } else if self.tokens[self.index] == Token::RParen {
+            self.index + 1
+        } else {
+            self.index
+        };
+        let strict_body = has_use_strict_directive(&self.tokens, body_start, true);
+        let strict_script = has_use_strict_directive(&self.tokens, 0, false);
+        if is_non_simple && strict_body {
+            panic!("a function with non-simple parameters cannot contain a use strict directive");
+        }
+        if duplicate_parameters && (is_arrow || is_non_simple || strict_body || strict_script) {
+            panic!("duplicate parameter names are not allowed in this function");
         }
         if self.tokens[self.index] == Token::Arrow {
-            return params;
+            return (params, excess);
         }
         if self.tokens[self.index] != Token::RParen {
+            let start = self.index.saturating_sub(24);
+            let end = (self.index + 12).min(self.tokens.len());
+            let context = &self.tokens[start..end];
             self.env.logger.borrow_mut().logln(LogLevel::Fatal, &|| {
                 format!(
-                    "Parser::parse_param_list expected ')' at index {} but found {:?}",
-                    self.index, self.tokens[self.index]
+                    "Parser::parse_param_list expected ')' at index {} but found {:?}; context {:?}",
+                    self.index, self.tokens[self.index], context
                 )
             });
-            panic!("expected ')'");
+            panic!(
+                "expected ')' at index {} but found {:?}; context {:?}",
+                self.index, self.tokens[self.index], context
+            );
         }
         self.bump();
-        params
+        (params, excess)
+    }
+
+    fn is_arrow_parameter_list(&self, start: usize) -> bool {
+        if self.tokens.get(start) != Some(&Token::LParen) {
+            return false;
+        }
+        let mut closers = vec![Token::RParen];
+        let mut index = start + 1;
+        while let Some(token) = self.tokens.get(index) {
+            match token {
+                Token::LParen => closers.push(Token::RParen),
+                Token::LBracket => closers.push(Token::RBracket),
+                Token::LBrace => closers.push(Token::RBrace),
+                Token::RParen | Token::RBracket | Token::RBrace => {
+                    if closers.last() != Some(token) {
+                        return false;
+                    }
+                    closers.pop();
+                    if closers.is_empty() {
+                        return self.tokens.get(index + 1) == Some(&Token::Arrow);
+                    }
+                }
+                Token::Eof => return false,
+                _ => {}
+            }
+            index += 1;
+        }
+        false
     }
 
     pub fn parse_statement(&mut self) -> Vec<Box<dyn Expr>> {
@@ -240,9 +434,13 @@ impl Parser {
                         self.index, self.tokens[self.index]
                     )
                 });
+                let context_start = self.index.saturating_sub(6);
+                let context_end = (self.index + 6).min(self.tokens.len());
                 panic!(
-                    "parser made no progress inside block at token {:?}",
-                    self.tokens[self.index]
+                    "parser made no progress inside block at index {} token {:?}; context {:?}",
+                    self.index,
+                    self.tokens[self.index],
+                    &self.tokens[context_start..context_end]
                 );
             }
             res.append(&mut exprs);
@@ -311,6 +509,15 @@ impl Parser {
         res
     }
 
+    pub fn parse_comma_expression(&mut self) -> Box<dyn Expr> {
+        let mut sequence = self.parse_expression(false);
+        while self.tokens[self.index] == Token::Comma {
+            self.bump();
+            sequence.extend(self.parse_expression(false));
+        }
+        Box::new(sequence)
+    }
+
     fn parse_expression_inner(&mut self) -> Vec<Box<dyn Expr>> {
         let mut res: Vec<Box<dyn Expr>> = Vec::new();
         loop {
@@ -348,7 +555,9 @@ impl Parser {
                         ) =>
                 {
                     self.bump();
-                    res.push(Box::new(expr::FunctionDecl::parse(self, true)));
+                    let expr = Box::new(expr::FunctionDecl::parse(self, true));
+                    let expr = self.parse_postfix(expr, true);
+                    res.push(expr::Operator::parse_tail(self, expr));
                 }
                 Token::Class => {
                     self.bump();
@@ -356,7 +565,13 @@ impl Parser {
                 }
                 Token::Let | Token::Const => {
                     self.bump();
-                    res.push(Box::new(expr::VarDecl::parse(self, true)));
+                    if self.tokens[self.index] == Token::LBrace {
+                        res.push(Box::new(expr::ObjectDestructure::parse(self)));
+                    } else if self.tokens[self.index] == Token::LBracket {
+                        res.push(Box::new(expr::ArrayDestructure::parse(self)));
+                    } else {
+                        res.push(Box::new(expr::VarDecl::parse(self, true)));
+                    }
                 }
                 Token::Var => {
                     self.bump();
@@ -468,42 +683,28 @@ impl Parser {
                     }
                     res.push(Box::new(CustomExpressionNode(expression)));
                 }
-                _ if (matches!(self.tokens[self.index], Token::LParen)
-                    && self.tokens[self.index..].contains(&Token::Arrow)
-                    && self.tokens[self.index..]
-                        .splitn(2, |t| *t == Token::Arrow)
-                        .next()
-                        .is_some_and(|params| {
-                            params.iter().all(|t| {
-                                matches!(
-                                    *t,
-                                    Token::LParen | Token::RParen | Token::Ident(_) | Token::Comma
-                                )
-                            })
-                        }))
+                _ if self.is_arrow_parameter_list(self.index)
                     || (matches!(&self.tokens[self.index], Token::Ident(name) if name == "async")
-                        && matches!(self.tokens.get(self.index + 1), Some(Token::LParen))
-                        && self.tokens[self.index + 1..]
-                            .splitn(2, |t| *t == Token::Arrow)
-                            .next()
-                            .is_some_and(|params| {
-                                params.iter().all(|t| {
-                                    matches!(
-                                        *t,
-                                        Token::LParen
-                                            | Token::RParen
-                                            | Token::Ident(_)
-                                            | Token::Comma
-                                    )
-                                })
-                            }))
+                        && self.is_arrow_parameter_list(self.index + 1))
                     || (matches!(self.tokens[self.index], Token::Ident(_))
                         && self.tokens[self.index + 1] == Token::Arrow) =>
                 {
-                    if matches!(&self.tokens[self.index], Token::Ident(name) if name == "async") {
+                    let is_async_arrow =
+                        matches!(&self.tokens[self.index], Token::Ident(name) if name == "async");
+                    if is_async_arrow {
                         self.bump();
                     }
-                    let params = self.parse_param_list();
+                    let parameter_start = self.index;
+                    let mut parameter_initializers = Vec::new();
+                    let (params, excess) =
+                        self.parse_function_parameters(&mut parameter_initializers);
+                    if is_async_arrow
+                        && self.tokens[parameter_start..self.index]
+                            .windows(2)
+                            .any(|pair| matches!(pair, [Token::Ident(name), Token::Arrow] if name == "await"))
+                    {
+                        panic!("await is not allowed in async arrow parameters");
+                    }
                     assert_eq!(self.tokens[self.index], Token::Arrow);
                     self.bump();
                     let body: Rc<[Box<dyn Expr>]> = if self.tokens[self.index] == Token::LBrace {
@@ -517,6 +718,8 @@ impl Parser {
                     res.push(Box::new(expr::FunctionDecl {
                         name: "anonymous function",
                         params,
+                        excess,
+                        parameter_initializers,
                         body,
                         generator: false,
                         insert: false,
@@ -528,6 +731,9 @@ impl Parser {
                     let expr = expr::Operator::parse(self);
                     match &self.tokens[self.index] {
                         Token::Assign(t) => {
+                            if !expr.is_assignment_target() {
+                                panic!("invalid assignment target");
+                            }
                             let t = t.clone();
                             self.bump();
                             let rhs: Box<dyn Expr> = if let Some(op) = t {
@@ -569,16 +775,20 @@ impl Parser {
             }
             Token::Void => {
                 self.bump();
-                let mut expr = self.parse_expression(true);
-                expr.push(Box::new(expr::ConstObj {
-                    obj: JsValue::Undefined,
-                }));
-                Box::new(expr)
+                Box::new(expr::Void {
+                    expr: expr::Operator::parse_unary(self),
+                })
             }
             Token::Delete => {
                 self.bump();
                 Box::new(expr::Delete {
                     expr: self.parse_call_or_primary(false),
+                })
+            }
+            Token::Spread => {
+                self.bump();
+                Box::new(expr::Spread {
+                    expression: self.parse_call_or_primary(false),
                 })
             }
             Token::LBrace => Box::new(expr::Object::parse(self)),
@@ -590,6 +800,7 @@ impl Parser {
                 };
                 self.bump();
                 let mut elements: Vec<Box<dyn Expr>> = Vec::new();
+                let mut trailing_rest_comma = false;
                 while self.tokens[self.index] != Token::Eof && self.tokens[self.index] != end {
                     let before = self.index;
                     let mut exprs = self.parse_expression(true);
@@ -606,6 +817,9 @@ impl Parser {
                             self.tokens[self.index]
                         );
                     }
+                    trailing_rest_comma = end == Token::RBracket
+                        && self.tokens.get(self.index.wrapping_sub(1)) == Some(&Token::Comma)
+                        && exprs.last().is_some_and(|expr| expr.is_rest_element());
                     elements.append(&mut exprs);
                 }
                 if self.tokens[self.index] != end {
@@ -619,7 +833,10 @@ impl Parser {
                 }
                 self.bump();
                 if end == Token::RBracket {
-                    Box::new(expr::Array { elems: elements })
+                    Box::new(expr::Array {
+                        elems: elements,
+                        trailing_rest_comma,
+                    })
                 } else if elements.len() == 1 {
                     elements.pop().unwrap()
                 } else {
@@ -638,6 +855,13 @@ impl Parser {
             Token::Class => {
                 self.bump();
                 Box::new(expr::ClassDecl::parse(self))
+            }
+            Token::Ident(name)
+                if name == "import"
+                    && self.tokens.get(self.index + 1) == Some(&Token::LParen)
+                    && self.tokens.get(self.index + 2) == Some(&Token::Spread) =>
+            {
+                panic!("dynamic import does not accept spread arguments");
             }
             Token::Ident(s) => {
                 let name = s.clone();
@@ -721,6 +945,47 @@ impl Parser {
     fn parse_postfix(&mut self, mut expr: Box<dyn Expr>, root: bool) -> Box<dyn Expr> {
         loop {
             match self.tokens[self.index] {
+                Token::QMark
+                    if self.tokens.get(self.index + 1) == Some(&Token::Dot)
+                        && self.tokens.get(self.index + 2) == Some(&Token::LParen) =>
+                {
+                    self.bump();
+                    self.bump();
+                    self.bump();
+                    let args = self.parse_expression(true);
+                    if self.tokens[self.index] != Token::RParen {
+                        panic!("expected ')' after optional call arguments");
+                    }
+                    self.bump();
+                    expr = Box::new(expr::OptionalCall { func: expr, args });
+                }
+                Token::QMark
+                    if self.tokens.get(self.index + 1) == Some(&Token::Dot)
+                        && self.tokens.get(self.index + 2) == Some(&Token::LBracket) =>
+                {
+                    self.bump();
+                    self.bump();
+                    self.bump();
+                    let property = Box::new(self.parse_expression(true));
+                    if self.tokens[self.index] != Token::RBracket {
+                        panic!("expected ']' after optional computed property");
+                    }
+                    self.bump();
+                    expr = Box::new(expr::OptionalMember {
+                        object: expr,
+                        property,
+                    });
+                }
+                Token::QMark if self.tokens.get(self.index + 1) == Some(&Token::Dot) => {
+                    self.bump();
+                    self.bump();
+                    let property = self.tokens[self.index].as_keyword().to_owned();
+                    self.bump();
+                    expr = Box::new(expr::OptionalMember {
+                        object: expr,
+                        property: Box::new(expr::ConstString { s: property }),
+                    });
+                }
                 Token::QMark if root => {
                     expr = Box::new(expr::ConditionalOp::parse(self, expr));
                 }

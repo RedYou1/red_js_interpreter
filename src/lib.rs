@@ -2,7 +2,7 @@
 
 use std::{
     cell::RefCell,
-    collections::{HashMap, VecDeque},
+    collections::{HashMap, HashSet, VecDeque},
     fmt::Debug,
     num::NonZero,
     rc::Rc,
@@ -25,6 +25,7 @@ pub use parser::parse_with_extensions;
 pub use parser::parser::{CustomCode, CustomExpression, Parser, ParserExtensions};
 pub use prebuild::array::new_array;
 pub use prebuild::console::default_console_config;
+pub use prebuild::promise::{rejected_promise, resolved_promise};
 pub use prototype::Prototype;
 pub use runnable::*;
 
@@ -188,6 +189,8 @@ impl Environment {
 const PROTO_NAME: &str = "__proto__";
 const PROTOTYPE_NAME: &str = "prototype";
 const CONSTRUCTOR_NAME: &str = "constructor";
+pub(crate) const PRIMITIVE_BOX_MARKER: &str = "__red_js_primitive_box__";
+pub(crate) const PRIMITIVE_BOX_VALUE: &str = "__red_js_primitive_value__";
 
 pub fn prebuild_prototypes(
     console_config: impl Fn(Environment) -> Rc<RefCell<Prototype>>,
@@ -274,18 +277,81 @@ pub fn prebuild_prototypes(
                         return CodeResult::Return(Rc::new(RefCell::new(JsValue::Undefined)));
                     };
                     let writable = !matches!(key, JsValue::String(ref key) if key == "name" || key == "length");
+                    let enumerable = !target.borrow().non_enumerable.contains(&key);
                     let descriptor = Prototype::new_child(
                         descriptor_object.clone(),
                         None,
                         [
                             ("value".into(), property),
                             ("writable".into(), Rc::new(RefCell::new(JsValue::Boolean(writable)))),
-                            ("enumerable".into(), Rc::new(RefCell::new(JsValue::Boolean(false)))),
+                            ("enumerable".into(), Rc::new(RefCell::new(JsValue::Boolean(enumerable)))),
                             ("configurable".into(), Rc::new(RefCell::new(JsValue::Boolean(true)))),
                         ],
                     );
                     descriptor.borrow_mut().properties.remove(&PROTO_NAME.into());
                     CodeResult::Return(Rc::new(RefCell::new(JsValue::Prototype(descriptor))))
+                }),
+            ),
+        ),
+    );
+
+    object.borrow_mut().properties.insert(
+        "defineProperty".into(),
+        new_builtin_runnable_with_object(
+            function.clone(),
+            object.clone(),
+            "Object.defineProperty",
+            prebuild_runnable(
+                env.clone(),
+                Box::new(|_env, _, [target, key, descriptor]| {
+                    let JsValue::Prototype(target) = inline_borrow!(target) else {
+                        return CodeResult::Error(Rc::new(RefCell::new(JsValue::String(
+                            "Object.defineProperty target must be an object".to_owned(),
+                        ))));
+                    };
+                    let JsValue::Prototype(descriptor) = inline_borrow!(descriptor) else {
+                        return CodeResult::Error(Rc::new(RefCell::new(JsValue::String(
+                            "Object.defineProperty descriptor must be an object".to_owned(),
+                        ))));
+                    };
+                    if ["get", "set", "writable", "configurable"]
+                        .iter()
+                        .any(|name| descriptor.borrow().properties.contains_key(&(*name).into()))
+                    {
+                        return CodeResult::Error(Rc::new(RefCell::new(JsValue::String(
+                            "Object.defineProperty supports value and enumerable descriptors only"
+                                .to_owned(),
+                        ))));
+                    }
+                    let key = inline_borrow!(key);
+                    let existing = target.borrow().properties.get(&key).cloned();
+                    let property_value =
+                        if descriptor.borrow().properties.contains_key(&"value".into()) {
+                            Prototype::find(descriptor.clone(), &"value".into()).1
+                        } else {
+                            existing
+                                .clone()
+                                .unwrap_or_else(|| Rc::new(RefCell::new(JsValue::Undefined)))
+                        };
+                    let enumerable = if descriptor
+                        .borrow()
+                        .properties
+                        .contains_key(&"enumerable".into())
+                    {
+                        Prototype::find(descriptor, &"enumerable".into())
+                            .1
+                            .borrow()
+                            .is_truthy()
+                    } else {
+                        existing.is_some() && !target.borrow().non_enumerable.contains(&key)
+                    };
+                    if enumerable {
+                        target.borrow_mut().non_enumerable.remove(&key);
+                    } else {
+                        target.borrow_mut().non_enumerable.insert(key.clone());
+                    }
+                    target.borrow_mut().properties.insert(key, property_value);
+                    CodeResult::Return(Rc::new(RefCell::new(JsValue::Prototype(target))))
                 }),
             ),
         ),
@@ -354,8 +420,16 @@ pub fn prebuild_prototypes(
             "Object.prototype.propertyIsEnumerable",
             prebuild_runnable(
                 env.clone(),
-                Box::new(|_env, _this, [_key]| {
-                    CodeResult::Return(Rc::new(RefCell::new(JsValue::Boolean(false))))
+                Box::new(|_env, this, [key]| {
+                    let JsValue::Prototype(target) = inline_borrow!(this) else {
+                        return CodeResult::Return(Rc::new(RefCell::new(JsValue::Boolean(false))));
+                    };
+                    let key = inline_borrow!(key);
+                    let target = target.borrow();
+                    CodeResult::Return(Rc::new(RefCell::new(JsValue::Boolean(
+                        target.properties.contains_key(&key)
+                            && !target.non_enumerable.contains(&key),
+                    ))))
                 }),
             ),
         ),
@@ -396,6 +470,11 @@ pub fn prebuild_prototypes(
                     let tag = match inline_borrow!(this) {
                         JsValue::Null => "Null",
                         JsValue::Undefined => "Undefined",
+                        JsValue::Prototype(object)
+                            if prebuild::regex::has_regexp_brand(&object) =>
+                        {
+                            "RegExp"
+                        }
                         JsValue::Prototype(object) => object
                             .borrow()
                             .name
@@ -408,6 +487,11 @@ pub fn prebuild_prototypes(
                             })
                             .unwrap_or("Object"),
                         JsValue::Function(_) => "Function",
+                        JsValue::String(_) => "String",
+                        JsValue::Number(_) => "Number",
+                        JsValue::BigInt(_) => "BigInt",
+                        JsValue::Boolean(_) => "Boolean",
+                        JsValue::Symbol(_, _) => "Symbol",
                         _ => "Object",
                     };
                     CodeResult::Return(Rc::new(RefCell::new(JsValue::String(format!(
@@ -601,6 +685,10 @@ pub fn prebuild_prototypes(
     prebuild_date(env.clone());
     prebuild_string(env.clone());
     prebuild_number(env.clone());
+    prebuild::number::prebuild_numeric_parsers(env.clone());
+    prebuild::promise::prebuild_promise(env.clone());
+    prebuild::json::prebuild_json(env.clone());
+    prebuild::uri::prebuild_uri(env.clone());
     prebuild_math(env.clone());
     prebuild_console(env.clone());
     prebuild_error(env.clone());
@@ -629,7 +717,33 @@ pub fn prebuild_prototypes(
         Rc::new(RefCell::new(JsValue::Number(f64::INFINITY))),
     );
     prebuild_regex(env.clone());
+    mark_builtin_properties_non_enumerable(&env.mem);
     env.mem
+}
+
+fn mark_builtin_properties_non_enumerable(root: &Rc<RefCell<Prototype>>) {
+    let mut pending = vec![root.clone()];
+    let mut visited = HashSet::new();
+    while let Some(object) = pending.pop() {
+        if !visited.insert(Rc::as_ptr(&object) as usize) {
+            continue;
+        }
+        let children = {
+            let mut object = object.borrow_mut();
+            let keys = object.properties.keys().cloned().collect::<Vec<_>>();
+            let children = object
+                .properties
+                .values()
+                .filter_map(|value| match &*value.borrow() {
+                    JsValue::Prototype(child) => Some(child.clone()),
+                    _ => None,
+                })
+                .collect::<Vec<_>>();
+            object.non_enumerable.extend(keys);
+            children
+        };
+        pending.extend(children);
+    }
 }
 
 /// Initializes the built-in objects and returns an environment ready for runtime configuration.

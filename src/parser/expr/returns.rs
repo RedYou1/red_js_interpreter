@@ -43,7 +43,7 @@ impl Return {
             .logger
             .borrow_mut()
             .logln_str(LogLevel::Info, "Entering Return::parse");
-        let expr = Box::new(parser.parse_expression(false));
+        let expr = parser.parse_comma_expression();
         Self {
             expr: Some(expr),
             rtype: match t {
