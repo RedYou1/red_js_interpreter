@@ -575,7 +575,13 @@ impl Parser {
                 }
                 Token::Var => {
                     self.bump();
-                    res.push(Box::new(expr::VarDecl::parse(self, false)));
+                    if self.tokens[self.index] == Token::LBrace {
+                        res.push(Box::new(expr::ObjectDestructure::parse(self)));
+                    } else if self.tokens[self.index] == Token::LBracket {
+                        res.push(Box::new(expr::ArrayDestructure::parse(self)));
+                    } else {
+                        res.push(Box::new(expr::VarDecl::parse(self, false)));
+                    }
                 }
                 Token::If => {
                     self.bump();
