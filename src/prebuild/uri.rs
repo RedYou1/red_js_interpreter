@@ -1,5 +1,4 @@
 use crate::prebuild::prelude::*;
-
 #[derive(Clone, Copy)]
 enum UriMode {
     EncodeUri,
@@ -114,7 +113,7 @@ fn install_uri_function(env: Environment, name: &'static str, mode: UriMode) {
     env.mem
         .borrow_mut()
         .properties
-        .insert(name.into(), new_runnable(function, name, runnable));
+        .insert(name.into(), new_builtin_runnable(function, name, runnable));
 }
 
 pub fn prebuild_uri(env: Environment) {

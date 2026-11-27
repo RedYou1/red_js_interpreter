@@ -75,6 +75,10 @@ impl Expr for Assign {
             value: self.value.as_ref().duplicate(),
         })
     }
+
+    fn is_assignment_pattern_element(&self) -> bool {
+        self.target.is_assignment_target()
+    }
 }
 
 #[derive(Debug)]

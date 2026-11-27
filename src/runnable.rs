@@ -2,7 +2,8 @@ use std::{cell::RefCell, fmt::Debug, rc::Rc};
 
 use crate::{
     ARGUMENTS, CONSTRUCTOR_NAME, Code, CodeIndex, CodeResult, JsValue, LogLevel, Logger,
-    PROTO_NAME, PROTOTYPE_NAME, Prototype, RUNNABLE, inline_borrow, new_array, run_sub,
+    PRIMITIVE_BOX_MARKER, PRIMITIVE_BOX_VALUE, PROTO_NAME, PROTOTYPE_NAME, Prototype, RUNNABLE,
+    inline_borrow, new_array, run_sub,
 };
 
 pub struct Runnable {
@@ -35,6 +36,10 @@ pub fn new_runnable_with_object(
         non_enumerable: std::collections::HashSet::new(),
         formating: false,
     }));
+    function_obj
+        .borrow_mut()
+        .non_enumerable
+        .extend(["name".into(), "length".into()]);
     let prototype_obj = Prototype::new_child(
         object_proto,
         None,
@@ -60,6 +65,35 @@ pub fn new_runnable_with_object(
         Rc::new(RefCell::new(JsValue::Prototype(prototype_obj))),
     );
     Rc::new(RefCell::new(JsValue::Prototype(function_obj)))
+}
+
+pub fn new_builtin_runnable_with_object(
+    function: Rc<RefCell<Prototype>>,
+    object_proto: Rc<RefCell<Prototype>>,
+    name: &'static str,
+    runnable: Runnable,
+) -> Rc<RefCell<JsValue>> {
+    let function_object = new_runnable_with_object(function, object_proto, name, runnable);
+    let function_prototype = function_object
+        .borrow()
+        .unwrap_proto("builtin function object");
+    function_prototype
+        .borrow_mut()
+        .properties
+        .remove(&PROTOTYPE_NAME.into());
+    function_object
+}
+
+pub fn new_builtin_runnable(
+    function: Rc<RefCell<Prototype>>,
+    name: &'static str,
+    runnable: Runnable,
+) -> Rc<RefCell<JsValue>> {
+    let object_proto = function
+        .borrow()
+        .parent()
+        .expect("Function prototype should inherit from Object");
+    new_builtin_runnable_with_object(function, object_proto, name, runnable)
 }
 
 pub fn new_runnable(
@@ -143,6 +177,15 @@ pub fn run_function_object(
         ),
     );
     let this = runnable.lexical_this.clone().unwrap_or(this);
+    let this = if let JsValue::Prototype(boxed) = inline_borrow!(this.clone())
+        && matches!(
+            inline_borrow!(Prototype::find(boxed.clone(), &PRIMITIVE_BOX_MARKER.into()).1),
+            JsValue::Boolean(true)
+        ) {
+        Prototype::find(boxed, &PRIMITIVE_BOX_VALUE.into()).1
+    } else {
+        this
+    };
     proto
         .borrow_mut()
         .properties

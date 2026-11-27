@@ -46,6 +46,7 @@ impl LoopExpr {
         // Parse init
         let mut of = false;
         let mut for_in = None;
+        let mut for_of_destructure = None;
         let (init, of_cond): (Option<Box<dyn Expr>>, Option<Box<dyn Expr>>) =
             if !matches!(t, Token::For) {
                 (None, None)
@@ -67,11 +68,23 @@ impl LoopExpr {
                 ) {
                     parser.bump();
                 }
-                let name = parser.expect_ident();
+                let name = if parser.tokens()[parser.index()] == Token::LBracket {
+                    let name = format!("__for_of_item_{}__", parser.index());
+                    for_of_destructure = Some(Box::new(expr::ArrayDestructure::parse_parameter(
+                        parser,
+                        name.clone(),
+                    )) as Box<dyn Expr>);
+                    name
+                } else {
+                    parser.expect_ident()
+                };
                 let mut initializer: Option<Box<dyn Expr>> =
                     if let Token::Assign(t) = &parser.tokens()[parser.index()] {
                         assert_eq!(*t, Option::<BinaryOp>::None);
                         parser.bump();
+                        if contains_top_level_for_in_or_of(parser.tokens(), parser.index()) {
+                            panic!("for-in/of declarations cannot have initializers");
+                        }
                         Some(Box::new(parser.parse_expression(false)))
                     } else {
                         None
@@ -222,7 +235,10 @@ impl LoopExpr {
         }
         parser.bump();
 
-        let body = parser.parse_block();
+        let mut body = parser.parse_block();
+        if let Some(destructure) = for_of_destructure {
+            body.insert(0, destructure);
+        }
 
         Self {
             init,
@@ -233,6 +249,27 @@ impl LoopExpr {
             for_in,
         }
     }
+}
+
+fn contains_top_level_for_in_or_of(tokens: &[Token], start: usize) -> bool {
+    let mut closers = Vec::new();
+    for token in &tokens[start..] {
+        match token {
+            Token::LParen => closers.push(Token::RParen),
+            Token::LBracket => closers.push(Token::RBracket),
+            Token::LBrace => closers.push(Token::RBrace),
+            Token::RParen | Token::RBracket | Token::RBrace if closers.is_empty() => return false,
+            Token::RParen | Token::RBracket | Token::RBrace => {
+                if closers.pop() != Some(token.clone()) {
+                    return false;
+                }
+            }
+            Token::In | Token::Of if closers.is_empty() => return true,
+            Token::Semicolon if closers.is_empty() => return false,
+            _ => {}
+        }
+    }
+    false
 }
 
 fn for_in_property_names(value: Rc<RefCell<JsValue>>) -> Vec<String> {
